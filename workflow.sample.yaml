@@ -1,0 +1,174 @@
+# Agent Awesome workflow catalog.
+# Production workflows stay domain-neutral and operator-safe.
+
+workflows:
+  - name: "chat_turn"
+    start_node: "reply"
+    max_visits_per_node: 2
+    max_total_transitions: 6
+    duplicate_result_cap: 1
+    nodes:
+      - id: "reply"
+        kind: "task"
+        uses: "chat_responder"
+        prompt:
+          instructions:
+            - "Reply directly to the user's message in a natural conversational tone."
+            - "If you need clarification, ask one concise question."
+            - "Do not inspect the workspace or call tools for conversational turns."
+            - "Do not mention internal workflow names, run IDs, or orchestration details."
+            - "Return a succeeded result with the conversational reply in result.data.message."
+        with:
+          expected_output: "Structured result with result.status=\"succeeded\", a concise summary, and result.data.message containing the exact user-facing reply."
+        transitions:
+          success: "finish"
+          failure: "finish"
+
+      - id: "finish"
+        kind: "finish"
+        with:
+          summary: "chat turn finished"
+
+  - name: "governed_task_review"
+    start_node: "review_request"
+    max_visits_per_node: 2
+    max_total_transitions: 6
+    duplicate_result_cap: 1
+    nodes:
+      - id: "review_request"
+        kind: "gate"
+        uses: "reviewer"
+        prompt:
+          instructions:
+            - "Review the task for clarity, scope safety, and handoff readiness."
+            - "Pass when the task can proceed safely with the available context."
+            - "Fail only when a concrete blocker or governance issue remains."
+        with:
+          task: "Review the governed task request and decide whether it is safe to proceed."
+          expected_output: "Structured result with gate_status, summary, findings, and required_remediation when blocked."
+        output_contract:
+          produces_gate_decision: true
+        gate_policy:
+          pass_statuses: ["pass", "passed", "success", "ok"]
+          fail_statuses: ["fail", "failed", "failure", "blocked", "needs_clarification"]
+        transitions:
+          success: "finish"
+          failure: "finish"
+          blocked: "finish"
+
+      - id: "finish"
+        kind: "finish"
+        with:
+          summary: "governed task review finished"
+
+  - name: "governed_change_execution"
+    start_node: "plan_change"
+    max_visits_per_node: 2
+    max_total_transitions: 12
+    duplicate_result_cap: 1
+    nodes:
+      - id: "plan_change"
+        kind: "task"
+        uses: "reviewer"
+        prompt:
+          instructions:
+            - "Produce a concise implementation plan before any write step runs."
+            - "Identify validation expectations and the smallest safe change scope."
+        with:
+          task: "Analyze the requested change and produce a safe implementation plan."
+          expected_output: "Structured result with summary, affected_files, validation_plan, and implementation_notes."
+        output_contract:
+          required_data_keys: ["affected_files", "validation_plan"]
+        transitions:
+          success: "implement_change"
+          failure: "finish"
+
+      - id: "implement_change"
+        kind: "task"
+        uses: "implementer"
+        include_node_results: ["plan_change"]
+        prompt:
+          instructions:
+            - "Implement only the approved scope from the prior plan."
+            - "Return changed_files and concise validation evidence."
+        with:
+          task: "Implement the bounded change and report changed files plus validation evidence."
+          expected_output: "Structured result with summary, changed_files, validation, and artifacts."
+        completion_contract:
+          required_changed_files: ["*.go", "*.md", "*.yaml", "**/*.go", "**/*.md", "**/*.yaml"]
+        transitions:
+          success: "validate_change"
+          failure: "finish"
+
+      - id: "validate_change"
+        kind: "gate"
+        uses: "reviewer"
+        include_node_results: ["plan_change", "implement_change"]
+        prompt:
+          instructions:
+            - "Validate that the delivered change matches the plan and includes evidence."
+            - "Fail when the change is unsafe, incomplete, or unsupported by the evidence."
+        with:
+          task: "Review the implemented change and decide whether it is ready for handoff."
+          expected_output: "Structured result with gate_status, summary, findings, and required_remediation when failing."
+        output_contract:
+          produces_gate_decision: true
+        gate_policy:
+          pass_statuses: ["pass", "passed", "success", "ok"]
+          fail_statuses: ["fail", "failed", "failure", "blocked"]
+        transitions:
+          success: "finish"
+          failure: "finish"
+          blocked: "finish"
+
+      - id: "finish"
+        kind: "finish"
+        with:
+          summary: "governed change execution finished"
+
+  - name: "governed_validation_and_handoff"
+    start_node: "validate_outputs"
+    max_visits_per_node: 2
+    max_total_transitions: 8
+    duplicate_result_cap: 1
+    nodes:
+      - id: "validate_outputs"
+        kind: "gate"
+        uses: "reviewer"
+        prompt:
+          instructions:
+            - "Confirm the run has produced enough evidence, artifacts, and summary detail for handoff."
+            - "Fail when the handoff would force the next operator to reconstruct missing context."
+        with:
+          task: "Validate that the task output is ready for operator handoff."
+          expected_output: "Structured result with gate_status, summary, artifact_manifest, and any required remediation."
+        output_contract:
+          produces_gate_decision: true
+        gate_policy:
+          pass_statuses: ["pass", "passed", "success", "ok"]
+          fail_statuses: ["fail", "failed", "failure", "blocked"]
+        transitions:
+          success: "package_handoff"
+          failure: "finish"
+          blocked: "finish"
+
+      - id: "package_handoff"
+        kind: "task"
+        uses: "lead"
+        include_node_results: ["validate_outputs"]
+        prompt:
+          instructions:
+            - "Produce a concise final handoff summary with next steps and artifact references."
+        with:
+          task: "Prepare the final operator handoff package."
+          expected_output: "Structured result with summary, artifacts, follow_up, and handoff_notes."
+        output_contract:
+          required_data_keys: ["handoff_notes"]
+        transitions:
+          success: "finish"
+          failure: "finish"
+
+      - id: "finish"
+        kind: "finish"
+        with:
+          summary: "governed validation and handoff finished"
