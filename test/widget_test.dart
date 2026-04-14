@@ -21,8 +21,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Overview'), findsWidgets);
     expect(find.text('Runs'), findsWidgets);
+    expect(find.text('Artifacts'), findsWidgets);
+    expect(find.text('Audits'), findsWidgets);
     expect(find.text('Control Plane'), findsWidgets);
     expect(find.text('Providers'), findsWidgets);
     expect(find.text('Live API'), findsOneWidget);

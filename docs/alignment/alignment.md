@@ -55,11 +55,12 @@ The beta shell now has a live runs surface:
 - run filters
 - run detail
 - approval state
+- approval resolution
 - operator actions
 - artifacts
 - audits
-- live metrics
-- pending approvals on the overview
+- dedicated artifact views
+- dedicated audit views
 
 This means the UI can now answer the core operational questions the earlier report identified as missing.
 
@@ -222,9 +223,9 @@ But it still does not expose:
 - latest approval request on conversation detail
 - onboarding/install health detail
 
-### 7. The dashboard is now real, but still narrow
+### 7. Operational summaries are still underexposed
 
-The dashboard has been updated from synthetic placeholders to live operational summaries. The remaining gap is breadth, not authenticity.
+The UI now has real run, artifact, audit, approval, and control-plane entity surfaces, but it does not currently expose a dedicated live operations summary screen in the active beta navigation. The gap is no longer fake metrics. It is the lack of a consolidated operator summary surface.
 
 ### 8. The UI still assumes local admin-route availability and is not yet deployed-mode aware
 
@@ -367,7 +368,7 @@ Status key:
 - `[ ]` not implemented
 - `Phase status` shows the current aggregate state for the phase
 
-### Phase 0 status: partial
+### Phase 0 status: complete
 
 - [x] Split navigation into explicit `Operations`, `Control Plane`, and `Harness Config` domains.
 - [x] Make `Runs` the default landing surface.
@@ -375,7 +376,7 @@ Status key:
 - [x] Label the agent surface as control-plane-first instead of leaving it semantically ambiguous.
 - [x] Remove major seed-data sections from the beta shell so live sections are clearly live.
 - [x] Keep live API clients in bounded modules (`operations_api.dart`, `control_plane_api.dart`, `provider_catalog_api.dart`).
-- [ ] Move most feature state out of `ui/lib/main.dart`.
+- [x] Move most feature state out of `ui/lib/main.dart`.
 - [x] Add explicit local-vs-deployed environment awareness.
 
 ### Phase 1 status: complete
@@ -385,11 +386,11 @@ Status key:
 - [x] Add live status filters for queued, running, waiting approval, waiting user, blocked, completed, failed, and cancelled.
 - [x] Make run operations the default first screen of the product.
 
-### Phase 2 status: complete
+### Phase 2 status: partial
 
-- [x] Add a pending approval queue to the live operator UI.
+- [ ] Add a dedicated pending approval queue to the live operator UI.
 - [x] Add approval detail and live approve/reject actions.
-- [x] Replace synthetic dashboard cards with real metrics and run status counts.
+- [ ] Replace synthetic dashboard cards with real metrics and run status counts.
 - [x] Show artifacts and audit trail on live run detail.
 - [x] Add dedicated artifact list/detail screens outside run detail.
 - [x] Add dedicated audit log filtering screens outside run detail.
@@ -403,8 +404,8 @@ Status key:
 ### Phase 4 status: partial
 
 - [x] Expose live conversations and channel routes.
-- [x] Add conversation detail with recent turns, pending execution state, latest approval request, and latest run.
-- [x] Add route-aware onboarding and install health surfaces.
+- [ ] Add conversation detail with recent turns, pending execution state, latest approval request, and latest run.
+- [ ] Add route-aware onboarding and install health surfaces.
 
 ### Phase 5 status: partial
 
