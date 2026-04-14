@@ -370,29 +370,29 @@ Status key:
 ### Phase 0 status: partial
 
 - [x] Split navigation into explicit `Operations`, `Control Plane`, and `Harness Config` domains.
-- [ ] Make `Runs` the default landing surface.
+- [x] Make `Runs` the default landing surface.
 - [x] Move `Providers` under `Harness Config`.
 - [x] Label the agent surface as control-plane-first instead of leaving it semantically ambiguous.
 - [x] Remove major seed-data sections from the beta shell so live sections are clearly live.
 - [x] Keep live API clients in bounded modules (`operations_api.dart`, `control_plane_api.dart`, `provider_catalog_api.dart`).
 - [ ] Move most feature state out of `ui/lib/main.dart`.
-- [ ] Add explicit local-vs-deployed environment awareness.
+- [x] Add explicit local-vs-deployed environment awareness.
 
-### Phase 1 status: partial
+### Phase 1 status: complete
 
 - [x] Build a real `Runs` list view with tenant, agent, actor, invocation mode, timestamps, status, and result summary.
 - [x] Build run detail with source context, runtime profile snapshot, wait state, operator actions, artifact manifest, and approval state.
 - [x] Add live status filters for queued, running, waiting approval, waiting user, blocked, completed, failed, and cancelled.
-- [ ] Make run operations the default first screen of the product.
+- [x] Make run operations the default first screen of the product.
 
-### Phase 2 status: partial
+### Phase 2 status: complete
 
 - [x] Add a pending approval queue to the live operator UI.
 - [x] Add approval detail and live approve/reject actions.
 - [x] Replace synthetic dashboard cards with real metrics and run status counts.
 - [x] Show artifacts and audit trail on live run detail.
-- [ ] Add dedicated artifact list/detail screens outside run detail.
-- [ ] Add dedicated audit log filtering screens outside run detail.
+- [x] Add dedicated artifact list/detail screens outside run detail.
+- [x] Add dedicated audit log filtering screens outside run detail.
 
 ### Phase 3 status: partial
 
@@ -403,8 +403,8 @@ Status key:
 ### Phase 4 status: partial
 
 - [x] Expose live conversations and channel routes.
-- [ ] Add conversation detail with recent turns, pending execution state, latest approval request, and latest run.
-- [ ] Add route-aware onboarding and install health surfaces.
+- [x] Add conversation detail with recent turns, pending execution state, latest approval request, and latest run.
+- [x] Add route-aware onboarding and install health surfaces.
 
 ### Phase 5 status: partial
 
@@ -416,9 +416,9 @@ Status key:
 
 - [ ] Replace the workflow sketcher with a schema-faithful harness workflow editor.
 
-### Phase 7 status: not started
+### Phase 7 status: partial
 
-- [ ] Add deployed-mode and Cloudflare-aware feature availability.
+- [x] Add deployed-mode and Cloudflare-aware feature availability.
 
 ## Phase 0: Foundation And Information Architecture
 

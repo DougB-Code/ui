@@ -110,8 +110,9 @@ const _warning = Color(0xFFF4B942);
 const _danger = Color(0xFFE25C5C);
 
 enum AppSection {
-  overview('Overview', Icons.dashboard_outlined),
   runs('Runs', Icons.play_circle_outline_rounded),
+  artifacts('Artifacts', Icons.inventory_2_outlined),
+  audits('Audits', Icons.gavel_outlined),
   controlPlane('Control Plane', Icons.hub_outlined),
   providers('Providers', Icons.cloud_outlined);
 
@@ -139,8 +140,12 @@ class _BetaShell extends StatefulWidget {
 }
 
 class _BetaShellState extends State<_BetaShell> {
-  AppSection _section = AppSection.overview;
+  AppSection _section = AppSection.runs;
   String? _pendingRunSelection;
+  final _deploymentMode = const String.fromEnvironment(
+    'CONTROL_PLANE_DEPLOYMENT',
+    defaultValue: 'local',
+  ).toLowerCase();
 
   void _openRun(String runId) {
     setState(() {
@@ -152,18 +157,20 @@ class _BetaShellState extends State<_BetaShell> {
   @override
   Widget build(BuildContext context) {
     final content = switch (_section) {
-      AppSection.overview => _OverviewPage(
-        operationsApi: widget.operationsApi,
-        onOpenRun: _openRun,
-      ),
       AppSection.runs => _RunsPage(
         operationsApi: widget.operationsApi,
         initialRunId: _pendingRunSelection,
       ),
+      AppSection.artifacts => _ArtifactsPage(operationsApi: widget.operationsApi),
+      AppSection.audits => _AuditsPage(operationsApi: widget.operationsApi),
       AppSection.controlPlane => _ControlPlanePage(
         controlPlaneApi: widget.controlPlaneApi,
+        operationsApi: widget.operationsApi,
       ),
-      AppSection.providers => _ProvidersPage(providerApi: widget.providerApi),
+      AppSection.providers => _ProvidersPage(
+        providerApi: widget.providerApi,
+        providerCatalogAvailable: _deploymentMode != 'cloudflare',
+      ),
     };
 
     return Scaffold(
@@ -190,6 +197,7 @@ class _BetaShellState extends State<_BetaShell> {
                     _HeaderBar(
                       section: _section,
                       controlPlaneBaseUrl: widget.controlPlaneBaseUrl,
+                      deploymentMode: _deploymentMode,
                     ),
                     const SizedBox(height: 18),
                     Expanded(child: content),
@@ -227,14 +235,20 @@ class _Sidebar extends StatelessWidget {
           const _NavLabel('Operations'),
           const SizedBox(height: 8),
           _NavButton(
-            section: AppSection.overview,
-            selected: selected == AppSection.overview,
+            section: AppSection.runs,
+            selected: selected == AppSection.runs,
             onTap: onSelect,
           ),
           const SizedBox(height: 8),
           _NavButton(
-            section: AppSection.runs,
-            selected: selected == AppSection.runs,
+            section: AppSection.artifacts,
+            selected: selected == AppSection.artifacts,
+            onTap: onSelect,
+          ),
+          const SizedBox(height: 8),
+          _NavButton(
+            section: AppSection.audits,
+            selected: selected == AppSection.audits,
             onTap: onSelect,
           ),
           const SizedBox(height: 20),
@@ -377,10 +391,15 @@ class _NavButton extends StatelessWidget {
 }
 
 class _HeaderBar extends StatelessWidget {
-  const _HeaderBar({required this.section, required this.controlPlaneBaseUrl});
+  const _HeaderBar({
+    required this.section,
+    required this.controlPlaneBaseUrl,
+    required this.deploymentMode,
+  });
 
   final AppSection section;
   final String controlPlaneBaseUrl;
+  final String deploymentMode;
 
   @override
   Widget build(BuildContext context) {
@@ -396,13 +415,16 @@ class _HeaderBar extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Connected to $controlPlaneBaseUrl',
+                'Connected to $controlPlaneBaseUrl (${deploymentMode.toUpperCase()})',
                 style: const TextStyle(color: _textMuted),
               ),
             ],
           ),
         ),
-        _StatusPill(label: 'Live API', color: _success),
+        _StatusPill(
+          label: deploymentMode == 'cloudflare' ? 'Deployed mode' : 'Live API',
+          color: deploymentMode == 'cloudflare' ? _warning : _success,
+        ),
       ],
     );
   }
@@ -1396,10 +1418,257 @@ class _RunDetailPane extends StatelessWidget {
   }
 }
 
+class _ArtifactsPage extends StatefulWidget {
+  const _ArtifactsPage({required this.operationsApi});
+
+  final OperationsApi operationsApi;
+
+  @override
+  State<_ArtifactsPage> createState() => _ArtifactsPageState();
+}
+
+class _ArtifactsPageState extends State<_ArtifactsPage> {
+  bool _loading = true;
+  String? _error;
+  final TextEditingController _tenantController = TextEditingController();
+  final TextEditingController _runController = TextEditingController();
+  List<ArtifactRecord> _artifacts = <ArtifactRecord>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _tenantController.dispose();
+    _runController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final records = await widget.operationsApi.listArtifacts(
+        tenantId: _tenantController.text.trim().isEmpty
+            ? null
+            : _tenantController.text.trim(),
+        runId: _runController.text.trim().isEmpty
+            ? null
+            : _runController.text.trim(),
+      );
+      setState(() {
+        _artifacts = records;
+        _loading = false;
+      });
+    } catch (error) {
+      setState(() {
+        _error = error.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return _ErrorState(message: _error!, onRetry: _load);
+    }
+
+    return ListView(
+      children: [
+        _Panel(
+          title: 'Artifact filters',
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              SizedBox(
+                width: 260,
+                child: TextFormField(
+                  controller: _tenantController,
+                  decoration: const InputDecoration(labelText: 'Tenant ID'),
+                ),
+              ),
+              SizedBox(
+                width: 260,
+                child: TextFormField(
+                  controller: _runController,
+                  decoration: const InputDecoration(labelText: 'Run ID'),
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.search_rounded),
+                label: const Text('Apply'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _Panel(
+          title: 'Artifacts',
+          child: _artifacts.isEmpty
+              ? const _EmptyState(
+                  title: 'No artifacts found',
+                  body: 'No artifact records match the current filters.',
+                )
+              : Column(
+                  children: _artifacts
+                      .map(
+                        (ArtifactRecord artifact) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _InfoPanel(
+                            title: artifact.kind,
+                            body:
+                                'Artifact ${artifact.artifactId}\nTenant: ${artifact.tenantId}\nAgent: ${artifact.agentId}\nRun: ${artifact.runId}\nReference: ${artifact.reference}\nCreated: ${_formatDateTime(artifact.createdAt)}\nRetention days: ${artifact.retentionDays}',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AuditsPage extends StatefulWidget {
+  const _AuditsPage({required this.operationsApi});
+
+  final OperationsApi operationsApi;
+
+  @override
+  State<_AuditsPage> createState() => _AuditsPageState();
+}
+
+class _AuditsPageState extends State<_AuditsPage> {
+  bool _loading = true;
+  String? _error;
+  final TextEditingController _tenantController = TextEditingController();
+  final TextEditingController _runController = TextEditingController();
+  List<AuditRecord> _audits = <AuditRecord>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _tenantController.dispose();
+    _runController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final records = await widget.operationsApi.listAudits(
+        tenantId: _tenantController.text.trim().isEmpty
+            ? null
+            : _tenantController.text.trim(),
+        runId: _runController.text.trim().isEmpty
+            ? null
+            : _runController.text.trim(),
+      );
+      setState(() {
+        _audits = records;
+        _loading = false;
+      });
+    } catch (error) {
+      setState(() {
+        _error = error.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return _ErrorState(message: _error!, onRetry: _load);
+    }
+    return ListView(
+      children: [
+        _Panel(
+          title: 'Audit filters',
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              SizedBox(
+                width: 260,
+                child: TextFormField(
+                  controller: _tenantController,
+                  decoration: const InputDecoration(labelText: 'Tenant ID'),
+                ),
+              ),
+              SizedBox(
+                width: 260,
+                child: TextFormField(
+                  controller: _runController,
+                  decoration: const InputDecoration(labelText: 'Run ID'),
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.search_rounded),
+                label: const Text('Apply'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _Panel(
+          title: 'Audit records',
+          child: _audits.isEmpty
+              ? const _EmptyState(
+                  title: 'No audits found',
+                  body: 'No audit records match the current filters.',
+                )
+              : Column(
+                  children: _audits
+                      .map(
+                        (AuditRecord audit) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _InfoPanel(
+                            title: audit.action,
+                            body:
+                                'Audit ${audit.auditId}\nTenant: ${audit.tenantId}\nAgent: ${audit.agentId}\nRun: ${audit.runId}\nResource: ${audit.resourceType}/${audit.resourceId}\nUser: ${_blankAsUnknown(audit.userId)}\nAdministrative: ${audit.administrative}\nOccurred: ${_formatDateTime(audit.occurredAt)}',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ControlPlanePage extends StatefulWidget {
-  const _ControlPlanePage({required this.controlPlaneApi});
+  const _ControlPlanePage({
+    required this.controlPlaneApi,
+    required this.operationsApi,
+  });
 
   final ControlPlaneApi controlPlaneApi;
+  final OperationsApi operationsApi;
 
   @override
   State<_ControlPlanePage> createState() => _ControlPlanePageState();
@@ -1415,6 +1684,9 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
   List<InstallationRecord> _installations = <InstallationRecord>[];
   List<ConversationRecord> _conversations = <ConversationRecord>[];
   List<ChannelRouteRecord> _routes = <ChannelRouteRecord>[];
+  List<RunRecord> _runs = <RunRecord>[];
+  List<ApprovalRecord> _approvals = <ApprovalRecord>[];
+  String? _selectedConversationId;
 
   @override
   void initState() {
@@ -1436,6 +1708,8 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
         widget.controlPlaneApi.listInstallations(),
         widget.controlPlaneApi.listConversations(),
         widget.controlPlaneApi.listChannelRoutes(),
+        widget.operationsApi.listRuns(),
+        widget.operationsApi.listApprovals(),
       ]);
       setState(() {
         _users = results[0] as List<UserRecord>;
@@ -1445,6 +1719,17 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
         _installations = results[4] as List<InstallationRecord>;
         _conversations = results[5] as List<ConversationRecord>;
         _routes = results[6] as List<ChannelRouteRecord>;
+        _runs = results[7] as List<RunRecord>;
+        _approvals = results[8] as List<ApprovalRecord>;
+        _selectedConversationId = _conversations.isEmpty
+            ? null
+            : (_selectedConversationId != null &&
+                      _conversations.any(
+                        (ConversationRecord record) =>
+                            record.conversationId == _selectedConversationId,
+                      )
+                  ? _selectedConversationId
+                  : _conversations.first.conversationId);
         _loading = false;
       });
     } catch (error) {
@@ -1630,7 +1915,115 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
               )
               .toList(),
         ),
+        const SizedBox(height: 14),
+        _buildConversationDetail(),
       ],
+    );
+  }
+
+  Widget _buildConversationDetail() {
+    if (_conversations.isEmpty) {
+      return const _InfoPanel(
+        title: 'Conversation detail',
+        body: 'No conversations available.',
+      );
+    }
+    final selected = _conversations.firstWhere(
+      (ConversationRecord record) => record.conversationId == _selectedConversationId,
+      orElse: () => _conversations.first,
+    );
+    final scopedRuns = _runs
+        .where(
+          (RunRecord run) => run.source.conversationId == selected.conversationId,
+        )
+        .toList()
+      ..sort(
+        (RunRecord a, RunRecord b) =>
+            (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(
+              a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+            ),
+      );
+    final latestRun = scopedRuns.isEmpty ? null : scopedRuns.first;
+    final latestApprovals = latestRun == null
+        ? <ApprovalRecord>[]
+        : _approvals
+              .where((ApprovalRecord record) => record.runId == latestRun.runId)
+              .toList()
+          ..sort(
+            (ApprovalRecord a, ApprovalRecord b) =>
+                (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+                    .compareTo(
+                      a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                    ),
+          );
+    final approval = latestApprovals.isEmpty ? null : latestApprovals.first;
+    final scopedRoutes = _routes
+        .where(
+          (ChannelRouteRecord route) =>
+              route.conversationId == selected.conversationId,
+        )
+        .toList();
+    final installations = scopedRoutes.isEmpty
+        ? <InstallationRecord>[]
+        : _installations.where((InstallationRecord install) {
+            return scopedRoutes.any(
+              (ChannelRouteRecord route) =>
+                  route.installationId == install.installationId,
+            );
+          }).toList();
+
+    return _Panel(
+      title: 'Conversation detail',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DropdownButtonFormField<String>(
+            value: selected.conversationId,
+            decoration: const InputDecoration(labelText: 'Conversation'),
+            items: _conversations
+                .map(
+                  (ConversationRecord record) => DropdownMenuItem<String>(
+                    value: record.conversationId,
+                    child: Text(
+                      record.name.isEmpty ? record.conversationId : record.name,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: (String? value) {
+              if (value == null) {
+                return;
+              }
+              setState(() => _selectedConversationId = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Status: ${selected.status}\nTenant: ${selected.tenantId}\nAgent: ${selected.agentId}\nCreated: ${_formatDateTime(selected.createdAt)}',
+            style: const TextStyle(color: _textMuted, height: 1.45),
+          ),
+          const SizedBox(height: 12),
+          _InfoPanel(
+            title: 'Recent activity',
+            body: latestRun == null
+                ? 'No runs linked to this conversation.'
+                : 'Latest run: ${latestRun.runId}\nStatus: ${latestRun.status}\nCreated: ${_formatDateTime(latestRun.createdAt)}\nWait reason: ${_blankAsUnknown(latestRun.waitReason)}',
+          ),
+          const SizedBox(height: 10),
+          _InfoPanel(
+            title: 'Latest approval',
+            body: approval == null
+                ? 'No approvals attached to the latest run.'
+                : 'Approval: ${approval.approvalRequestId}\nDecision: ${approval.decision}\nApprover: ${_blankAsUnknown(approval.approverId)}\nCreated: ${_formatDateTime(approval.createdAt)}',
+          ),
+          const SizedBox(height: 10),
+          _InfoPanel(
+            title: 'Route and install health',
+            body:
+                'Routes: ${scopedRoutes.length}\nInstallations: ${installations.length}\nUnhealthy routes: ${scopedRoutes.where((ChannelRouteRecord route) => route.status != 'active').length}',
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1885,9 +2278,13 @@ class _InlineTag extends StatelessWidget {
 }
 
 class _ProvidersPage extends StatefulWidget {
-  const _ProvidersPage({required this.providerApi});
+  const _ProvidersPage({
+    required this.providerApi,
+    required this.providerCatalogAvailable,
+  });
 
   final ProviderCatalogApi providerApi;
+  final bool providerCatalogAvailable;
 
   @override
   State<_ProvidersPage> createState() => _ProvidersPageState();
@@ -2039,6 +2436,13 @@ class _ProvidersPageState extends State<_ProvidersPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.providerCatalogAvailable) {
+      return const _InfoPanel(
+        title: 'Provider catalog unavailable',
+        body:
+            'This deployment mode disables local harness provider catalog mutation routes. Switch to local mode to manage providers.',
+      );
+    }
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
