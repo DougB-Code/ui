@@ -163,7 +163,7 @@ class _ProvidersPageState extends State<_ProvidersPage> {
       return const _InfoPanel(
         title: 'Provider catalog unavailable',
         body:
-            'This deployment mode disables local harness provider catalog mutation routes. Switch to local mode to manage providers.',
+            'This deployment mode disables local harness provider catalog management routes. Switch to local mode to manage providers.',
       );
     }
     if (_loading) {

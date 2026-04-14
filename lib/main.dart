@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:ui/control_plane_api.dart';
+import 'package:ui/harness_config_api.dart';
 import 'package:ui/operations_api.dart';
 import 'package:ui/provider_catalog_api.dart';
 
 part 'app_shell.dart';
 part 'operations_pages.dart';
 part 'control_plane_page.dart';
+part 'harness_config_pages.dart';
 part 'providers_page.dart';
 
 void main() {
@@ -16,6 +18,7 @@ void main() {
         defaultValue: 'http://127.0.0.1:8080',
       ),
       controlPlaneApi: HttpControlPlaneApi.fromEnvironment(),
+      harnessConfigApi: HttpHarnessConfigApi.fromEnvironment(),
       operationsApi: HttpOperationsApi.fromEnvironment(),
       providerApi: HttpProviderCatalogApi.fromEnvironment(),
     ),
@@ -27,12 +30,14 @@ class AgentAwesomeBetaApp extends StatelessWidget {
     super.key,
     required this.controlPlaneBaseUrl,
     required this.controlPlaneApi,
+    required this.harnessConfigApi,
     required this.operationsApi,
     required this.providerApi,
   });
 
   final String controlPlaneBaseUrl;
   final ControlPlaneApi controlPlaneApi;
+  final HarnessConfigApi harnessConfigApi;
   final OperationsApi operationsApi;
   final ProviderCatalogApi providerApi;
 
@@ -91,6 +96,7 @@ class AgentAwesomeBetaApp extends StatelessWidget {
       home: _BetaShell(
         controlPlaneBaseUrl: controlPlaneBaseUrl,
         controlPlaneApi: controlPlaneApi,
+        harnessConfigApi: harnessConfigApi,
         operationsApi: operationsApi,
         providerApi: providerApi,
       ),

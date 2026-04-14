@@ -1,10 +1,15 @@
 part of 'main.dart';
 
 enum AppSection {
+  summary('Summary', Icons.dashboard_outlined),
   runs('Runs', Icons.play_circle_outline_rounded),
+  approvals('Approvals', Icons.rule_folder_outlined),
   artifacts('Artifacts', Icons.inventory_2_outlined),
   audits('Audits', Icons.gavel_outlined),
   controlPlane('Control Plane', Icons.hub_outlined),
+  harnessAgents('Harness Agents', Icons.smart_toy_outlined),
+  harnessTools('Harness Tools', Icons.build_outlined),
+  harnessWorkflows('Harness Workflows', Icons.account_tree_outlined),
   providers('Providers', Icons.cloud_outlined);
 
   const AppSection(this.label, this.icon);
@@ -17,12 +22,14 @@ class _BetaShell extends StatefulWidget {
   const _BetaShell({
     required this.controlPlaneBaseUrl,
     required this.controlPlaneApi,
+    required this.harnessConfigApi,
     required this.operationsApi,
     required this.providerApi,
   });
 
   final String controlPlaneBaseUrl;
   final ControlPlaneApi controlPlaneApi;
+  final HarnessConfigApi harnessConfigApi;
   final OperationsApi operationsApi;
   final ProviderCatalogApi providerApi;
 
@@ -40,9 +47,13 @@ class _BetaShellState extends State<_BetaShell> {
   @override
   Widget build(BuildContext context) {
     final content = switch (_section) {
+      AppSection.summary => _SummaryPage(operationsApi: widget.operationsApi),
       AppSection.runs => _RunsPage(
         operationsApi: widget.operationsApi,
         initialRunId: null,
+      ),
+      AppSection.approvals => _ApprovalsPage(
+        operationsApi: widget.operationsApi,
       ),
       AppSection.artifacts => _ArtifactsPage(
         operationsApi: widget.operationsApi,
@@ -51,6 +62,18 @@ class _BetaShellState extends State<_BetaShell> {
       AppSection.controlPlane => _ControlPlanePage(
         controlPlaneApi: widget.controlPlaneApi,
         operationsApi: widget.operationsApi,
+      ),
+      AppSection.harnessAgents => _HarnessAgentsPage(
+        harnessConfigApi: widget.harnessConfigApi,
+        harnessConfigAvailable: _deploymentMode != 'cloudflare',
+      ),
+      AppSection.harnessTools => _HarnessToolsPage(
+        harnessConfigApi: widget.harnessConfigApi,
+        harnessConfigAvailable: _deploymentMode != 'cloudflare',
+      ),
+      AppSection.harnessWorkflows => _HarnessWorkflowsPage(
+        harnessConfigApi: widget.harnessConfigApi,
+        harnessConfigAvailable: _deploymentMode != 'cloudflare',
       ),
       AppSection.providers => _ProvidersPage(
         providerApi: widget.providerApi,
@@ -64,6 +87,7 @@ class _BetaShellState extends State<_BetaShell> {
           children: [
             _Sidebar(
               selected: _section,
+              deploymentMode: _deploymentMode,
               onSelect: (AppSection section) {
                 setState(() {
                   _section = section;
@@ -95,9 +119,14 @@ class _BetaShellState extends State<_BetaShell> {
 }
 
 class _Sidebar extends StatelessWidget {
-  const _Sidebar({required this.selected, required this.onSelect});
+  const _Sidebar({
+    required this.selected,
+    required this.deploymentMode,
+    required this.onSelect,
+  });
 
   final AppSection selected;
+  final String deploymentMode;
   final ValueChanged<AppSection> onSelect;
 
   @override
@@ -114,46 +143,95 @@ class _Sidebar extends StatelessWidget {
         children: [
           const _BrandLockup(),
           const SizedBox(height: 24),
-          const _NavLabel('Operations'),
-          const SizedBox(height: 8),
-          _NavButton(
-            section: AppSection.runs,
-            selected: selected == AppSection.runs,
-            onTap: onSelect,
-          ),
-          const SizedBox(height: 8),
-          _NavButton(
-            section: AppSection.artifacts,
-            selected: selected == AppSection.artifacts,
-            onTap: onSelect,
-          ),
-          const SizedBox(height: 8),
-          _NavButton(
-            section: AppSection.audits,
-            selected: selected == AppSection.audits,
-            onTap: onSelect,
-          ),
-          const SizedBox(height: 20),
-          const _NavLabel('Control Plane'),
-          const SizedBox(height: 8),
-          _NavButton(
-            section: AppSection.controlPlane,
-            selected: selected == AppSection.controlPlane,
-            onTap: onSelect,
-          ),
-          const SizedBox(height: 20),
-          const _NavLabel('Harness Config'),
-          const SizedBox(height: 8),
-          _NavButton(
-            section: AppSection.providers,
-            selected: selected == AppSection.providers,
-            onTap: onSelect,
-          ),
-          const Spacer(),
-          const _InfoPanel(
-            title: 'Beta mode',
-            body:
-                'This shell exposes only live control-plane-backed surfaces. Seed data and design-only sections have been removed from the beta path.',
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                const _NavLabel('Operations'),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.summary,
+                  selected: selected == AppSection.summary,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.runs,
+                  selected: selected == AppSection.runs,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.approvals,
+                  selected: selected == AppSection.approvals,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.artifacts,
+                  selected: selected == AppSection.artifacts,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.audits,
+                  selected: selected == AppSection.audits,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 20),
+                const _NavLabel('Control Plane'),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.controlPlane,
+                  selected: selected == AppSection.controlPlane,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 20),
+                const _NavLabel('Harness Config'),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.harnessAgents,
+                  selected: selected == AppSection.harnessAgents,
+                  badge: deploymentMode == 'cloudflare' ? 'local only' : null,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.harnessTools,
+                  selected: selected == AppSection.harnessTools,
+                  badge: deploymentMode == 'cloudflare' ? 'local only' : null,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.harnessWorkflows,
+                  selected: selected == AppSection.harnessWorkflows,
+                  badge: deploymentMode == 'cloudflare' ? 'local only' : null,
+                  onTap: onSelect,
+                ),
+                const SizedBox(height: 8),
+                _NavButton(
+                  section: AppSection.providers,
+                  selected: selected == AppSection.providers,
+                  badge: deploymentMode == 'cloudflare' ? 'local only' : null,
+                  onTap: onSelect,
+                ),
+                if (deploymentMode == 'cloudflare') ...[
+                  const SizedBox(height: 16),
+                  const _InfoPanel(
+                    title: 'Deployed mode',
+                    body:
+                        'Harness config editors are intentionally local-only. Run detail still shows live control-plane data, and harness session inspection appears when the deployment can read local harness state.',
+                  ),
+                ],
+                const SizedBox(height: 16),
+                const _InfoPanel(
+                  title: 'Beta mode',
+                  body:
+                      'This shell exposes only live control-plane-backed surfaces. Seed data and design-only sections have been removed from the beta path.',
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -228,11 +306,13 @@ class _NavButton extends StatelessWidget {
   const _NavButton({
     required this.section,
     required this.selected,
+    this.badge,
     required this.onTap,
   });
 
   final AppSection section;
   final bool selected;
+  final String? badge;
   final ValueChanged<AppSection> onTap;
 
   @override
@@ -264,6 +344,28 @@ class _NavButton extends StatelessWidget {
                   ),
                 ),
               ),
+              if (badge != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _warning.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: _warning.withValues(alpha: 0.35)),
+                  ),
+                  child: Text(
+                    badge!,
+                    style: const TextStyle(
+                      color: _warning,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

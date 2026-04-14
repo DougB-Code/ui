@@ -35,6 +35,14 @@ class TenantRecord {
     required this.region,
     required this.defaultAgentTemplate,
     required this.enabledIntegrations,
+    required this.onboardingState,
+    required this.runHistoryDays,
+    required this.artifactDays,
+    required this.auditLogDays,
+    required this.maxRunsPerDay,
+    required this.defaultApprovalMode,
+    required this.maxRunSeconds,
+    required this.maxTurns,
     required this.createdAt,
   });
 
@@ -52,6 +60,35 @@ class TenantRecord {
           (json['enabled_integrations'] as List<dynamic>? ?? <dynamic>[])
               .map((dynamic value) => value.toString())
               .toList(),
+      onboardingState: (json['onboarding_state'] as String? ?? '').trim(),
+      runHistoryDays:
+          ((json['retention_policy'] as Map<String, dynamic>?) ??
+              <String, dynamic>{})['run_history_days'] as int? ??
+          0,
+      artifactDays:
+          ((json['retention_policy'] as Map<String, dynamic>?) ??
+              <String, dynamic>{})['artifact_days'] as int? ??
+          0,
+      auditLogDays:
+          ((json['retention_policy'] as Map<String, dynamic>?) ??
+              <String, dynamic>{})['audit_log_days'] as int? ??
+          0,
+      maxRunsPerDay:
+          ((json['budget_policy'] as Map<String, dynamic>?) ??
+              <String, dynamic>{})['max_runs_per_day'] as int? ??
+          0,
+      defaultApprovalMode:
+          ((json['default_approval_policy'] as Map<String, dynamic>?) ??
+                  <String, dynamic>{})['mode'] as String? ??
+              '',
+      maxRunSeconds:
+          ((json['runtime_limits'] as Map<String, dynamic>?) ??
+              <String, dynamic>{})['max_run_seconds'] as int? ??
+          0,
+      maxTurns:
+          ((json['runtime_limits'] as Map<String, dynamic>?) ??
+              <String, dynamic>{})['max_turns'] as int? ??
+          0,
       createdAt: _parseDateTime(json['created_at']),
     );
   }
@@ -64,6 +101,14 @@ class TenantRecord {
   final String region;
   final String defaultAgentTemplate;
   final List<String> enabledIntegrations;
+  final String onboardingState;
+  final int runHistoryDays;
+  final int artifactDays;
+  final int auditLogDays;
+  final int maxRunsPerDay;
+  final String defaultApprovalMode;
+  final int maxRunSeconds;
+  final int maxTurns;
   final DateTime? createdAt;
 }
 
@@ -101,6 +146,9 @@ class AgentRecord {
     required this.deniedCapabilities,
     required this.integrationBindings,
     required this.onboardingState,
+    required this.approvalOverrideMode,
+    required this.runtimeOverrideMaxRunSeconds,
+    required this.runtimeOverrideMaxTurns,
   });
 
   factory AgentRecord.fromJson(Map<String, dynamic> json) {
@@ -123,6 +171,18 @@ class AgentRecord {
               .map((dynamic value) => value.toString())
               .toList(),
       onboardingState: (json['onboarding_state'] as String? ?? '').trim(),
+      approvalOverrideMode:
+          ((json['approval_override'] as Map<String, dynamic>?) ??
+                  <String, dynamic>{})['mode'] as String? ??
+              '',
+      runtimeOverrideMaxRunSeconds:
+          ((json['runtime_limits_override'] as Map<String, dynamic>?) ??
+              <String, dynamic>{})['max_run_seconds'] as int? ??
+          0,
+      runtimeOverrideMaxTurns:
+          ((json['runtime_limits_override'] as Map<String, dynamic>?) ??
+              <String, dynamic>{})['max_turns'] as int? ??
+          0,
     );
   }
 
@@ -135,6 +195,9 @@ class AgentRecord {
   final List<String> deniedCapabilities;
   final List<String> integrationBindings;
   final String onboardingState;
+  final String approvalOverrideMode;
+  final int runtimeOverrideMaxRunSeconds;
+  final int runtimeOverrideMaxTurns;
 }
 
 class InstallationRecord {
@@ -147,9 +210,11 @@ class InstallationRecord {
     required this.status,
     required this.installedBy,
     required this.installedAt,
+    required this.lastVerifiedAt,
     required this.allowedChannelIds,
     required this.allowedExternalUserIds,
     required this.allowedAgentIds,
+    required this.adapterVersion,
   });
 
   factory InstallationRecord.fromJson(Map<String, dynamic> json) {
@@ -164,6 +229,7 @@ class InstallationRecord {
       status: (json['status'] as String? ?? '').trim(),
       installedBy: (json['installed_by'] as String? ?? '').trim(),
       installedAt: _parseDateTime(json['installed_at']),
+      lastVerifiedAt: _parseDateTime(json['last_verified_at']),
       allowedChannelIds:
           (json['allowed_channel_ids'] as List<dynamic>? ?? <dynamic>[])
               .map((dynamic value) => value.toString())
@@ -176,6 +242,7 @@ class InstallationRecord {
           (json['allowed_agent_ids'] as List<dynamic>? ?? <dynamic>[])
               .map((dynamic value) => value.toString())
               .toList(),
+      adapterVersion: json['adapter_version'] as int? ?? 0,
     );
   }
 
@@ -187,9 +254,11 @@ class InstallationRecord {
   final String status;
   final String installedBy;
   final DateTime? installedAt;
+  final DateTime? lastVerifiedAt;
   final List<String> allowedChannelIds;
   final List<String> allowedExternalUserIds;
   final List<String> allowedAgentIds;
+  final int adapterVersion;
 }
 
 class ConversationRecord {
@@ -272,6 +341,141 @@ class ChannelRouteRecord {
   final DateTime? createdAt;
 }
 
+class ConversationTurnItem {
+  ConversationTurnItem({
+    required this.turnId,
+    required this.role,
+    required this.content,
+    required this.actorId,
+    required this.requestId,
+    required this.runId,
+    required this.createdAt,
+  });
+
+  factory ConversationTurnItem.fromJson(Map<String, dynamic> json) {
+    return ConversationTurnItem(
+      turnId: (json['turn_id'] as String? ?? '').trim(),
+      role: (json['role'] as String? ?? '').trim(),
+      content: (json['content'] as String? ?? '').trim(),
+      actorId: (json['actor_id'] as String? ?? '').trim(),
+      requestId: (json['request_id'] as String? ?? '').trim(),
+      runId: (json['run_id'] as String? ?? '').trim(),
+      createdAt: _parseDateTime(json['created_at']),
+    );
+  }
+
+  final String turnId;
+  final String role;
+  final String content;
+  final String actorId;
+  final String requestId;
+  final String runId;
+  final DateTime? createdAt;
+}
+
+class PendingConversationExecutionRecord {
+  PendingConversationExecutionRecord({
+    required this.runId,
+    required this.status,
+    required this.waitReason,
+    required this.pendingQuestion,
+    required this.approvalRequestId,
+    required this.resumeSessionId,
+    required this.checkpointReference,
+    required this.updatedAt,
+  });
+
+  factory PendingConversationExecutionRecord.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return PendingConversationExecutionRecord(
+      runId: (json['run_id'] as String? ?? '').trim(),
+      status: (json['status'] as String? ?? '').trim(),
+      waitReason: (json['wait_reason'] as String? ?? '').trim(),
+      pendingQuestion: (json['pending_question'] as String? ?? '').trim(),
+      approvalRequestId: (json['approval_request_id'] as String? ?? '').trim(),
+      resumeSessionId: (json['resume_session_id'] as String? ?? '').trim(),
+      checkpointReference:
+          (json['checkpoint_reference'] as String? ?? '').trim(),
+      updatedAt: _parseDateTime(json['updated_at']),
+    );
+  }
+
+  final String runId;
+  final String status;
+  final String waitReason;
+  final String pendingQuestion;
+  final String approvalRequestId;
+  final String resumeSessionId;
+  final String checkpointReference;
+  final DateTime? updatedAt;
+}
+
+class ConversationStateRecord {
+  ConversationStateRecord({
+    required this.conversationKey,
+    required this.tenantId,
+    required this.conversationId,
+    required this.agentId,
+    required this.providerType,
+    required this.installationId,
+    required this.externalWorkspaceId,
+    required this.channelId,
+    required this.threadId,
+    required this.historySummary,
+    required this.turns,
+    required this.pending,
+    required this.latestRunId,
+    required this.latestApprovalRequestId,
+    required this.updatedAt,
+  });
+
+  factory ConversationStateRecord.fromJson(Map<String, dynamic> json) {
+    return ConversationStateRecord(
+      conversationKey: (json['conversation_key'] as String? ?? '').trim(),
+      tenantId: (json['tenant_id'] as String? ?? '').trim(),
+      conversationId: (json['conversation_id'] as String? ?? '').trim(),
+      agentId: (json['agent_id'] as String? ?? '').trim(),
+      providerType: (json['provider_type'] as String? ?? '').trim(),
+      installationId: (json['installation_id'] as String? ?? '').trim(),
+      externalWorkspaceId: (json['external_workspace_id'] as String? ?? '')
+          .trim(),
+      channelId: (json['channel_id'] as String? ?? '').trim(),
+      threadId: (json['thread_id'] as String? ?? '').trim(),
+      historySummary: (json['history_summary'] as String? ?? '').trim(),
+      turns: (json['turns'] as List<dynamic>? ?? <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(ConversationTurnItem.fromJson)
+          .toList(),
+      pending: (json['pending'] as Map<String, dynamic>?) == null
+          ? null
+          : PendingConversationExecutionRecord.fromJson(
+              json['pending'] as Map<String, dynamic>,
+            ),
+      latestRunId: (json['latest_run_id'] as String? ?? '').trim(),
+      latestApprovalRequestId:
+          (json['latest_approval_request_id'] as String? ?? '').trim(),
+      updatedAt: _parseDateTime(json['updated_at']),
+    );
+  }
+
+  final String conversationKey;
+  final String tenantId;
+  final String conversationId;
+  final String agentId;
+  final String providerType;
+  final String installationId;
+  final String externalWorkspaceId;
+  final String channelId;
+  final String threadId;
+  final String historySummary;
+  final List<ConversationTurnItem> turns;
+  final PendingConversationExecutionRecord? pending;
+  final String latestRunId;
+  final String latestApprovalRequestId;
+  final DateTime? updatedAt;
+}
+
 abstract class ControlPlaneApi {
   Future<List<UserRecord>> listUsers();
 
@@ -296,6 +500,28 @@ abstract class ControlPlaneApi {
     String? agentId,
     String? installationId,
   });
+
+  Future<ConversationStateRecord> getConversationState(String conversationId);
+
+  Future<TenantRecord> disableTenant({
+    required String tenantId,
+    required String actorId,
+    String reason = '',
+  });
+
+  Future<AgentRecord> disableAgent({
+    required String agentId,
+    required String actorId,
+    String reason = '',
+  });
+
+  Future<InstallationRecord> updateInstallationAccess({
+    required String installationId,
+    required String actorId,
+    required List<String> allowedChannelIds,
+    required List<String> allowedExternalUserIds,
+    required List<String> allowedAgentIds,
+  });
 }
 
 class HttpControlPlaneApi implements ControlPlaneApi {
@@ -318,6 +544,76 @@ class HttpControlPlaneApi implements ControlPlaneApi {
   final String baseUrl;
   final String adminToken;
   final http.Client _client;
+
+  @override
+  Future<ConversationStateRecord> getConversationState(
+    String conversationId,
+  ) async {
+    final response = await _client.get(
+      _uri('/v1/admin/conversations/${Uri.encodeComponent(conversationId)}/state'),
+      headers: _headers(),
+    );
+    final payload = await _decodeJsonMap(response);
+    return ConversationStateRecord.fromJson(payload);
+  }
+
+  @override
+  Future<TenantRecord> disableTenant({
+    required String tenantId,
+    required String actorId,
+    String reason = '',
+  }) async {
+    final response = await _client.post(
+      _uri('/v1/admin/tenants/${Uri.encodeComponent(tenantId)}/disable'),
+      headers: _jsonHeaders(),
+      body: jsonEncode(<String, String>{
+        'actor_id': actorId.trim(),
+        'reason': reason.trim(),
+      }),
+    );
+    final payload = await _decodeJsonMap(response);
+    return TenantRecord.fromJson(payload);
+  }
+
+  @override
+  Future<AgentRecord> disableAgent({
+    required String agentId,
+    required String actorId,
+    String reason = '',
+  }) async {
+    final response = await _client.post(
+      _uri('/v1/admin/agents/${Uri.encodeComponent(agentId)}/disable'),
+      headers: _jsonHeaders(),
+      body: jsonEncode(<String, String>{
+        'actor_id': actorId.trim(),
+        'reason': reason.trim(),
+      }),
+    );
+    final payload = await _decodeJsonMap(response);
+    return AgentRecord.fromJson(payload);
+  }
+
+  @override
+  Future<InstallationRecord> updateInstallationAccess({
+    required String installationId,
+    required String actorId,
+    required List<String> allowedChannelIds,
+    required List<String> allowedExternalUserIds,
+    required List<String> allowedAgentIds,
+  }) async {
+    final response = await _client.post(
+      _uri('/v1/admin/installations/${Uri.encodeComponent(installationId)}/access'),
+      headers: _jsonHeaders(),
+      body: jsonEncode(<String, dynamic>{
+        'actor_id': actorId.trim(),
+        'allowed_channel_ids': allowedChannelIds,
+        'allowed_external_user_ids': allowedExternalUserIds,
+        'allowed_agent_ids': allowedAgentIds,
+      }),
+    );
+    final payload = await _decodeJsonMap(response);
+    return InstallationRecord.fromJson(payload);
+  }
 
   @override
   Future<List<AgentRecord>> listAgents({String? tenantId}) async {
@@ -433,6 +729,10 @@ class HttpControlPlaneApi implements ControlPlaneApi {
     return headers;
   }
 
+  Map<String, String> _jsonHeaders() {
+    return <String, String>{..._headers(), 'Content-Type': 'application/json'};
+  }
+
   Map<String, String> _query(Map<String, String?> input) {
     final query = <String, String>{};
     input.forEach((String key, String? value) {
@@ -459,6 +759,20 @@ class HttpControlPlaneApi implements ControlPlaneApi {
       );
     }
     return payload.whereType<Map<String, dynamic>>().toList();
+  }
+
+  Future<Map<String, dynamic>> _decodeJsonMap(http.Response response) async {
+    final bodyText = utf8.decode(response.bodyBytes);
+    final payload = bodyText.trim().isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(bodyText) as Map<String, dynamic>;
+    if (response.statusCode >= 400) {
+      throw ControlPlaneApiException(
+        payload['error'] as String? ??
+            'Request failed with status ${response.statusCode}.',
+      );
+    }
+    return payload;
   }
 }
 

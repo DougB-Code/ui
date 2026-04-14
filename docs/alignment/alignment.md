@@ -11,28 +11,26 @@ The harness and control plane are treated as the current source of truth for exe
 
 ## Executive Summary
 
-The UI is now partially aligned with the system underneath it.
+The UI is now materially aligned for beta testing, and the scoped alignment plan is effectively complete.
 
-It has moved from a mostly prototype shell to an early live beta console. The current beta path is meaningfully control-plane-backed for runs, approvals, artifacts, audits, metrics, tenants, users, memberships, installations, conversations, channel routes, and provider administration.
+It has moved from a mostly prototype shell to a live beta operator console. The current beta path is meaningfully control-plane-backed for operational summaries, runs, approvals, artifacts, audits, metrics, tenants, users, memberships, installations, conversations, channel routes, and harness configuration for providers, agents, tools, and workflows.
 
-The remaining misalignment is now less about fake data in the main beta shell and more about depth and completeness:
+The remaining differences are now mostly about depth and ergonomics rather than missing beta-critical surfaces:
 
-- run operations are real, but not yet the default landing flow
-- control-plane entities are visible, but mostly inspection-only
-- harness configuration beyond providers is still missing
-- workflow authoring parity is still not started
-- deployed-mode / Cloudflare awareness is still missing
+- harness config authoring is still deliberately YAML-first rather than schema-form-first
+- some control-plane entity areas remain inspect-heavy compared to the full backend lifecycle model
+- deployed-mode awareness is now in place, but future cloud-native workflows can still be broadened
 
 ## High-Level Alignment
 
-- `Providers`: partial alignment
-- `Harness agent configuration`: low alignment
-- `Harness tool configuration`: low alignment
-- `Harness workflow authoring`: low alignment
-- `Run operations`: partial alignment
-- `Approvals, artifacts, audits, metrics`: partial alignment
-- `Tenants, users, installations, conversations, channel routes`: partial alignment
-- `Cloudflare / deployed control-plane model`: not aligned
+- `Providers`: strong alignment
+- `Harness agent configuration`: strong alignment
+- `Harness tool configuration`: strong alignment
+- `Harness workflow authoring`: strong alignment
+- `Run operations`: strong alignment
+- `Approvals, artifacts, audits, metrics`: strong alignment
+- `Tenants, users, installations, conversations, channel routes`: strong alignment
+- `Cloudflare / deployed control-plane model`: aligned for current beta scope
 
 ## What Is Aligned Today
 
@@ -49,10 +47,12 @@ This is a good pattern because the UI is not editing harness files directly. It 
 
 ### 2. Run operations are real
 
-The beta shell now has a live runs surface:
+The beta shell now has a live operations surface:
 
+- operational summary
 - run list
 - run filters
+- pending approval queue
 - run detail
 - approval state
 - approval resolution
@@ -64,7 +64,33 @@ The beta shell now has a live runs surface:
 
 This means the UI can now answer the core operational questions the earlier report identified as missing.
 
-### 3. The shell now reflects the control-plane-first architecture much more clearly
+### 3. Harness agent and tool management are now real
+
+The beta shell now exposes live harness config surfaces for more than providers:
+
+- harness agents
+- harness tools
+- raw YAML round-tripping through the control plane
+- parsed summaries for lead agent, templates, policies, tool groups, external tools, and MCP servers
+- validation-backed save flows that call the real harness checks before persistence
+
+This is an important architectural step because the UI is still not editing files directly. It is using control-plane admin routes that load, validate, and persist `agent.yaml` and `tool.yaml` on behalf of the operator.
+
+### 4. Harness workflow management is now real
+
+The beta shell now exposes a live workflow authoring surface through the control plane:
+
+- workflow list and detail
+- workflow-level limits
+- rule set summaries
+- node-level schema summaries
+- transition graph derived from the real node transitions
+- raw `workflow.yaml` round-tripping
+- validation-backed save flows that run the real harness workflow checks
+
+This closes the earlier gap where workflow authoring was entirely absent from the live beta shell.
+
+### 5. The shell now reflects the control-plane-first architecture much more clearly
 
 The left rail is now split into:
 
@@ -74,7 +100,7 @@ The left rail is now split into:
 
 That is much closer to the intended system boundary than the older flat config-editor shell.
 
-### 4. The control-plane entity model is now visible
+### 6. The control-plane entity model is now visible
 
 The UI now exposes live lists for:
 
@@ -86,28 +112,60 @@ The UI now exposes live lists for:
 - conversations
 - channel routes
 
-This is still mostly an inspection surface, but it is no longer true that the UI "exposes almost none" of the product model.
+This is no longer just an inspection surface. The beta path now includes detail and live management for tenants, agents, and installations, while users and memberships remain inspection-oriented.
+
+### 7. Conversation state and route-aware health are now real
+
+The UI now exposes live conversation detail with:
+
+- recent turns
+- pending execution state
+- latest approval request
+- latest run
+- route/install health
+
+That closes one of the biggest earlier gaps between the UI and the control plane's conversation-centric model.
+
+### 8. The shell is now deployed-mode aware
+
+The beta shell now differentiates local and deployed control-plane modes and hides local-only provider catalog mutation when Cloudflare mode is active.
 
 ## Major Deltas
 
-### 1. The shell is much closer to the right architecture, but the default flow is still not centered on runs
+### 1. Harness session and workflow state are now exposed
 
-The navigation now reflects the intended architecture, but the default landing area is still `Overview` rather than the live runs console. For beta testing, the most valuable first screen is still likely the operational run surface.
+This was the last major harness-side mismatch, and it is now closed for beta.
 
-This is now an ordering and focus issue rather than a fundamental shell-structure issue.
+The harness persists much more execution detail than the UI currently shows, including:
 
-### 2. Control-plane entities are visible, but they are still mostly read-only inspection surfaces
+- session status
+- current workflow node
+- node visit and failure counts
+- node results
+- blockers
+- waiting reasons
+- artifact directories
+- persisted structured outputs
 
-There are two distinct agent concepts in the backend:
+That is visible in:
 
-- Harness agents: runtime roles resolved from templates, tool groups, policies, instructions, lead/worker roles, and subagent settings.
-- Control-plane agents: tenant-scoped product entities with templates, capability bindings, integration bindings, approval overrides, and runtime profile relationships.
+- `harness/internal/core/workflow_types.go`
+- `harness/docs/user/modules/ROOT/pages/reference/sessions-and-state.adoc`
 
-The current beta UI correctly labels the product-side agent surface as control-plane-first, but it does not yet provide deep detail or full management flows for tenants, users, memberships, agents, installations, conversations, and routes.
+The UI now shows live harness execution state on run detail, including:
 
-So the ambiguity problem has improved substantially, but product-entity management is still incomplete.
+- session status
+- current workflow node
+- node visit and failure counts
+- node results
+- blockers
+- waiting reasons
+- execution file references
+- persisted structured outputs when present
 
-### 3. Harness configuration parity beyond providers is still largely absent
+That means the UI now covers both workflow authoring and workflow/runtime inspection through the control plane.
+
+### 2. Harness configuration parity beyond providers is now broad, but still YAML-first
 
 Real harness tool configuration supports:
 
@@ -129,40 +187,11 @@ That is visible in:
 - `harness/internal/appconfig/toolconfig/types.go`
 - `harness/docs/user/modules/ROOT/pages/reference/providers-and-tools.adoc`
 
-The beta shell no longer presents misleading seed-data `Agents`, `Tools`, and `Workflows` sections as active product surfaces, which is an improvement. But the underlying parity gap remains: the UI still cannot safely author the real harness agent, tool, and workflow schemas.
+The beta shell no longer presents misleading seed-data `Agents`, `Tools`, and `Workflows` sections as active product surfaces, which is an improvement. The remaining parity gap is no longer basic access to agent, tool, and workflow config. It is the lack of richer schema-aware editing beyond the safe raw-YAML path.
 
-That means the beta console is now better scoped, but harness administration is still far from complete.
+What changed is that the UI can now safely inspect and edit the full `agent.yaml`, `tool.yaml`, and `workflow.yaml` documents through control-plane-backed raw YAML editors with live validation. What remains missing is deeper schema-specific authoring affordances beyond the raw-editor model.
 
-### 4. Workflow authoring parity is still missing
-
-This is the second-largest harness-side mismatch.
-
-Real harness workflows support much more than a list of nodes and edges. The schema includes:
-
-- `max_visits_per_node`
-- `max_total_transitions`
-- `duplicate_result_cap`
-- per-node `with`
-- input contracts
-- output contracts
-- typed `success` / `failure` / `blocked` transitions
-- `include_node_results`
-- `input_mappings`
-- prompt overlays
-- gate policies
-- policy gates
-- completion contracts
-- implementation flags and gate requirements
-
-That is visible in:
-
-- `harness/internal/appconfig/workflowconfig/types.go`
-- `harness/configs/workflow.sample.yaml`
-- `harness/docs/workflow-authoring.md`
-
-The current live beta path does not yet attempt a workflow editor at all, which is better than presenting the old prototype as real capability. But the actual alignment gap remains unresolved until a workflow editor can round-trip the real schema.
-
-### 5. Run operations are present, but still not complete enough to be considered fully aligned
+### 3. Run operations now include execution inspection
 
 The control plane already has a rich run lifecycle:
 
@@ -184,50 +213,38 @@ It also tracks:
 - artifacts
 - conversation pending state
 
-The UI now covers much of this, but still lacks:
+The UI now covers the main operational model, including:
 
-- dedicated artifact screens outside run detail
-- dedicated audit screens outside run detail
-- conversation-linked execution detail
-- richer operator workflows beyond approval resolve
+- harness session state
+- workflow state and node results
+- pending questions and blockers as first-class execution objects
+- approval resolution and evidence inspection
 
-### 6. Conversations and routes are now visible, but conversation state is still shallow
+What remains is broader operator workflow depth, not missing visibility into the runtime model.
 
-The control plane is explicitly designed around:
+### 4. Control-plane entity management is real, but still selective
 
-- conversations
-- channel routes
+The beta UI now supports live detail and management for the most operationally important mutable entities:
+
+- tenants
+- control-plane agents
 - installations
-- external identities
-- Slack onboarding and delivery
-- conversation history and pending execution state
 
-That is visible in:
+But the broader admin surface is still narrower than the backend model. Users and memberships are still inspect-only, and deeper onboarding, template-rebinding, and other lifecycle flows are not yet exposed.
 
-- `control-plane/README.md`
-- `control-plane/docs/architecture/slack-integration.md`
-- `control-plane/docs/architecture/onboarding.md`
-- `control-plane/internal/controlplane/types.go`
+### 5. Conversation detail is now real, but broader channel lifecycle tooling is still shallow
 
-The UI now has concepts for:
-
-- conversations
-- routes
-- installations
-- provider/channel identifiers
-
-But it still does not expose:
+The UI now shows:
 
 - recent turns
 - pending execution state
-- latest approval request on conversation detail
-- onboarding/install health detail
+- latest approval request
+- latest run
+- route and install health
 
-### 7. Operational summaries are still underexposed
+But broader onboarding and channel lifecycle tooling is still shallow compared to the control plane's long-term Slack-first product model.
 
-The UI now has real run, artifact, audit, approval, and control-plane entity surfaces, but it does not currently expose a dedicated live operations summary screen in the active beta navigation. The gap is no longer fake metrics. It is the lack of a consolidated operator summary surface.
-
-### 8. The UI still assumes local admin-route availability and is not yet deployed-mode aware
+### 6. Deployed-mode awareness is now aligned for beta
 
 The provider screen assumes:
 
@@ -241,36 +258,14 @@ But the deployed control-plane direction is Cloudflare-first and asynchronous, a
 - `control-plane/internal/controlplane/harness_provider_catalog_cloud.go`
 - `control-plane/docs/architecture/cloudflare-deployment.md`
 
-The problem is no longer that providers are the only real feature. The problem is that the shell still assumes the local/admin route surface is available and does not yet adapt to Cloudflare/deployed capability differences.
-
-### 9. Harness session and workflow state are invisible in the UI
-
-The harness persists:
-
-- session status
-- current plan
-- pending questions
-- pending approvals
-- workflow state
-- node results
-- blockers
-- artifacts
-- memory
-
-That is visible in:
-
-- `harness/README.md`
-- `harness/docs/user/modules/ROOT/pages/reference/sessions-and-state.adoc`
-- `harness/internal/core/workflow_types.go`
-
-The UI still shows none of this. If the harness is the execution engine, the UI still needs a way to inspect execution state, not just control-plane summaries and approvals.
+The shell now adapts to deployment mode, labels local-only harness config surfaces, and shows explicit unavailable messaging when local harness inspection is not possible in deployed builds. That is sufficient for the current beta scope even though broader cloud-native admin flows can still expand later.
 
 ## Areas Where The UI Is Closest To The North Star
 
 If we separate "good direction" from "current completeness," the strongest bets are:
 
 - Provider administration flowing through the control plane rather than direct file edits.
-- A real run-operations surface instead of placeholder observability.
+- A real run-operations surface with summary and approval queue instead of placeholder observability.
 - A shell that is now explicitly split across operations, control-plane, and harness-config concerns.
 
 ## Recommended Realignment
@@ -287,11 +282,11 @@ That architectural boundary is now legible, but still incomplete in depth.
 
 ### 2. Make control-plane entities first-class before expanding more harness editors
 
-This has also mostly been implemented at the list/inspection level. The remaining gap is detail and management depth, not total absence.
+This is now implemented well enough for beta operations. The remaining gap is breadth of admin actions, not whether the model is visible.
 
 ### 3. Rework harness authoring screens to match actual schemas
 
-If `Agents`, `Tools`, and `Workflows` stay in the UI, they should align to the real harness config model:
+This is now implemented at the structural level. The remaining work is depth and ergonomics rather than basic parity:
 
 - harness agents should reflect role templates, tool groups, policies, and lead/worker behavior
 - tools should model external tools and MCP servers separately
@@ -309,39 +304,38 @@ A real run detail should show:
 - result summary
 - artifacts
 - audit entries
-- harness session / workflow state when available
+- harness session / workflow state
 
-Most of this now exists except the harness session / workflow state, plus broader operator flows beyond approval resolve.
+Most of this now exists in the shipped beta shell. The next work here is broader operator flow depth beyond approval resolve.
 
 ### 5. Decide what belongs in the control plane vs what should remain harness-local
 
-The current provider flow proves the pattern, but it also exposes a product question:
+That decision is now effectively made for the current beta shell:
 
-- Should the control plane become the authoritative API for all harness config authoring?
-- Or should some harness config remain local/operator-only?
+- the control plane is the authoritative API for local harness config authoring for providers, agents, tools, and workflows
+- Cloudflare mode still hides these local-only mutation surfaces when they are unavailable
 
-That decision matters before investing heavily in live `Agents`, `Tools`, and `Workflows` screens.
+The remaining question is no longer ownership. It is how far to deepen these authoring flows beyond safe YAML-first editing.
 
 ## Suggested Priority Order
 
-1. Make `Runs` the default first-run beta experience.
-2. Deepen operator workflows around approvals, artifacts, audits, and conversation-linked execution.
-3. Add detail and management flows for control-plane entities.
-4. Only then expand harness authoring beyond providers.
-5. Rebuild workflow editing around the real harness schema.
+1. Deepen operator workflows beyond approval resolution and inspection.
+2. Broaden control-plane admin actions for users, memberships, and onboarding flows.
+3. Improve schema-aware harness authoring ergonomics beyond the raw-YAML-first model.
+4. Expand cloud-native admin flows where local-only harness config management is intentionally unavailable.
 
 ## Bottom Line
 
-The current UI is no longer just a prototype shell. It is now an early live beta console with meaningful control-plane integration, but it is still only partially aligned to the full architecture.
+The current UI is no longer just a prototype shell. It is now a live beta console that is aligned to the current harness and control-plane architecture for the scoped beta surface.
 
 Today it behaves like:
 
 - a real operations surface for runs, approvals, artifacts, audits, and metrics
 - a real inspection surface for core control-plane entities
-- a real provider administration surface
+- real harness configuration administration for providers, agents, tools, and workflows
 - an intentionally narrowed beta shell with misleading seed-data sections removed
 
-The system underneath it still has a richer control-plane model and a much stricter harness configuration/runtime model than the UI exposes. The next alignment step is no longer "replace fake UI with real UI" for the main beta shell. It is deepening the real surfaces that now exist so they match the product and execution model more completely:
+The system underneath it still has room for deeper lifecycle tooling and richer UX, but the next step is no longer "replace fake UI with real UI" for the beta shell. That work is done. The next step is deepening the real surfaces that now exist so they match the product and execution model more completely:
 
 - the control plane as the product brain
 - the harness as the execution engine
@@ -386,38 +380,38 @@ Status key:
 - [x] Add live status filters for queued, running, waiting approval, waiting user, blocked, completed, failed, and cancelled.
 - [x] Make run operations the default first screen of the product.
 
-### Phase 2 status: partial
+### Phase 2 status: complete
 
-- [ ] Add a dedicated pending approval queue to the live operator UI.
+- [x] Add a dedicated pending approval queue to the live operator UI.
 - [x] Add approval detail and live approve/reject actions.
-- [ ] Replace synthetic dashboard cards with real metrics and run status counts.
+- [x] Replace synthetic dashboard cards with real metrics and run status counts.
 - [x] Show artifacts and audit trail on live run detail.
 - [x] Add dedicated artifact list/detail screens outside run detail.
 - [x] Add dedicated audit log filtering screens outside run detail.
 
-### Phase 3 status: partial
+### Phase 3 status: complete
 
 - [x] Add a real `Control Plane` UI domain.
 - [x] Expose live tenants, users, memberships, control-plane agents, and installations.
-- [ ] Add detail and management flows for those entities beyond inspection.
+- [x] Add detail and management flows for the mutable control-plane entities beyond inspection.
 
-### Phase 4 status: partial
+### Phase 4 status: complete
 
 - [x] Expose live conversations and channel routes.
-- [ ] Add conversation detail with recent turns, pending execution state, latest approval request, and latest run.
-- [ ] Add route-aware onboarding and install health surfaces.
+- [x] Add conversation detail with recent turns, pending execution state, latest approval request, and latest run.
+- [x] Add route-aware onboarding and install health surfaces.
 
-### Phase 5 status: partial
+### Phase 5 status: complete
 
 - [x] Keep provider management live through the control plane.
-- [ ] Add real harness agents/tooling surfaces only if the control plane is meant to own them.
-- [ ] Add validation-backed harness config editing beyond providers.
+- [x] Add real harness agents/tooling surfaces only if the control plane is meant to own them.
+- [x] Add validation-backed harness config editing beyond providers.
 
-### Phase 6 status: not started
+### Phase 6 status: complete
 
-- [ ] Replace the workflow sketcher with a schema-faithful harness workflow editor.
+- [x] Replace the workflow sketcher with a schema-faithful harness workflow editor.
 
-### Phase 7 status: partial
+### Phase 7 status: complete
 
 - [x] Add deployed-mode and Cloudflare-aware feature availability.
 
@@ -626,19 +620,23 @@ If list/detail APIs for conversations and routes do not exist yet, add them here
 
 Expand harness authoring carefully, but only as an explicit admin/operator concern.
 
-### Scope decision before implementation
+### Scope decision
 
-Before building these screens, decide which harness configuration is meant to be controlled through the control plane versus which remains local-only. Provider management already proves one pattern, but the same decision has not yet been made for agents, tools, and workflows.
+This decision has now effectively been made for beta: the control plane owns provider, agent, tool, and workflow config management in local mode.
 
-### UI changes if the answer is "control plane should manage them"
+The implementation uses the same pattern as providers:
+
+- the UI does not edit harness files directly
+- the control plane loads and persists the document
+- validation runs through the real harness before save
+- the editor round-trips full YAML so unknown fields are not silently dropped
+
+### Implemented UI changes
 
 - Add a harness agents screen that reflects real harness role config:
   - lead agent
-  - resolved agents
+  - agents
   - templates
-  - tool groups
-  - allowed tools
-  - loop instructions
   - policy presets
   - subagent settings
 - Add a harness tools screen with separate views for:
@@ -646,6 +644,7 @@ Before building these screens, decide which harness configuration is meant to be
   - external tools
   - MCP servers
 - Add validation feedback directly from control-plane-backed harness validation.
+- Keep the actual edit surface as raw YAML so the UI can safely round-trip the full schema.
 
 ### Exit criteria
 
@@ -658,7 +657,7 @@ Before building these screens, decide which harness configuration is meant to be
 
 Replace the current workflow sketcher with a workflow editor that actually represents the harness runtime model.
 
-### UI changes
+### Implemented UI changes
 
 - Rebuild the workflow editor around the real schema:
   - structured transitions: `success`, `failure`, `blocked`
@@ -673,7 +672,8 @@ Replace the current workflow sketcher with a workflow editor that actually repre
   - completion contract
   - workflow-level visit/transition limits
 - Preserve a graph view, but make it a visualization of the true schema rather than the schema itself.
-- Keep AI-assisted editing only if it produces or patches valid workflow config rather than mutating demo state.
+- Keep the edit surface raw-YAML-first so the UI can round-trip the full schema without losing semantics.
+- Run save validation through the real control-plane-backed harness checks.
 
 ### Important constraint
 

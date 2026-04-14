@@ -1,5 +1,534 @@
 part of 'main.dart';
 
+class _SummaryPage extends StatefulWidget {
+  const _SummaryPage({required this.operationsApi});
+
+  final OperationsApi operationsApi;
+
+  @override
+  State<_SummaryPage> createState() => _SummaryPageState();
+}
+
+class _SummaryPageState extends State<_SummaryPage> {
+  bool _loading = true;
+  String? _error;
+  MetricsSnapshot? _metrics;
+  List<RunRecord> _runs = <RunRecord>[];
+  List<ApprovalRecord> _pendingApprovals = <ApprovalRecord>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait<dynamic>(<Future<dynamic>>[
+        widget.operationsApi.getMetrics(),
+        widget.operationsApi.listRuns(),
+        widget.operationsApi.listApprovals(
+          query: const ApprovalQuery(decision: 'pending'),
+        ),
+      ]);
+      setState(() {
+        _metrics = results[0] as MetricsSnapshot;
+        _runs = results[1] as List<RunRecord>;
+        _pendingApprovals = results[2] as List<ApprovalRecord>;
+        _loading = false;
+      });
+    } catch (error) {
+      setState(() {
+        _error = error.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return _ErrorState(message: _error!, onRetry: _load);
+    }
+
+    final metrics = _metrics!;
+    final recentRuns = _runs.take(6).toList();
+    final sortedStatusEntries = metrics.runStatusCounts.entries.toList()
+      ..sort((MapEntry<String, int> a, MapEntry<String, int> b) {
+        final valueCompare = b.value.compareTo(a.value);
+        if (valueCompare != 0) {
+          return valueCompare;
+        }
+        return a.key.compareTo(b.key);
+      });
+
+    return ListView(
+      children: [
+        Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: [
+            _MetricCard(
+              label: 'Pending approvals',
+              value: '${_pendingApprovals.length}',
+              tone: _warning,
+              detail: 'Live operator queue',
+            ),
+            _MetricCard(
+              label: 'Avg run latency',
+              value: '${metrics.runLatencySecs.toStringAsFixed(1)}s',
+              tone: _info,
+              detail: 'Completed runs',
+            ),
+            _MetricCard(
+              label: 'Avg approval latency',
+              value: '${metrics.approvalLatencySecs.toStringAsFixed(1)}s',
+              tone: _accent,
+              detail: 'Resolved approvals',
+            ),
+            _MetricCard(
+              label: 'Integration errors',
+              value: '${metrics.integrationErrors}',
+              tone: metrics.integrationErrors > 0 ? _danger : _success,
+              detail: 'Observed control-plane errors',
+            ),
+            _MetricCard(
+              label: 'Installations',
+              value: '${metrics.installations}',
+              tone: _success,
+              detail: 'Bound channel integrations',
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _Panel(
+          title: 'Run status counts',
+          trailing: FilledButton.icon(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Refresh'),
+          ),
+          child: sortedStatusEntries.isEmpty
+              ? const _EmptyState(
+                  title: 'No run metrics',
+                  body:
+                      'Run metrics will appear once the control plane records execution history.',
+                )
+              : Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: sortedStatusEntries
+                      .map(
+                        (MapEntry<String, int> entry) => Container(
+                          width: 180,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: _panelAlt,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: _border),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _StatusPill(
+                                label: entry.key,
+                                color: _statusColor(entry.key),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                '${entry.value}',
+                                style: const TextStyle(
+                                  color: _textPrimary,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+        ),
+        const SizedBox(height: 14),
+        _Panel(
+          title: 'Pending approval queue',
+          child: _pendingApprovals.isEmpty
+              ? const _InfoPanel(
+                  title: 'Approvals',
+                  body: 'There are no pending approvals right now.',
+                )
+              : Column(
+                  children: _pendingApprovals
+                      .take(6)
+                      .map(
+                        (ApprovalRecord approval) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _InfoPanel(
+                            title: approval.approvalRequestId,
+                            body:
+                                'Run: ${approval.runId}\nDecision: ${approval.decision}\nCreated: ${_formatDateTime(approval.createdAt)}\nExpires: ${_formatDateTime(approval.expiresAt)}',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+        ),
+        const SizedBox(height: 14),
+        _Panel(
+          title: 'Recent runs',
+          child: recentRuns.isEmpty
+              ? const _EmptyState(
+                  title: 'No recent runs',
+                  body:
+                      'Submit a run through the control plane to see it here.',
+                )
+              : Column(
+                  children: recentRuns
+                      .map(
+                        (RunRecord run) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _InfoPanel(
+                            title: run.resultSummary.isEmpty
+                                ? run.runId
+                                : run.resultSummary,
+                            body:
+                                'Run: ${run.runId}\nTenant: ${run.tenantId}\nAgent: ${run.agentId}\nStatus: ${run.status}\nCreated: ${_formatDateTime(run.createdAt)}',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ApprovalsPage extends StatefulWidget {
+  const _ApprovalsPage({required this.operationsApi});
+
+  final OperationsApi operationsApi;
+
+  @override
+  State<_ApprovalsPage> createState() => _ApprovalsPageState();
+}
+
+class _ApprovalsPageState extends State<_ApprovalsPage> {
+  bool _loading = true;
+  bool _resolving = false;
+  String? _error;
+  String? _selectedApprovalId;
+  String? _approvalError;
+  final TextEditingController _tenantController = TextEditingController();
+  final TextEditingController _agentController = TextEditingController();
+  final TextEditingController _approverController = TextEditingController();
+  final TextEditingController _reasonController = TextEditingController();
+  List<ApprovalRecord> _approvals = <ApprovalRecord>[];
+  RunRecord? _run;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _tenantController.dispose();
+    _agentController.dispose();
+    _approverController.dispose();
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({String? preferredApprovalId}) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final approvals = await widget.operationsApi.listApprovals(
+        query: ApprovalQuery(
+          tenantId: _tenantController.text.trim(),
+          agentId: _agentController.text.trim(),
+          decision: 'pending',
+        ),
+      );
+      String? selectedApprovalId;
+      for (final candidate in <String?>[
+        preferredApprovalId,
+        _selectedApprovalId,
+        approvals.isEmpty ? null : approvals.first.approvalRequestId,
+      ]) {
+        if (candidate != null &&
+            approvals.any(
+              (ApprovalRecord record) => record.approvalRequestId == candidate,
+            )) {
+          selectedApprovalId = candidate;
+          break;
+        }
+      }
+      RunRecord? run;
+      if (selectedApprovalId != null) {
+        final selected = approvals.firstWhere(
+          (ApprovalRecord record) =>
+              record.approvalRequestId == selectedApprovalId,
+          orElse: () => approvals.first,
+        );
+        run = await widget.operationsApi.getRun(selected.runId);
+      }
+      setState(() {
+        _approvals = approvals;
+        _selectedApprovalId = selectedApprovalId;
+        _run = run;
+        _loading = false;
+      });
+    } catch (error) {
+      setState(() {
+        _error = error.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _selectApproval(String approvalId) async {
+    setState(() {
+      _selectedApprovalId = approvalId;
+      _loading = true;
+      _error = null;
+      _approvalError = null;
+    });
+    await _load(preferredApprovalId: approvalId);
+  }
+
+  Future<void> _resolve(String decision) async {
+    final selected = _selectedApproval;
+    if (selected == null) {
+      return;
+    }
+    if (_approverController.text.trim().isEmpty) {
+      setState(() {
+        _approvalError = 'Approver ID is required to resolve approval.';
+      });
+      return;
+    }
+    setState(() {
+      _resolving = true;
+      _approvalError = null;
+    });
+    try {
+      await widget.operationsApi.resolveApproval(
+        approvalRequestId: selected.approvalRequestId,
+        approverId: _approverController.text.trim(),
+        decision: decision,
+        reason: _reasonController.text.trim(),
+      );
+      _reasonController.clear();
+      await _load();
+    } catch (error) {
+      setState(() {
+        _approvalError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _resolving = false);
+      }
+    }
+  }
+
+  ApprovalRecord? get _selectedApproval {
+    if (_selectedApprovalId == null) {
+      return null;
+    }
+    for (final approval in _approvals) {
+      if (approval.approvalRequestId == _selectedApprovalId) {
+        return approval;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return _ErrorState(message: _error!, onRetry: _load);
+    }
+
+    final approval = _selectedApproval;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final stacked = constraints.maxWidth < 1120;
+        final queuePane = _Panel(
+          title: 'Pending approvals',
+          fill: true,
+          trailing: FilledButton.icon(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Refresh'),
+          ),
+          child: Column(
+            children: [
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  SizedBox(
+                    width: 180,
+                    child: TextFormField(
+                      controller: _tenantController,
+                      decoration: const InputDecoration(labelText: 'Tenant'),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 180,
+                    child: TextFormField(
+                      controller: _agentController,
+                      decoration: const InputDecoration(labelText: 'Agent'),
+                    ),
+                  ),
+                  FilledButton(
+                    onPressed: _load,
+                    child: const Text('Apply filters'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: _approvals.isEmpty
+                    ? const _EmptyState(
+                        title: 'No pending approvals',
+                        body:
+                            'The live approval queue is empty for the current filters.',
+                      )
+                    : ListView.separated(
+                        itemCount: _approvals.length,
+                        separatorBuilder: (_, _) =>
+                            const Divider(color: _border),
+                        itemBuilder: (BuildContext context, int index) {
+                          final record = _approvals[index];
+                          final selected =
+                              record.approvalRequestId == _selectedApprovalId;
+                          return InkWell(
+                            onTap: () =>
+                                _selectApproval(record.approvalRequestId),
+                            borderRadius: BorderRadius.circular(14),
+                            child: Ink(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? _panelRaised
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: selected
+                                      ? _accent
+                                      : Colors.transparent,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          record.approvalRequestId,
+                                          style: const TextStyle(
+                                            color: _textPrimary,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      _StatusPill(
+                                        label: record.decision,
+                                        color: _warning,
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Run ${record.runId}',
+                                    style: const TextStyle(color: _textMuted),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Created ${_formatDateTime(record.createdAt)}',
+                                    style: const TextStyle(color: _textSubtle),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+
+        final detailPane = _Panel(
+          title: 'Approval detail',
+          fill: true,
+          child: approval == null
+              ? const _EmptyState(
+                  title: 'No approval selected',
+                  body:
+                      'Choose a pending approval from the queue to inspect and resolve it.',
+                )
+              : ListView(
+                  children: [
+                    if (_run != null)
+                      _InfoPanel(
+                        title: 'Linked run',
+                        body:
+                            'Run: ${_run!.runId}\nTenant: ${_run!.tenantId}\nAgent: ${_run!.agentId}\nStatus: ${_run!.status}\nSummary: ${_blankAsUnknown(_run!.resultSummary)}',
+                      ),
+                    if (_run != null) const SizedBox(height: 12),
+                    _ApprovalPanel(
+                      approval: approval,
+                      approvalError: _approvalError,
+                      resolvingApproval: _resolving,
+                      approverController: _approverController,
+                      approvalReasonController: _reasonController,
+                      onApprove: () => _resolve('approved'),
+                      onReject: () => _resolve('rejected'),
+                    ),
+                  ],
+                ),
+        );
+
+        if (stacked) {
+          return Column(
+            children: [
+              SizedBox(height: 420, child: queuePane),
+              const SizedBox(height: 14),
+              Expanded(child: detailPane),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            SizedBox(width: 390, child: queuePane),
+            const SizedBox(width: 14),
+            Expanded(child: detailPane),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _RunsPage extends StatefulWidget {
   const _RunsPage({required this.operationsApi, required this.initialRunId});
 
@@ -20,6 +549,9 @@ class _RunsPageState extends State<_RunsPage> {
   List<RunRecord> _runs = <RunRecord>[];
   String? _selectedRunId;
   RunRecord? _runDetail;
+  HarnessExecutionStateRecord? _harnessExecutionState;
+  bool _harnessExecutionStateUnavailable = false;
+  String? _harnessExecutionStateError;
   ApprovalRecord? _approval;
   List<ArtifactRecord> _artifacts = <ArtifactRecord>[];
   List<AuditRecord> _audits = <AuditRecord>[];
@@ -62,10 +594,18 @@ class _RunsPageState extends State<_RunsPage> {
     });
     try {
       final runs = await widget.operationsApi.listRuns(query: _currentQuery());
-      final selected =
-          preferredRunId ??
-          _selectedRunId ??
-          (runs.isNotEmpty ? runs.first.runId : null);
+      String? selected;
+      for (final candidate in <String?>[
+        preferredRunId,
+        _selectedRunId,
+        runs.isNotEmpty ? runs.first.runId : null,
+      ]) {
+        if (candidate != null &&
+            runs.any((RunRecord run) => run.runId == candidate)) {
+          selected = candidate;
+          break;
+        }
+      }
       setState(() {
         _runs = runs;
         _selectedRunId = selected;
@@ -76,6 +616,9 @@ class _RunsPageState extends State<_RunsPage> {
       } else {
         setState(() {
           _runDetail = null;
+          _harnessExecutionState = null;
+          _harnessExecutionStateUnavailable = false;
+          _harnessExecutionStateError = null;
           _approval = null;
           _artifacts = <ArtifactRecord>[];
           _audits = <AuditRecord>[];
@@ -94,6 +637,7 @@ class _RunsPageState extends State<_RunsPage> {
       _selectedRunId = runId;
       _loadingDetail = true;
       _detailError = null;
+      _harnessExecutionStateError = null;
       _approvalError = null;
     });
     try {
@@ -103,9 +647,26 @@ class _RunsPageState extends State<_RunsPage> {
         widget.operationsApi.listArtifacts(runId: runId),
         widget.operationsApi.listAudits(runId: runId),
       ]);
+      HarnessExecutionStateRecord? harnessExecutionState;
+      var harnessExecutionStateUnavailable = false;
+      String? harnessExecutionStateError;
+      try {
+        harnessExecutionState = await widget.operationsApi
+            .getRunHarnessExecutionState(runId);
+      } catch (error) {
+        final message = error.toString();
+        if (message.toLowerCase().contains('unavailable')) {
+          harnessExecutionStateUnavailable = true;
+        } else {
+          harnessExecutionStateError = message;
+        }
+      }
       setState(() {
         _runDetail = results[0] as RunRecord;
         final approvals = results[1] as List<ApprovalRecord>;
+        _harnessExecutionState = harnessExecutionState;
+        _harnessExecutionStateUnavailable = harnessExecutionStateUnavailable;
+        _harnessExecutionStateError = harnessExecutionStateError;
         _approval = approvals.isEmpty ? null : approvals.first;
         _artifacts = results[2] as List<ArtifactRecord>;
         _audits = results[3] as List<AuditRecord>;
@@ -225,6 +786,9 @@ class _RunsPageState extends State<_RunsPage> {
           loading: _loadingDetail,
           error: _detailError,
           run: _runDetail,
+          harnessExecutionState: _harnessExecutionState,
+          harnessExecutionStateUnavailable: _harnessExecutionStateUnavailable,
+          harnessExecutionStateError: _harnessExecutionStateError,
           approval: _approval,
           approvalError: _approvalError,
           resolvingApproval: _resolvingApproval,
@@ -520,6 +1084,9 @@ class _RunDetailPane extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.run,
+    required this.harnessExecutionState,
+    required this.harnessExecutionStateUnavailable,
+    required this.harnessExecutionStateError,
     required this.approval,
     required this.approvalError,
     required this.resolvingApproval,
@@ -535,6 +1102,9 @@ class _RunDetailPane extends StatelessWidget {
   final bool loading;
   final String? error;
   final RunRecord? run;
+  final HarnessExecutionStateRecord? harnessExecutionState;
+  final bool harnessExecutionStateUnavailable;
+  final String? harnessExecutionStateError;
   final ApprovalRecord? approval;
   final String? approvalError;
   final bool resolvingApproval;
@@ -610,6 +1180,12 @@ class _RunDetailPane extends StatelessWidget {
             title: 'Execution',
             body:
                 'Invocation mode: ${_blankAsUnknown(run!.invocationMode)}\nRequested autonomy: ${_blankAsUnknown(run!.requestedAutonomyMode)}\nWait reason: ${_blankAsUnknown(run!.waitReason)}\nArtifact manifest: ${_blankAsUnknown(run!.artifactManifestReference)}',
+          ),
+          const SizedBox(height: 12),
+          _HarnessExecutionStatePanel(
+            state: harnessExecutionState,
+            unavailable: harnessExecutionStateUnavailable,
+            error: harnessExecutionStateError,
           ),
           const SizedBox(height: 12),
           _ApprovalPanel(
@@ -720,6 +1296,234 @@ class _RunDetailPane extends StatelessWidget {
       ),
     );
   }
+}
+
+class _HarnessExecutionStatePanel extends StatelessWidget {
+  const _HarnessExecutionStatePanel({
+    required this.state,
+    required this.unavailable,
+    required this.error,
+  });
+
+  final HarnessExecutionStateRecord? state;
+  final bool unavailable;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    if (unavailable) {
+      return const _InfoPanel(
+        title: 'Harness execution state',
+        body:
+            'This deployment mode cannot inspect local harness session files. Switch to local mode to inspect workflow execution state for this run.',
+      );
+    }
+    if (error != null) {
+      return _InfoPanel(title: 'Harness execution state', body: error!);
+    }
+    if (state == null) {
+      return const _InfoPanel(
+        title: 'Harness execution state',
+        body: 'No harness session state was recorded for this run.',
+      );
+    }
+
+    final session = state!.session;
+    final workflow = session?.workflowState;
+    final blocker = workflow?.blocker ?? session?.blocker;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _panelAlt,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Harness execution state',
+                  style: TextStyle(
+                    color: _textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              _StatusPill(
+                label: session?.status.isNotEmpty == true
+                    ? session!.status
+                    : state!.runStatus,
+                color: _statusColor(
+                  session?.status.isNotEmpty == true
+                      ? _normalizedHarnessStatus(session!.status)
+                      : state!.runStatus,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _MetricCard(
+                label: 'Current node',
+                value: _blankAsUnknown(workflow?.currentNodeId ?? ''),
+                tone: _accent,
+                detail: 'Active workflow node',
+              ),
+              _MetricCard(
+                label: 'Transitions',
+                value: '${workflow?.transitionCount ?? 0}',
+                tone: _info,
+                detail: 'Recorded workflow hops',
+              ),
+              _MetricCard(
+                label: 'Node results',
+                value: '${workflow?.nodeResults.length ?? 0}',
+                tone: _success,
+                detail: 'Persisted node outcomes',
+              ),
+              _MetricCard(
+                label: 'State source',
+                value: _blankAsUnknown(state!.stateSource),
+                tone: _warning,
+                detail: 'Manifest/session origin',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _InfoPanel(
+            title: 'Session',
+            body:
+                'Run status: ${_blankAsUnknown(state!.runStatus)}\nWait reason: ${_blankAsUnknown(state!.runWaitReason)}\nWorkflow: ${_blankAsUnknown(session?.workflowName ?? '')}\nPending question: ${_blankAsUnknown(session?.pendingQuestion ?? '')}\nWaiting reason: ${_blankAsUnknown(session?.waitingReason ?? workflow?.waitingReason ?? '')}\nSummary: ${_blankAsUnknown(session?.summary ?? state!.resultSummary)}\nError: ${_blankAsUnknown(session?.error ?? '')}',
+          ),
+          const SizedBox(height: 10),
+          _InfoPanel(
+            title: 'Execution files',
+            body:
+                'Session ID: ${_blankAsUnknown(state!.manifest.sessionId)}\nWorking directory: ${_blankAsUnknown(state!.manifest.workingDirectory)}\nCommand: ${_blankAsUnknown(state!.manifest.command.join(' '))}\nRequest file: ${_blankAsUnknown(state!.manifest.requestFile)}\nGoal file: ${_blankAsUnknown(state!.manifest.goalFile)}\nStdout file: ${_blankAsUnknown(state!.manifest.stdoutFile)}\nStderr file: ${_blankAsUnknown(state!.manifest.stderrFile)}\nSession file: ${_blankAsUnknown(state!.manifest.sessionFile)}\nHarness state file: ${_blankAsUnknown(state!.manifest.harnessStateFile)}',
+          ),
+          if (blocker != null) ...<Widget>[
+            const SizedBox(height: 10),
+            _InfoPanel(
+              title: 'Blocker',
+              body:
+                  'Code: ${_blankAsUnknown(blocker.code)}\nNode: ${_blankAsUnknown(blocker.nodeId)}\nRetryable: ${blocker.retryable ? 'yes' : 'no'}\nSummary: ${_blankAsUnknown(blocker.summary)}',
+            ),
+          ],
+          if (workflow != null &&
+              (workflow.nodeVisitCounts.isNotEmpty ||
+                  workflow.nodeFailureCounts.isNotEmpty)) ...<Widget>[
+            const SizedBox(height: 10),
+            _InfoPanel(
+              title: 'Workflow counters',
+              body: _joinNonEmpty(<String>[
+                if (workflow.artifactDir.isNotEmpty)
+                  'Artifact dir: ${workflow.artifactDir}',
+                if (workflow.nodeVisitCounts.isNotEmpty)
+                  'Visits: ${_formatIntMap(workflow.nodeVisitCounts)}',
+                if (workflow.nodeFailureCounts.isNotEmpty)
+                  'Failures: ${_formatIntMap(workflow.nodeFailureCounts)}',
+              ]),
+            ),
+          ],
+          if (session?.finalResult != null) ...<Widget>[
+            const SizedBox(height: 10),
+            _InfoPanel(
+              title: 'Final result',
+              body: _joinNonEmpty(<String>[
+                'Status: ${_blankAsUnknown(session!.finalResult!.status)}',
+                'Summary: ${_blankAsUnknown(session.finalResult!.summary)}',
+                if (session.finalResult!.artifacts.isNotEmpty)
+                  'Artifacts: ${session.finalResult!.artifacts.join(', ')}',
+                if (session.finalResult!.data.isNotEmpty)
+                  'Data: ${_formatStringMap(session.finalResult!.data)}',
+              ]),
+            ),
+          ],
+          const SizedBox(height: 10),
+          _SubsectionTitle('Node results'),
+          const SizedBox(height: 8),
+          if (workflow == null || workflow.nodeResults.isEmpty)
+            const _InfoPanel(
+              title: 'Node results',
+              body: 'No workflow node results were captured for this run.',
+            )
+          else
+            ...workflow.nodeResults.map(
+              (HarnessExecutionNodeResultRecord result) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _InfoPanel(
+                  title: result.nodeId,
+                  body: _joinNonEmpty(<String>[
+                    'Outcome: ${_blankAsUnknown(result.outcome)}',
+                    if (result.gateStatus.isNotEmpty)
+                      'Gate status: ${result.gateStatus}',
+                    'Retryable: ${result.retryable ? 'yes' : 'no'}',
+                    if (result.errorCode.isNotEmpty)
+                      'Error code: ${result.errorCode}',
+                    'Summary: ${_blankAsUnknown(result.summary)}',
+                    if (result.artifacts.isNotEmpty)
+                      'Artifacts: ${result.artifacts.join(', ')}',
+                    if (result.metadata.isNotEmpty)
+                      'Metadata: ${_formatStringMap(result.metadata)}',
+                  ]),
+                ),
+              ),
+            ),
+          if (state!.manifest.metadata.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 10),
+            _InfoPanel(
+              title: 'Manifest metadata',
+              body: _formatStringMap(state!.manifest.metadata),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+String _normalizedHarnessStatus(String status) {
+  switch (status.trim()) {
+    case 'waiting_for_user':
+      return 'waiting_user';
+    case 'waiting_for_approval':
+      return 'waiting_approval';
+    default:
+      return status.trim();
+  }
+}
+
+String _formatStringMap(Map<String, String> values) {
+  if (values.isEmpty) {
+    return 'not set';
+  }
+  final entries = values.entries.toList()
+    ..sort((MapEntry<String, String> a, MapEntry<String, String> b) {
+      return a.key.compareTo(b.key);
+    });
+  return entries
+      .map((MapEntry<String, String> entry) => '${entry.key}: ${entry.value}')
+      .join('\n');
+}
+
+String _formatIntMap(Map<String, int> values) {
+  if (values.isEmpty) {
+    return 'not set';
+  }
+  final entries = values.entries.toList()
+    ..sort((MapEntry<String, int> a, MapEntry<String, int> b) {
+      return a.key.compareTo(b.key);
+    });
+  return entries
+      .map((MapEntry<String, int> entry) => '${entry.key}=${entry.value}')
+      .join(', ');
 }
 
 class _ArtifactsPage extends StatefulWidget {

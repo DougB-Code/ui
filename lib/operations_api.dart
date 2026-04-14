@@ -314,6 +314,281 @@ class RunRecord {
   final RuntimeProfileSnapshot profileSnapshot;
 }
 
+class HarnessExecutionBlockerRecord {
+  HarnessExecutionBlockerRecord({
+    required this.code,
+    required this.nodeId,
+    required this.summary,
+    required this.retryable,
+  });
+
+  factory HarnessExecutionBlockerRecord.fromJson(Map<String, dynamic> json) {
+    return HarnessExecutionBlockerRecord(
+      code: (json['code'] as String? ?? '').trim(),
+      nodeId: (json['node_id'] as String? ?? '').trim(),
+      summary: (json['summary'] as String? ?? '').trim(),
+      retryable: json['retryable'] as bool? ?? false,
+    );
+  }
+
+  final String code;
+  final String nodeId;
+  final String summary;
+  final bool retryable;
+}
+
+class HarnessExecutionNodeResultRecord {
+  HarnessExecutionNodeResultRecord({
+    required this.nodeId,
+    required this.outcome,
+    required this.gateStatus,
+    required this.summary,
+    required this.errorCode,
+    required this.retryable,
+    required this.artifacts,
+    required this.metadata,
+  });
+
+  factory HarnessExecutionNodeResultRecord.fromJson(Map<String, dynamic> json) {
+    return HarnessExecutionNodeResultRecord(
+      nodeId: (json['node_id'] as String? ?? '').trim(),
+      outcome: (json['outcome'] as String? ?? '').trim(),
+      gateStatus: (json['gate_status'] as String? ?? '').trim(),
+      summary: (json['summary'] as String? ?? '').trim(),
+      errorCode: (json['error_code'] as String? ?? '').trim(),
+      retryable: json['retryable'] as bool? ?? false,
+      artifacts: (json['artifacts'] as List<dynamic>? ?? <dynamic>[])
+          .map((dynamic value) => value.toString())
+          .toList(),
+      metadata: _parseStringMap(json['metadata']),
+    );
+  }
+
+  final String nodeId;
+  final String outcome;
+  final String gateStatus;
+  final String summary;
+  final String errorCode;
+  final bool retryable;
+  final List<String> artifacts;
+  final Map<String, String> metadata;
+}
+
+class HarnessWorkflowExecutionStateRecord {
+  HarnessWorkflowExecutionStateRecord({
+    required this.currentNodeId,
+    required this.artifactDir,
+    required this.waitingReason,
+    required this.transitionCount,
+    required this.nodeVisitCounts,
+    required this.nodeFailureCounts,
+    required this.blocker,
+    required this.nodeResults,
+  });
+
+  factory HarnessWorkflowExecutionStateRecord.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return HarnessWorkflowExecutionStateRecord(
+      currentNodeId: (json['current_node_id'] as String? ?? '').trim(),
+      artifactDir: (json['artifact_dir'] as String? ?? '').trim(),
+      waitingReason: (json['waiting_reason'] as String? ?? '').trim(),
+      transitionCount: json['transition_count'] as int? ?? 0,
+      nodeVisitCounts: _parseIntMap(json['node_visit_counts']),
+      nodeFailureCounts: _parseIntMap(json['node_failure_counts']),
+      blocker: (json['blocker'] as Map<String, dynamic>?) == null
+          ? null
+          : HarnessExecutionBlockerRecord.fromJson(
+              json['blocker'] as Map<String, dynamic>,
+            ),
+      nodeResults: (json['node_results'] as List<dynamic>? ?? <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(HarnessExecutionNodeResultRecord.fromJson)
+          .toList(),
+    );
+  }
+
+  final String currentNodeId;
+  final String artifactDir;
+  final String waitingReason;
+  final int transitionCount;
+  final Map<String, int> nodeVisitCounts;
+  final Map<String, int> nodeFailureCounts;
+  final HarnessExecutionBlockerRecord? blocker;
+  final List<HarnessExecutionNodeResultRecord> nodeResults;
+}
+
+class HarnessExecutionStructuredResultRecord {
+  HarnessExecutionStructuredResultRecord({
+    required this.status,
+    required this.summary,
+    required this.artifacts,
+    required this.data,
+  });
+
+  factory HarnessExecutionStructuredResultRecord.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return HarnessExecutionStructuredResultRecord(
+      status: (json['status'] as String? ?? '').trim(),
+      summary: (json['summary'] as String? ?? '').trim(),
+      artifacts: (json['artifacts'] as List<dynamic>? ?? <dynamic>[])
+          .map((dynamic value) => value.toString())
+          .toList(),
+      data: _parseStringMap(json['data']),
+    );
+  }
+
+  final String status;
+  final String summary;
+  final List<String> artifacts;
+  final Map<String, String> data;
+}
+
+class HarnessSessionExecutionStateRecord {
+  HarnessSessionExecutionStateRecord({
+    required this.status,
+    required this.summary,
+    required this.error,
+    required this.pendingQuestion,
+    required this.waitingReason,
+    required this.workflowName,
+    required this.finalResult,
+    required this.blocker,
+    required this.workflowState,
+  });
+
+  factory HarnessSessionExecutionStateRecord.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return HarnessSessionExecutionStateRecord(
+      status: (json['status'] as String? ?? '').trim(),
+      summary: (json['summary'] as String? ?? '').trim(),
+      error: (json['error'] as String? ?? '').trim(),
+      pendingQuestion: (json['pending_question'] as String? ?? '').trim(),
+      waitingReason: (json['waiting_reason'] as String? ?? '').trim(),
+      workflowName: (json['workflow_name'] as String? ?? '').trim(),
+      finalResult: (json['final_result'] as Map<String, dynamic>?) == null
+          ? null
+          : HarnessExecutionStructuredResultRecord.fromJson(
+              json['final_result'] as Map<String, dynamic>,
+            ),
+      blocker: (json['blocker'] as Map<String, dynamic>?) == null
+          ? null
+          : HarnessExecutionBlockerRecord.fromJson(
+              json['blocker'] as Map<String, dynamic>,
+            ),
+      workflowState: (json['workflow_state'] as Map<String, dynamic>?) == null
+          ? null
+          : HarnessWorkflowExecutionStateRecord.fromJson(
+              json['workflow_state'] as Map<String, dynamic>,
+            ),
+    );
+  }
+
+  final String status;
+  final String summary;
+  final String error;
+  final String pendingQuestion;
+  final String waitingReason;
+  final String workflowName;
+  final HarnessExecutionStructuredResultRecord? finalResult;
+  final HarnessExecutionBlockerRecord? blocker;
+  final HarnessWorkflowExecutionStateRecord? workflowState;
+}
+
+class HarnessExecutionManifestRecord {
+  HarnessExecutionManifestRecord({
+    required this.sessionId,
+    required this.command,
+    required this.workingDirectory,
+    required this.goalFile,
+    required this.requestFile,
+    required this.stdoutFile,
+    required this.stderrFile,
+    required this.sessionFile,
+    required this.harnessStateFile,
+    required this.status,
+    required this.summary,
+    required this.artifacts,
+    required this.metadata,
+  });
+
+  factory HarnessExecutionManifestRecord.fromJson(Map<String, dynamic> json) {
+    return HarnessExecutionManifestRecord(
+      sessionId: (json['session_id'] as String? ?? '').trim(),
+      command: (json['command'] as List<dynamic>? ?? <dynamic>[])
+          .map((dynamic value) => value.toString())
+          .toList(),
+      workingDirectory: (json['working_directory'] as String? ?? '').trim(),
+      goalFile: (json['goal_file'] as String? ?? '').trim(),
+      requestFile: (json['request_file'] as String? ?? '').trim(),
+      stdoutFile: (json['stdout_file'] as String? ?? '').trim(),
+      stderrFile: (json['stderr_file'] as String? ?? '').trim(),
+      sessionFile: (json['session_file'] as String? ?? '').trim(),
+      harnessStateFile: (json['harness_state_file'] as String? ?? '').trim(),
+      status: (json['status'] as String? ?? '').trim(),
+      summary: (json['summary'] as String? ?? '').trim(),
+      artifacts: (json['artifacts'] as List<dynamic>? ?? <dynamic>[])
+          .map((dynamic value) => value.toString())
+          .toList(),
+      metadata: _parseStringMap(json['metadata']),
+    );
+  }
+
+  final String sessionId;
+  final List<String> command;
+  final String workingDirectory;
+  final String goalFile;
+  final String requestFile;
+  final String stdoutFile;
+  final String stderrFile;
+  final String sessionFile;
+  final String harnessStateFile;
+  final String status;
+  final String summary;
+  final List<String> artifacts;
+  final Map<String, String> metadata;
+}
+
+class HarnessExecutionStateRecord {
+  HarnessExecutionStateRecord({
+    required this.runId,
+    required this.runStatus,
+    required this.runWaitReason,
+    required this.resultSummary,
+    required this.stateSource,
+    required this.manifest,
+    required this.session,
+  });
+
+  factory HarnessExecutionStateRecord.fromJson(Map<String, dynamic> json) {
+    return HarnessExecutionStateRecord(
+      runId: (json['run_id'] as String? ?? '').trim(),
+      runStatus: (json['run_status'] as String? ?? '').trim(),
+      runWaitReason: (json['run_wait_reason'] as String? ?? '').trim(),
+      resultSummary: (json['result_summary'] as String? ?? '').trim(),
+      stateSource: (json['state_source'] as String? ?? '').trim(),
+      manifest: HarnessExecutionManifestRecord.fromJson(
+        (json['manifest'] as Map<String, dynamic>? ?? <String, dynamic>{}),
+      ),
+      session: (json['session'] as Map<String, dynamic>?) == null
+          ? null
+          : HarnessSessionExecutionStateRecord.fromJson(
+              json['session'] as Map<String, dynamic>,
+            ),
+    );
+  }
+
+  final String runId;
+  final String runStatus;
+  final String runWaitReason;
+  final String resultSummary;
+  final String stateSource;
+  final HarnessExecutionManifestRecord manifest;
+  final HarnessSessionExecutionStateRecord? session;
+}
+
 class ArtifactRecord {
   ArtifactRecord({
     required this.artifactId,
@@ -545,6 +820,8 @@ abstract class OperationsApi {
 
   Future<RunRecord> getRun(String runId);
 
+  Future<HarnessExecutionStateRecord> getRunHarnessExecutionState(String runId);
+
   Future<List<ApprovalRecord>> listApprovals({
     ApprovalQuery query = const ApprovalQuery(),
   });
@@ -594,6 +871,18 @@ class HttpOperationsApi implements OperationsApi {
     );
     final payload = await _decodeJsonMap(response);
     return RunRecord.fromJson(payload);
+  }
+
+  @override
+  Future<HarnessExecutionStateRecord> getRunHarnessExecutionState(
+    String runId,
+  ) async {
+    final response = await _client.get(
+      _uri('/v1/admin/runs/${Uri.encodeComponent(runId)}/harness-state'),
+      headers: _headers(),
+    );
+    final payload = await _decodeJsonMap(response);
+    return HarnessExecutionStateRecord.fromJson(payload);
   }
 
   @override
@@ -776,4 +1065,18 @@ DateTime? _parseDateTime(dynamic value) {
     return null;
   }
   return DateTime.tryParse(value)?.toLocal();
+}
+
+Map<String, String> _parseStringMap(dynamic value) {
+  return ((value as Map<String, dynamic>?) ?? <String, dynamic>{}).map(
+    (String key, dynamic entry) =>
+        MapEntry<String, String>(key, entry?.toString() ?? ''),
+  );
+}
+
+Map<String, int> _parseIntMap(dynamic value) {
+  return ((value as Map<String, dynamic>?) ?? <String, dynamic>{}).map(
+    (String key, dynamic entry) =>
+        MapEntry<String, int>(key, (entry as num?)?.toInt() ?? 0),
+  );
 }

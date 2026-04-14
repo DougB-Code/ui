@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/control_plane_api.dart';
+import 'package:ui/harness_config_api.dart';
 import 'package:ui/main.dart';
 import 'package:ui/operations_api.dart';
 import 'package:ui/provider_catalog_api.dart';
@@ -15,24 +16,53 @@ void main() {
       AgentAwesomeBetaApp(
         controlPlaneBaseUrl: 'http://127.0.0.1:8080',
         controlPlaneApi: _FakeControlPlaneApi(),
+        harnessConfigApi: _FakeHarnessConfigApi(),
         operationsApi: _FakeOperationsApi(),
         providerApi: _FakeProviderCatalogApi(),
       ),
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('Summary'), findsWidgets);
     expect(find.text('Runs'), findsWidgets);
+    expect(find.text('Approvals'), findsWidgets);
     expect(find.text('Artifacts'), findsWidgets);
     expect(find.text('Audits'), findsWidgets);
     expect(find.text('Control Plane'), findsWidgets);
+    expect(find.text('Harness Agents'), findsWidgets);
+    expect(find.text('Harness Tools'), findsWidgets);
+    expect(find.text('Harness Workflows'), findsWidgets);
     expect(find.text('Providers'), findsWidgets);
     expect(find.text('Live API'), findsOneWidget);
+
+    await tester.tap(find.text('Summary').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Run status counts'), findsOneWidget);
 
     await tester.tap(find.text('Providers').first);
     await tester.pumpAndSettle();
 
     expect(find.text('openai-prod'), findsWidgets);
     expect(find.text('Provider editor'), findsOneWidget);
+
+    await tester.tap(find.text('Harness Agents').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent YAML'), findsOneWidget);
+    expect(find.text('lead'), findsWidgets);
+
+    await tester.tap(find.text('Harness Tools').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tool YAML'), findsOneWidget);
+    expect(find.text('workspace_read_tools'), findsWidgets);
+
+    await tester.tap(find.text('Harness Workflows').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Workflow YAML'), findsOneWidget);
+    expect(find.text('chat_turn'), findsWidgets);
 
     await tester.tap(find.text('Runs').first);
     await tester.pumpAndSettle();
@@ -43,16 +73,392 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Tenants'), findsWidgets);
-    expect(find.text('Acme'), findsOneWidget);
+    expect(find.text('Acme'), findsWidgets);
+    expect(find.text('Tenant detail'), findsOneWidget);
 
     await tester.binding.setSurfaceSize(null);
   });
+}
+
+class _FakeHarnessConfigApi implements HarnessConfigApi {
+  @override
+  Future<HarnessAgentCatalog> getAgents() async {
+    return HarnessAgentCatalog(
+      configPath: '/tmp/agent.yaml',
+      yaml: 'agent:\n  lead_agent: lead\n',
+      leadAgent: 'lead',
+      approvalMode: 'auto',
+      defaultMaxSteps: 10,
+      recentLedgerLimit: 20,
+      memoryRetentionDays: 30,
+      subagentsEnabled: true,
+      subagentDefaultMaxSteps: 8,
+      policyPresets: <String>['workspace_safe_write'],
+      roleTemplates: <HarnessAgentTemplateSummary>[
+        HarnessAgentTemplateSummary(
+          name: 'general_autonomous',
+          role: 'lead',
+          policyPreset: 'workspace_safe_write',
+          maxSteps: 10,
+          allowedToolGroups: <String>['workspace_read_tools'],
+        ),
+      ],
+      agents: <HarnessAgentSummary>[
+        HarnessAgentSummary(
+          name: 'lead',
+          template: 'general_autonomous',
+          role: 'lead',
+          model: 'openai-prod/gpt-5.4',
+          maxSteps: 10,
+          toolGroups: <String>['workspace_read_tools'],
+          allowedTools: <String>[],
+          policyPreset: '',
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<HarnessToolCatalog> getTools() async {
+    return HarnessToolCatalog(
+      configPath: '/tmp/tool.yaml',
+      yaml: 'tools:\n  tool_groups: []\n',
+      toolGroups: <HarnessToolGroupSummary>[
+        HarnessToolGroupSummary(
+          name: 'workspace_read_tools',
+          tools: <String>['ls', 'cat'],
+        ),
+      ],
+      externalTools: <HarnessExternalToolSummary>[
+        HarnessExternalToolSummary(
+          name: 'patch',
+          enabled: true,
+          trusted: true,
+          toolClass: 'write',
+          location: 'filesystem',
+          command: <String>['patch'],
+          platformOverrideCount: 0,
+        ),
+      ],
+      mcpServers: <HarnessMcpServerSummary>[
+        HarnessMcpServerSummary(
+          name: 'github',
+          enabled: true,
+          trusted: true,
+          lifecycle: 'persistent',
+          transport: 'stdio',
+          url: '',
+          command: <String>['github-mcp'],
+          toolNamePrefix: 'github',
+          platformOverrideCount: 0,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<HarnessAgentCatalog> saveAgents(String yaml) async {
+    final catalog = await getAgents();
+    return HarnessAgentCatalog(
+      configPath: catalog.configPath,
+      yaml: yaml,
+      leadAgent: catalog.leadAgent,
+      approvalMode: catalog.approvalMode,
+      defaultMaxSteps: catalog.defaultMaxSteps,
+      recentLedgerLimit: catalog.recentLedgerLimit,
+      memoryRetentionDays: catalog.memoryRetentionDays,
+      subagentsEnabled: catalog.subagentsEnabled,
+      subagentDefaultMaxSteps: catalog.subagentDefaultMaxSteps,
+      policyPresets: catalog.policyPresets,
+      roleTemplates: catalog.roleTemplates,
+      agents: catalog.agents,
+    );
+  }
+
+  @override
+  Future<HarnessToolCatalog> saveTools(String yaml) async {
+    final catalog = await getTools();
+    return HarnessToolCatalog(
+      configPath: catalog.configPath,
+      yaml: yaml,
+      toolGroups: catalog.toolGroups,
+      externalTools: catalog.externalTools,
+      mcpServers: catalog.mcpServers,
+    );
+  }
+
+  @override
+  Future<HarnessWorkflowCatalog> getWorkflows() async {
+    return HarnessWorkflowCatalog(
+      configPath: '/tmp/workflow.yaml',
+      yaml: 'workflows:\n  - name: chat_turn\n',
+      workflows: <HarnessWorkflowSummary>[
+        HarnessWorkflowSummary(
+          name: 'chat_turn',
+          startNode: 'reply',
+          maxVisitsPerNode: 2,
+          maxTotalTransitions: 6,
+          duplicateResultCap: 1,
+          ruleSets: <HarnessWorkflowRuleSetSummary>[],
+          nodes: <HarnessWorkflowNodeSummary>[
+            HarnessWorkflowNodeSummary(
+              id: 'reply',
+              kind: 'task',
+              uses: 'chat_responder',
+              withKeys: <String>['expected_output'],
+              requiredInputKeys: <String>[],
+              optionalInputKeys: <String>[],
+              requiredDataKeys: <String>[],
+              producesGateDecision: false,
+              transitions: HarnessWorkflowTransitionsSummary(
+                success: 'finish',
+                failure: 'finish',
+                blocked: '',
+              ),
+              maxVisits: 0,
+              maxFailures: 0,
+              implementation: false,
+              requiresGates: <String>[],
+              includeNodeResults: <String>[],
+              inputMappings: <HarnessWorkflowInputMapSummary>[],
+              promptInstructionCount: 2,
+              gatePassStatuses: <String>[],
+              gateFailStatuses: <String>[],
+              gatePassExitCodes: <int>[],
+              gateFailExitCodes: <int>[],
+              treatRetryableAsFail: false,
+              policyGateEnabled: false,
+              policyGateRuleSet: '',
+              policyGateFactBindings: <String>[],
+              policyGateRouteHints: <String>[],
+              policyGateOnEvalError: '',
+              policyGateMergeFindings: '',
+              policyGateOverrideStatus: false,
+              requiredChangedFiles: <String>[],
+              requiredToolCalls: <String>[],
+            ),
+            HarnessWorkflowNodeSummary(
+              id: 'finish',
+              kind: 'finish',
+              uses: '',
+              withKeys: <String>['summary'],
+              requiredInputKeys: <String>[],
+              optionalInputKeys: <String>[],
+              requiredDataKeys: <String>[],
+              producesGateDecision: false,
+              transitions: HarnessWorkflowTransitionsSummary(
+                success: '',
+                failure: '',
+                blocked: '',
+              ),
+              maxVisits: 0,
+              maxFailures: 0,
+              implementation: false,
+              requiresGates: <String>[],
+              includeNodeResults: <String>[],
+              inputMappings: <HarnessWorkflowInputMapSummary>[],
+              promptInstructionCount: 0,
+              gatePassStatuses: <String>[],
+              gateFailStatuses: <String>[],
+              gatePassExitCodes: <int>[],
+              gateFailExitCodes: <int>[],
+              treatRetryableAsFail: false,
+              policyGateEnabled: false,
+              policyGateRuleSet: '',
+              policyGateFactBindings: <String>[],
+              policyGateRouteHints: <String>[],
+              policyGateOnEvalError: '',
+              policyGateMergeFindings: '',
+              policyGateOverrideStatus: false,
+              requiredChangedFiles: <String>[],
+              requiredToolCalls: <String>[],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<HarnessWorkflowCatalog> saveWorkflows(String yaml) async {
+    final catalog = await getWorkflows();
+    return HarnessWorkflowCatalog(
+      configPath: catalog.configPath,
+      yaml: yaml,
+      workflows: catalog.workflows,
+    );
+  }
+
+  @override
+  Future<HarnessConfigValidationReport> validateAgents(String yaml) async {
+    return HarnessConfigValidationReport(
+      target: 'agents',
+      status: 'ok',
+      summary: 'provider and agent configuration is valid',
+      providerCount: 1,
+      enabledProviderCount: 1,
+      enabledModelCount: 1,
+      probedProviderCount: 0,
+      probedModelCount: 0,
+      validatedModels: <String>[],
+      failedModels: <String>[],
+      probeErrors: <String, String>{},
+      agentCount: 1,
+      leadAgent: 'lead',
+      workflowCount: 0,
+      externalToolCount: 0,
+      enabledExternalToolCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      toolPlatform: '',
+      availableExternalTools: <String>[],
+      unavailableExternalTools: <String>[],
+      externalToolErrors: <String, String>{},
+      availableMcpServers: <String>[],
+      unavailableMcpServers: <String>[],
+      mcpServerErrors: <String, String>{},
+    );
+  }
+
+  @override
+  Future<HarnessConfigValidationReport> validateTools(String yaml) async {
+    return HarnessConfigValidationReport(
+      target: 'tools',
+      status: 'ok',
+      summary: 'tool configuration is valid',
+      providerCount: 0,
+      enabledProviderCount: 0,
+      enabledModelCount: 0,
+      probedProviderCount: 0,
+      probedModelCount: 0,
+      validatedModels: <String>[],
+      failedModels: <String>[],
+      probeErrors: <String, String>{},
+      agentCount: 0,
+      leadAgent: '',
+      workflowCount: 0,
+      externalToolCount: 1,
+      enabledExternalToolCount: 1,
+      mcpServerCount: 1,
+      enabledMcpServerCount: 1,
+      toolPlatform: 'linux',
+      availableExternalTools: <String>['patch'],
+      unavailableExternalTools: <String>[],
+      externalToolErrors: <String, String>{},
+      availableMcpServers: <String>['github'],
+      unavailableMcpServers: <String>[],
+      mcpServerErrors: <String, String>{},
+    );
+  }
+
+  @override
+  Future<HarnessConfigValidationReport> validateWorkflows(String yaml) async {
+    return HarnessConfigValidationReport(
+      target: 'workflows',
+      status: 'ok',
+      summary: 'provider, agent, and workflow configuration is valid',
+      providerCount: 1,
+      enabledProviderCount: 1,
+      enabledModelCount: 1,
+      probedProviderCount: 0,
+      probedModelCount: 0,
+      validatedModels: <String>[],
+      failedModels: <String>[],
+      probeErrors: <String, String>{},
+      agentCount: 1,
+      leadAgent: 'lead',
+      workflowCount: 1,
+      externalToolCount: 0,
+      enabledExternalToolCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      toolPlatform: '',
+      availableExternalTools: <String>[],
+      unavailableExternalTools: <String>[],
+      externalToolErrors: <String, String>{},
+      availableMcpServers: <String>[],
+      unavailableMcpServers: <String>[],
+      mcpServerErrors: <String, String>{},
+    );
+  }
 }
 
 class _FakeOperationsApi implements OperationsApi {
   @override
   Future<RunRecord> getRun(String runId) async {
     return _run;
+  }
+
+  @override
+  Future<HarnessExecutionStateRecord> getRunHarnessExecutionState(
+    String runId,
+  ) async {
+    return HarnessExecutionStateRecord(
+      runId: runId,
+      runStatus: 'blocked',
+      runWaitReason: 'waiting_for_user',
+      resultSummary: 'Need one more answer',
+      stateSource: 'session_file',
+      manifest: HarnessExecutionManifestRecord(
+        sessionId: runId,
+        command: <String>['agent-awesome', '--task', 'triage inbox'],
+        workingDirectory: '/tmp/workspace',
+        goalFile: '/tmp/run/goal.txt',
+        requestFile: '/tmp/run/request.json',
+        stdoutFile: '/tmp/run/stdout.json',
+        stderrFile: '/tmp/run/stderr.log',
+        sessionFile: '/tmp/run/session.json',
+        harnessStateFile: '/tmp/state/sessions/$runId.json',
+        status: 'blocked',
+        summary: 'waiting on a failing node',
+        artifacts: <String>['reply-2.json'],
+        metadata: <String, String>{
+          'requested_workflow': 'chat_turn',
+          'workspace_root': '/tmp/workspace',
+        },
+      ),
+      session: HarnessSessionExecutionStateRecord(
+        status: 'blocked',
+        summary: 'waiting on a failing node',
+        error: '',
+        pendingQuestion: 'Which inbox should I process?',
+        waitingReason: 'waiting_for_user',
+        workflowName: 'chat_turn',
+        finalResult: null,
+        blocker: HarnessExecutionBlockerRecord(
+          code: 'unresolved_node_failure',
+          nodeId: 'reply',
+          summary: 'workflow cannot complete because reply is still failing',
+          retryable: true,
+        ),
+        workflowState: HarnessWorkflowExecutionStateRecord(
+          currentNodeId: 'reply',
+          artifactDir: '/tmp/artifacts',
+          waitingReason: 'waiting_for_user',
+          transitionCount: 3,
+          nodeVisitCounts: <String, int>{'reply': 2},
+          nodeFailureCounts: <String, int>{'reply': 1},
+          blocker: HarnessExecutionBlockerRecord(
+            code: 'unresolved_node_failure',
+            nodeId: 'reply',
+            summary: 'workflow cannot complete because reply is still failing',
+            retryable: true,
+          ),
+          nodeResults: <HarnessExecutionNodeResultRecord>[
+            HarnessExecutionNodeResultRecord(
+              nodeId: 'reply',
+              outcome: 'failure',
+              gateStatus: 'fail',
+              summary: 'provider request failed',
+              errorCode: 'embedded_run_failed',
+              retryable: true,
+              artifacts: <String>['reply-2.json'],
+              metadata: <String, String>{'provider': 'openai-prod'},
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -165,8 +571,20 @@ class _FakeControlPlaneApi implements ControlPlaneApi {
         deniedCapabilities: <String>[],
         integrationBindings: <String>['slack'],
         onboardingState: '',
+        approvalOverrideMode: '',
+        runtimeOverrideMaxRunSeconds: 0,
+        runtimeOverrideMaxTurns: 0,
       ),
     ];
+  }
+
+  @override
+  Future<AgentRecord> disableAgent({
+    required String agentId,
+    required String actorId,
+    String reason = '',
+  }) async {
+    return (await listAgents()).first;
   }
 
   @override
@@ -212,6 +630,48 @@ class _FakeControlPlaneApi implements ControlPlaneApi {
   }
 
   @override
+  Future<ConversationStateRecord> getConversationState(
+    String conversationId,
+  ) async {
+    return ConversationStateRecord(
+      conversationKey: 'tenant:tenant-001:conversation:$conversationId',
+      tenantId: 'tenant-001',
+      conversationId: conversationId,
+      agentId: 'agent-001',
+      providerType: 'slack',
+      installationId: 'inst-001',
+      externalWorkspaceId: 'T-001',
+      channelId: 'C-001',
+      threadId: 'thread-001',
+      historySummary: '',
+      turns: <ConversationTurnItem>[
+        ConversationTurnItem(
+          turnId: 'turn-001',
+          role: 'user',
+          content: 'Can you triage my inbox?',
+          actorId: 'user-001',
+          requestId: 'req-001',
+          runId: 'run-001',
+          createdAt: DateTime(2026, 4, 14, 10, 0),
+        ),
+      ],
+      pending: PendingConversationExecutionRecord(
+        runId: 'run-001',
+        status: 'waiting_approval',
+        waitReason: 'approval required',
+        pendingQuestion: '',
+        approvalRequestId: 'apr-001',
+        resumeSessionId: '',
+        checkpointReference: '',
+        updatedAt: DateTime(2026, 4, 14, 10, 2),
+      ),
+      latestRunId: 'run-001',
+      latestApprovalRequestId: 'apr-001',
+      updatedAt: DateTime(2026, 4, 14, 10, 2),
+    );
+  }
+
+  @override
   Future<List<InstallationRecord>> listInstallations({String? tenantId}) async {
     return <InstallationRecord>[
       InstallationRecord(
@@ -223,11 +683,38 @@ class _FakeControlPlaneApi implements ControlPlaneApi {
         status: 'active',
         installedBy: 'user-001',
         installedAt: DateTime(2026, 4, 14, 9, 0),
+        lastVerifiedAt: DateTime(2026, 4, 14, 9, 30),
         allowedChannelIds: <String>['C-001'],
         allowedExternalUserIds: <String>['U-001'],
         allowedAgentIds: <String>['agent-001'],
+        adapterVersion: 1,
       ),
     ];
+  }
+
+  @override
+  Future<InstallationRecord> updateInstallationAccess({
+    required String installationId,
+    required String actorId,
+    required List<String> allowedChannelIds,
+    required List<String> allowedExternalUserIds,
+    required List<String> allowedAgentIds,
+  }) async {
+    return InstallationRecord(
+      installationId: installationId,
+      providerType: 'slack',
+      externalWorkspaceId: 'T-001',
+      mappedTenantId: 'tenant-001',
+      mappedDefaultAgentId: 'agent-001',
+      status: 'active',
+      installedBy: actorId,
+      installedAt: DateTime(2026, 4, 14, 9, 0),
+      lastVerifiedAt: DateTime(2026, 4, 14, 9, 30),
+      allowedChannelIds: allowedChannelIds,
+      allowedExternalUserIds: allowedExternalUserIds,
+      allowedAgentIds: allowedAgentIds,
+      adapterVersion: 1,
+    );
   }
 
   @override
@@ -257,9 +744,44 @@ class _FakeControlPlaneApi implements ControlPlaneApi {
         region: 'ca-central-1',
         defaultAgentTemplate: 'tpl-default',
         enabledIntegrations: <String>['slack'],
+        onboardingState: 'active',
+        runHistoryDays: 14,
+        artifactDays: 30,
+        auditLogDays: 90,
+        maxRunsPerDay: 50,
+        defaultApprovalMode: 'auto_approve',
+        maxRunSeconds: 300,
+        maxTurns: 20,
         createdAt: DateTime(2026, 4, 14, 9, 0),
       ),
     ];
+  }
+
+  @override
+  Future<TenantRecord> disableTenant({
+    required String tenantId,
+    required String actorId,
+    String reason = '',
+  }) async {
+    return TenantRecord(
+      tenantId: tenantId,
+      displayName: 'Acme',
+      type: 'small_team',
+      ownerUserId: actorId,
+      status: 'disabled',
+      region: 'ca-central-1',
+      defaultAgentTemplate: 'tpl-default',
+      enabledIntegrations: <String>['slack'],
+      onboardingState: 'disabled',
+      runHistoryDays: 14,
+      artifactDays: 30,
+      auditLogDays: 90,
+      maxRunsPerDay: 50,
+      defaultApprovalMode: 'auto_approve',
+      maxRunSeconds: 300,
+      maxTurns: 20,
+      createdAt: DateTime(2026, 4, 14, 9, 0),
+    );
   }
 
   @override
