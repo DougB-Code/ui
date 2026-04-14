@@ -9,6 +9,14 @@ class ProviderModelConfig {
     required this.accessVerified,
   });
 
+  ProviderModelConfig copy() {
+    return ProviderModelConfig(
+      name: name,
+      enabled: enabled,
+      accessVerified: accessVerified,
+    );
+  }
+
   factory ProviderModelConfig.fromJson(Map<String, dynamic> json) {
     return ProviderModelConfig(
       name: (json['name'] as String? ?? '').trim(),
@@ -76,10 +84,11 @@ class ProviderConfig {
     );
   }
 
-  factory ProviderConfig.draft({required String alias}) {
+  factory ProviderConfig.empty() {
     return ProviderConfig(
-      alias: alias,
-      adapter: 'openai',
+      alias: '',
+      persistedAlias: '',
+      adapter: '',
       enabled: false,
       isDefault: false,
       endpoint: '',
@@ -91,13 +100,7 @@ class ProviderConfig {
       accessVerified: false,
       allowedHosts: <String>[],
       local: false,
-      models: <ProviderModelConfig>[
-        ProviderModelConfig(
-          name: 'new-model',
-          enabled: false,
-          accessVerified: false,
-        ),
-      ],
+      models: <ProviderModelConfig>[],
       verificationSummary: 'Not yet verified.',
     );
   }
@@ -119,11 +122,25 @@ class ProviderConfig {
   List<ProviderModelConfig> models;
   String verificationSummary;
 
-  String get primaryModelName {
-    if (models.isEmpty) {
-      return '';
-    }
-    return models.first.name;
+  ProviderConfig copy() {
+    return ProviderConfig(
+      alias: alias,
+      persistedAlias: persistedAlias,
+      adapter: adapter,
+      enabled: enabled,
+      isDefault: isDefault,
+      endpoint: endpoint,
+      apiKeyEnv: apiKeyEnv,
+      accountId: accountId,
+      gatewayId: gatewayId,
+      apiVersion: apiVersion,
+      timeoutSecs: timeoutSecs,
+      accessVerified: accessVerified,
+      allowedHosts: List<String>.from(allowedHosts),
+      local: local,
+      models: models.map((ProviderModelConfig model) => model.copy()).toList(),
+      verificationSummary: verificationSummary,
+    );
   }
 
   Map<String, dynamic> toUpsertJson() => <String, dynamic>{
@@ -149,9 +166,11 @@ class ProviderConfig {
   };
 
   String toYamlSnippet() {
-    final buffer = StringBuffer()
-      ..writeln('provider:')
-      ..writeln("  default: '${isDefault ? alias : '<set-elsewhere>'}'")
+    final buffer = StringBuffer()..writeln('provider:');
+    if (isDefault) {
+      buffer.writeln("  default: '${alias.trim()}'");
+    }
+    buffer
       ..writeln('  providers:')
       ..writeln('    $alias:')
       ..writeln("      adapter: '${adapter.trim()}'")
@@ -297,116 +316,6 @@ abstract class ProviderCatalogApi {
   Future<ProviderCatalog> deleteProvider(String alias);
 
   Future<ProviderVerificationReport> verifyProvider(String alias);
-}
-
-class MemoryProviderCatalogApi implements ProviderCatalogApi {
-  MemoryProviderCatalogApi({required ProviderCatalog catalog})
-    : _catalog = ProviderCatalog(
-        defaultProvider: catalog.defaultProvider,
-        configPath: catalog.configPath,
-        providers: catalog.providers,
-      );
-
-  factory MemoryProviderCatalogApi.seeded() {
-    return MemoryProviderCatalogApi(
-      catalog: ProviderCatalog(
-        defaultProvider: 'openai-prod',
-        configPath: '/tmp/provider.yaml',
-        providers: <ProviderConfig>[
-          ProviderConfig(
-            alias: 'openai-prod',
-            adapter: 'openai',
-            enabled: true,
-            isDefault: true,
-            endpoint: 'https://api.openai.com/v1',
-            apiKeyEnv: 'OPENAI_API_KEY',
-            accountId: '',
-            gatewayId: '',
-            apiVersion: '',
-            timeoutSecs: 30,
-            accessVerified: false,
-            allowedHosts: <String>[],
-            local: false,
-            models: <ProviderModelConfig>[
-              ProviderModelConfig(
-                name: 'gpt-5.4',
-                enabled: true,
-                accessVerified: false,
-              ),
-              ProviderModelConfig(
-                name: 'gpt-5.4-mini',
-                enabled: true,
-                accessVerified: false,
-              ),
-            ],
-            verificationSummary: 'Not yet verified.',
-          ),
-        ],
-      ),
-    );
-  }
-
-  ProviderCatalog _catalog;
-
-  @override
-  Future<ProviderCatalog> listProviders() async => _catalog;
-
-  @override
-  Future<ProviderMutationResult> createProvider(ProviderConfig provider) async {
-    final created = ProviderConfig.fromJson(provider.toUpsertJson())
-      ..alias = provider.alias
-      ..persistedAlias = provider.alias
-      ..verificationSummary = provider.verificationSummary;
-    _catalog.providers.add(created);
-    if (created.isDefault) {
-      _catalog.defaultProvider = created.alias;
-    }
-    return ProviderMutationResult(catalog: _catalog, provider: created);
-  }
-
-  @override
-  Future<ProviderCatalog> deleteProvider(String alias) async {
-    _catalog.providers.removeWhere(
-      (ProviderConfig provider) => provider.alias == alias,
-    );
-    if (_catalog.defaultProvider == alias) {
-      _catalog.defaultProvider = _catalog.providers.isEmpty
-          ? ''
-          : _catalog.providers.first.alias;
-    }
-    return _catalog;
-  }
-
-  @override
-  Future<ProviderMutationResult> updateProvider(
-    String currentAlias,
-    ProviderConfig provider,
-  ) async {
-    final index = _catalog.providers.indexWhere(
-      (ProviderConfig entry) => entry.alias == currentAlias,
-    );
-    if (index >= 0) {
-      _catalog.providers[index] = provider;
-    }
-    if (provider.isDefault) {
-      _catalog.defaultProvider = provider.alias;
-    }
-    return ProviderMutationResult(catalog: _catalog, provider: provider);
-  }
-
-  @override
-  Future<ProviderVerificationReport> verifyProvider(String alias) async {
-    return ProviderVerificationReport(
-      alias: alias,
-      status: 'ok',
-      summary: 'Live verification succeeded.',
-      probedProviderCount: 1,
-      probedModelCount: 1,
-      validatedModels: <String>['$alias/model-a'],
-      failedModels: <String>[],
-      probeErrors: <String, String>{},
-    );
-  }
 }
 
 class HttpProviderCatalogApi implements ProviderCatalogApi {
