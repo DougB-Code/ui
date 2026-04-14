@@ -1,6 +1,5 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
+import 'package:ui/shared/admin_http_client.dart';
 
 class ProviderModelConfig {
   ProviderModelConfig({
@@ -164,53 +163,6 @@ class ProviderConfig {
         .map((ProviderModelConfig model) => model.toJson())
         .toList(),
   };
-
-  String toYamlSnippet() {
-    final buffer = StringBuffer()..writeln('provider:');
-    if (isDefault) {
-      buffer.writeln("  default: '${alias.trim()}'");
-    }
-    buffer
-      ..writeln('  providers:')
-      ..writeln('    $alias:')
-      ..writeln("      adapter: '${adapter.trim()}'")
-      ..writeln('      enabled: $enabled');
-    if (endpoint.trim().isNotEmpty) {
-      buffer.writeln("      base_url: '${endpoint.trim()}'");
-    }
-    if (apiKeyEnv.trim().isNotEmpty) {
-      buffer.writeln("      api-key: '${apiKeyEnv.trim()}'");
-    }
-    buffer.writeln('      access_verified: $accessVerified');
-    if (accountId.trim().isNotEmpty) {
-      buffer.writeln("      account_id: '${accountId.trim()}'");
-    }
-    if (gatewayId.trim().isNotEmpty) {
-      buffer.writeln("      gateway_id: '${gatewayId.trim()}'");
-    }
-    if (apiVersion.trim().isNotEmpty) {
-      buffer.writeln("      api_version: '${apiVersion.trim()}'");
-    }
-    if (timeoutSecs > 0) {
-      buffer.writeln('      timeout_secs: $timeoutSecs');
-    }
-    if (local) {
-      buffer.writeln('      local: true');
-    }
-    if (allowedHosts.isNotEmpty) {
-      buffer.writeln('      allowed_hosts:');
-      for (final host in allowedHosts) {
-        buffer.writeln("        - '${host.trim()}'");
-      }
-    }
-    buffer.writeln('      models:');
-    for (final model in models) {
-      buffer.writeln("        - name: '${model.name.trim()}'");
-      buffer.writeln('          enabled: ${model.enabled}');
-      buffer.writeln('          access_verified: ${model.accessVerified}');
-    }
-    return buffer.toString().trimRight();
-  }
 }
 
 class ProviderCatalog {
@@ -303,6 +255,31 @@ class ProviderVerificationReport {
   Map<String, String> probeErrors;
 }
 
+class ProviderPreviewResult {
+  ProviderPreviewResult({
+    required this.provider,
+    required this.yamlPreview,
+    required this.validationStatus,
+    required this.validationSummary,
+  });
+
+  factory ProviderPreviewResult.fromJson(Map<String, dynamic> json) {
+    return ProviderPreviewResult(
+      provider: ProviderConfig.fromJson(
+        (json['provider'] as Map<String, dynamic>? ?? <String, dynamic>{}),
+      ),
+      yamlPreview: (json['yaml_preview'] as String? ?? '').trimRight(),
+      validationStatus: (json['validation_status'] as String? ?? '').trim(),
+      validationSummary: (json['validation_summary'] as String? ?? '').trim(),
+    );
+  }
+
+  final ProviderConfig provider;
+  final String yamlPreview;
+  final String validationStatus;
+  final String validationSummary;
+}
+
 abstract class ProviderCatalogApi {
   Future<ProviderCatalog> listProviders();
 
@@ -316,6 +293,8 @@ abstract class ProviderCatalogApi {
   Future<ProviderCatalog> deleteProvider(String alias);
 
   Future<ProviderVerificationReport> verifyProvider(String alias);
+
+  Future<ProviderPreviewResult> previewProvider(ProviderConfig provider);
 }
 
 class HttpProviderCatalogApi implements ProviderCatalogApi {
@@ -323,7 +302,11 @@ class HttpProviderCatalogApi implements ProviderCatalogApi {
     required this.baseUrl,
     required this.adminToken,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  }) : _http = AdminHttpClient(
+         baseUrl: baseUrl,
+         adminToken: adminToken,
+         client: client,
+       );
 
   factory HttpProviderCatalogApi.fromEnvironment() {
     return HttpProviderCatalogApi(
@@ -337,36 +320,40 @@ class HttpProviderCatalogApi implements ProviderCatalogApi {
 
   final String baseUrl;
   final String adminToken;
-  final http.Client _client;
+  final AdminHttpClient _http;
 
   @override
   Future<ProviderMutationResult> createProvider(ProviderConfig provider) async {
-    final response = await _client.post(
-      _uri('/v1/admin/harness/providers'),
-      headers: _headers(),
-      body: jsonEncode(provider.toUpsertJson()),
+    final response = await _http.post(
+      '/v1/admin/harness/providers',
+      body: provider.toUpsertJson(),
     );
-    final payload = await _decodeJson(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      ProviderCatalogException.new,
+    );
     return ProviderMutationResult.fromJson(payload);
   }
 
   @override
   Future<ProviderCatalog> deleteProvider(String alias) async {
-    final response = await _client.delete(
-      _uri('/v1/admin/harness/providers/${Uri.encodeComponent(alias)}'),
-      headers: _headers(),
+    final response = await _http.delete(
+      '/v1/admin/harness/providers/${Uri.encodeComponent(alias)}',
     );
-    final payload = await _decodeJson(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      ProviderCatalogException.new,
+    );
     return ProviderCatalog.fromJson(payload);
   }
 
   @override
   Future<ProviderCatalog> listProviders() async {
-    final response = await _client.get(
-      _uri('/v1/admin/harness/providers'),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/harness/providers');
+    final payload = await _http.decodeJsonMap(
+      response,
+      ProviderCatalogException.new,
     );
-    final payload = await _decodeJson(response);
     return ProviderCatalog.fromJson(payload);
   }
 
@@ -375,55 +362,40 @@ class HttpProviderCatalogApi implements ProviderCatalogApi {
     String currentAlias,
     ProviderConfig provider,
   ) async {
-    final response = await _client.put(
-      _uri('/v1/admin/harness/providers/${Uri.encodeComponent(currentAlias)}'),
-      headers: _headers(),
-      body: jsonEncode(provider.toUpsertJson()),
+    final response = await _http.put(
+      '/v1/admin/harness/providers/${Uri.encodeComponent(currentAlias)}',
+      body: provider.toUpsertJson(),
     );
-    final payload = await _decodeJson(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      ProviderCatalogException.new,
+    );
     return ProviderMutationResult.fromJson(payload);
   }
 
   @override
   Future<ProviderVerificationReport> verifyProvider(String alias) async {
-    final response = await _client.post(
-      _uri('/v1/admin/harness/providers/${Uri.encodeComponent(alias)}/verify'),
-      headers: _headers(),
+    final response = await _http.post(
+      '/v1/admin/harness/providers/${Uri.encodeComponent(alias)}/verify',
     );
-    final payload = await _decodeJson(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      ProviderCatalogException.new,
+    );
     return ProviderVerificationReport.fromJson(payload);
   }
 
-  Uri _uri(String path) {
-    final normalizedBase = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-    return Uri.parse('$normalizedBase$path');
-  }
-
-  Map<String, String> _headers() {
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    if (adminToken.trim().isNotEmpty) {
-      headers['X-Admin-Token'] = adminToken.trim();
-    }
-    return headers;
-  }
-
-  Future<Map<String, dynamic>> _decodeJson(http.Response response) async {
-    final bodyText = utf8.decode(response.bodyBytes);
-    final payload = bodyText.trim().isEmpty
-        ? <String, dynamic>{}
-        : (jsonDecode(bodyText) as Map<String, dynamic>);
-    if (response.statusCode >= 400) {
-      throw ProviderCatalogException(
-        payload['error'] as String? ??
-            'Request failed with status ${response.statusCode}.',
-      );
-    }
-    return payload;
+  @override
+  Future<ProviderPreviewResult> previewProvider(ProviderConfig provider) async {
+    final response = await _http.post(
+      '/v1/admin/harness/providers/preview',
+      body: provider.toUpsertJson(),
+    );
+    final payload = await _http.decodeJsonMap(
+      response,
+      ProviderCatalogException.new,
+    );
+    return ProviderPreviewResult.fromJson(payload);
   }
 }
 

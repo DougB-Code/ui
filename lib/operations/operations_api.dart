@@ -1,6 +1,5 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
+import 'package:ui/shared/admin_http_client.dart';
 
 class SourceContext {
   SourceContext({
@@ -847,7 +846,11 @@ class HttpOperationsApi implements OperationsApi {
     required this.baseUrl,
     required this.adminToken,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  }) : _http = AdminHttpClient(
+         baseUrl: baseUrl,
+         adminToken: adminToken,
+         client: client,
+       );
 
   factory HttpOperationsApi.fromEnvironment() {
     return HttpOperationsApi(
@@ -861,15 +864,17 @@ class HttpOperationsApi implements OperationsApi {
 
   final String baseUrl;
   final String adminToken;
-  final http.Client _client;
+  final AdminHttpClient _http;
 
   @override
   Future<RunRecord> getRun(String runId) async {
-    final response = await _client.get(
-      _uri('/v1/admin/runs/${Uri.encodeComponent(runId)}'),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/runs/${Uri.encodeComponent(runId)}',
     );
-    final payload = await _decodeJsonMap(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      OperationsApiException.new,
+    );
     return RunRecord.fromJson(payload);
   }
 
@@ -877,21 +882,25 @@ class HttpOperationsApi implements OperationsApi {
   Future<HarnessExecutionStateRecord> getRunHarnessExecutionState(
     String runId,
   ) async {
-    final response = await _client.get(
-      _uri('/v1/admin/runs/${Uri.encodeComponent(runId)}/harness-state'),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/runs/${Uri.encodeComponent(runId)}/harness-state',
     );
-    final payload = await _decodeJsonMap(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      OperationsApiException.new,
+    );
     return HarnessExecutionStateRecord.fromJson(payload);
   }
 
   @override
   Future<ApprovalRecord> getApproval(String approvalRequestId) async {
-    final response = await _client.get(
-      _uri('/v1/admin/approvals/${Uri.encodeComponent(approvalRequestId)}'),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/approvals/${Uri.encodeComponent(approvalRequestId)}',
     );
-    final payload = await _decodeJsonMap(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      OperationsApiException.new,
+    );
     return ApprovalRecord.fromJson(payload);
   }
 
@@ -907,11 +916,11 @@ class HttpOperationsApi implements OperationsApi {
     if (agentId != null && agentId.trim().isNotEmpty) {
       query['agent_id'] = agentId.trim();
     }
-    final response = await _client.get(
-      _uri('/v1/admin/metrics', query),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/metrics', query: query);
+    final payload = await _http.decodeJsonMap(
+      response,
+      OperationsApiException.new,
     );
-    final payload = await _decodeJsonMap(response);
     return MetricsSnapshot.fromJson(payload);
   }
 
@@ -927,11 +936,11 @@ class HttpOperationsApi implements OperationsApi {
     if (runId != null && runId.trim().isNotEmpty) {
       query['run_id'] = runId.trim();
     }
-    final response = await _client.get(
-      _uri('/v1/admin/artifacts', query),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/artifacts', query: query);
+    final payload = await _http.decodeJsonList(
+      response,
+      OperationsApiException.new,
     );
-    final payload = await _decodeJsonList(response);
     return payload.map(ArtifactRecord.fromJson).toList();
   }
 
@@ -947,21 +956,24 @@ class HttpOperationsApi implements OperationsApi {
     if (runId != null && runId.trim().isNotEmpty) {
       query['run_id'] = runId.trim();
     }
-    final response = await _client.get(
-      _uri('/v1/admin/audits', query),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/audits', query: query);
+    final payload = await _http.decodeJsonList(
+      response,
+      OperationsApiException.new,
     );
-    final payload = await _decodeJsonList(response);
     return payload.map(AuditRecord.fromJson).toList();
   }
 
   @override
   Future<List<RunRecord>> listRuns({RunQuery query = const RunQuery()}) async {
-    final response = await _client.get(
-      _uri('/v1/admin/runs', query.toQueryParameters()),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/runs',
+      query: query.toQueryParameters(),
     );
-    final payload = await _decodeJsonList(response);
+    final payload = await _http.decodeJsonList(
+      response,
+      OperationsApiException.new,
+    );
     return payload.map(RunRecord.fromJson).toList();
   }
 
@@ -969,11 +981,14 @@ class HttpOperationsApi implements OperationsApi {
   Future<List<ApprovalRecord>> listApprovals({
     ApprovalQuery query = const ApprovalQuery(),
   }) async {
-    final response = await _client.get(
-      _uri('/v1/admin/approvals', query.toQueryParameters()),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/approvals',
+      query: query.toQueryParameters(),
     );
-    final payload = await _decodeJsonList(response);
+    final payload = await _http.decodeJsonList(
+      response,
+      OperationsApiException.new,
+    );
     return payload.map(ApprovalRecord.fromJson).toList();
   }
 
@@ -984,70 +999,19 @@ class HttpOperationsApi implements OperationsApi {
     required String decision,
     String reason = '',
   }) async {
-    final response = await _client.post(
-      _uri('/v1/admin/approvals/${Uri.encodeComponent(approvalRequestId)}'),
-      headers: _jsonHeaders(),
-      body: jsonEncode(<String, String>{
+    final response = await _http.post(
+      '/v1/admin/approvals/${Uri.encodeComponent(approvalRequestId)}',
+      body: <String, String>{
         'approver_id': approverId.trim(),
         'decision': decision.trim(),
         'reason': reason.trim(),
-      }),
+      },
     );
-    final payload = await _decodeJsonMap(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      OperationsApiException.new,
+    );
     return ApprovalRecord.fromJson(payload);
-  }
-
-  Uri _uri(String path, [Map<String, String>? query]) {
-    final normalizedBase = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-    return Uri.parse('$normalizedBase$path').replace(queryParameters: query);
-  }
-
-  Map<String, String> _headers() {
-    final headers = <String, String>{'Accept': 'application/json'};
-    if (adminToken.trim().isNotEmpty) {
-      headers['X-Admin-Token'] = adminToken.trim();
-    }
-    return headers;
-  }
-
-  Map<String, String> _jsonHeaders() {
-    return <String, String>{..._headers(), 'Content-Type': 'application/json'};
-  }
-
-  Future<Map<String, dynamic>> _decodeJsonMap(http.Response response) async {
-    final bodyText = utf8.decode(response.bodyBytes);
-    final payload = bodyText.trim().isEmpty
-        ? <String, dynamic>{}
-        : (jsonDecode(bodyText) as Map<String, dynamic>);
-    if (response.statusCode >= 400) {
-      throw OperationsApiException(
-        payload['error'] as String? ??
-            'Request failed with status ${response.statusCode}.',
-      );
-    }
-    return payload;
-  }
-
-  Future<List<Map<String, dynamic>>> _decodeJsonList(
-    http.Response response,
-  ) async {
-    final bodyText = utf8.decode(response.bodyBytes);
-    final decoded = bodyText.trim().isEmpty
-        ? <dynamic>[]
-        : jsonDecode(bodyText);
-    if (response.statusCode >= 400) {
-      final errorPayload = decoded is Map<String, dynamic>
-          ? decoded
-          : <String, dynamic>{};
-      throw OperationsApiException(
-        errorPayload['error'] as String? ??
-            'Request failed with status ${response.statusCode}.',
-      );
-    }
-    final payload = decoded is List<dynamic> ? decoded : <dynamic>[];
-    return payload.whereType<Map<String, dynamic>>().toList();
   }
 }
 

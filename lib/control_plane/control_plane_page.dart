@@ -1,7 +1,10 @@
-part of 'main.dart';
+import 'package:flutter/material.dart';
+import 'package:ui/control_plane/control_plane_api.dart';
+import 'package:ui/operations/operations_api.dart';
+import 'package:ui/shared/ui.dart';
 
-class _ControlPlanePage extends StatefulWidget {
-  const _ControlPlanePage({
+class ControlPlanePage extends StatefulWidget {
+  const ControlPlanePage({
     required this.controlPlaneApi,
     required this.operationsApi,
   });
@@ -10,20 +13,22 @@ class _ControlPlanePage extends StatefulWidget {
   final OperationsApi operationsApi;
 
   @override
-  State<_ControlPlanePage> createState() => _ControlPlanePageState();
+  State<ControlPlanePage> createState() => _ControlPlanePageState();
 }
 
-class _ControlPlanePageState extends State<_ControlPlanePage> {
+class _ControlPlanePageState extends State<ControlPlanePage> {
   bool _loading = true;
   bool _tenantActionLoading = false;
   bool _agentActionLoading = false;
   bool _installationActionLoading = false;
-  bool _conversationStateLoading = false;
+  bool _installationDetailLoading = false;
+  bool _conversationDetailLoading = false;
   String? _error;
   String? _tenantActionError;
   String? _agentActionError;
   String? _installationActionError;
-  String? _conversationStateError;
+  String? _installationDetailError;
+  String? _conversationDetailError;
   List<UserRecord> _users = <UserRecord>[];
   List<TenantRecord> _tenants = <TenantRecord>[];
   List<MembershipRecord> _memberships = <MembershipRecord>[];
@@ -31,9 +36,8 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
   List<InstallationRecord> _installations = <InstallationRecord>[];
   List<ConversationRecord> _conversations = <ConversationRecord>[];
   List<ChannelRouteRecord> _routes = <ChannelRouteRecord>[];
-  List<RunRecord> _runs = <RunRecord>[];
-  List<ApprovalRecord> _approvals = <ApprovalRecord>[];
-  ConversationStateRecord? _conversationState;
+  InstallationDetailRecord? _installationDetail;
+  ConversationDetailRecord? _conversationDetail;
   String? _selectedTenantId;
   String? _selectedAgentId;
   String? _selectedInstallationId;
@@ -74,7 +78,8 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
     setState(() {
       _loading = true;
       _error = null;
-      _conversationStateError = null;
+      _installationDetailError = null;
+      _conversationDetailError = null;
     });
     try {
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
@@ -85,8 +90,6 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
         widget.controlPlaneApi.listInstallations(),
         widget.controlPlaneApi.listConversations(),
         widget.controlPlaneApi.listChannelRoutes(),
-        widget.operationsApi.listRuns(),
-        widget.operationsApi.listApprovals(),
       ]);
       final users = results[0] as List<UserRecord>;
       final tenants = results[1] as List<TenantRecord>;
@@ -95,8 +98,6 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
       final installations = results[4] as List<InstallationRecord>;
       final conversations = results[5] as List<ConversationRecord>;
       final routes = results[6] as List<ChannelRouteRecord>;
-      final runs = results[7] as List<RunRecord>;
-      final approvals = results[8] as List<ApprovalRecord>;
 
       final selectedTenantId = _preserveSelection(
         _selectedTenantId,
@@ -119,15 +120,25 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
             .toList(),
       );
 
-      ConversationStateRecord? conversationState;
-      String? conversationStateError;
+      InstallationDetailRecord? installationDetail;
+      String? installationDetailError;
+      if (selectedInstallationId != null) {
+        try {
+          installationDetail = await widget.controlPlaneApi
+              .getInstallationDetail(selectedInstallationId);
+        } catch (error) {
+          installationDetailError = error.toString();
+        }
+      }
+
+      ConversationDetailRecord? conversationDetail;
+      String? conversationDetailError;
       if (selectedConversationId != null) {
         try {
-          conversationState = await widget.controlPlaneApi.getConversationState(
-            selectedConversationId,
-          );
+          conversationDetail = await widget.controlPlaneApi
+              .getConversationDetail(selectedConversationId);
         } catch (error) {
-          conversationStateError = error.toString();
+          conversationDetailError = error.toString();
         }
       }
 
@@ -139,14 +150,14 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
         _installations = installations;
         _conversations = conversations;
         _routes = routes;
-        _runs = runs;
-        _approvals = approvals;
         _selectedTenantId = selectedTenantId;
         _selectedAgentId = selectedAgentId;
         _selectedInstallationId = selectedInstallationId;
         _selectedConversationId = selectedConversationId;
-        _conversationState = conversationState;
-        _conversationStateError = conversationStateError;
+        _installationDetail = installationDetail;
+        _installationDetailError = installationDetailError;
+        _conversationDetail = conversationDetail;
+        _conversationDetailError = conversationDetailError;
         _loading = false;
       });
       _syncInstallationEditors();
@@ -166,7 +177,8 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
   }
 
   void _syncInstallationEditors() {
-    final installation = _selectedInstallation;
+    final installation =
+        _installationDetail?.installation ?? _selectedInstallation;
     if (installation == null) {
       _installationChannelsController.text = '';
       _installationUsersController.text = '';
@@ -176,9 +188,8 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
     _installationChannelsController.text = installation.allowedChannelIds.join(
       ', ',
     );
-    _installationUsersController.text = installation.allowedExternalUserIds.join(
-      ', ',
-    );
+    _installationUsersController.text = installation.allowedExternalUserIds
+        .join(', ');
     _installationAgentsController.text = installation.allowedAgentIds.join(
       ', ',
     );
@@ -223,28 +234,59 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
   Future<void> _selectConversation(String conversationId) async {
     setState(() {
       _selectedConversationId = conversationId;
-      _conversationState = null;
-      _conversationStateError = null;
-      _conversationStateLoading = true;
+      _conversationDetail = null;
+      _conversationDetailError = null;
+      _conversationDetailLoading = true;
     });
     try {
-      final state = await widget.controlPlaneApi.getConversationState(
+      final detail = await widget.controlPlaneApi.getConversationDetail(
         conversationId,
       );
       if (!mounted) {
         return;
       }
       setState(() {
-        _conversationState = state;
-        _conversationStateLoading = false;
+        _conversationDetail = detail;
+        _conversationDetailLoading = false;
       });
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _conversationStateError = error.toString();
-        _conversationStateLoading = false;
+        _conversationDetailError = error.toString();
+        _conversationDetailLoading = false;
+      });
+    }
+  }
+
+  Future<void> _selectInstallation(String installationId) async {
+    setState(() {
+      _selectedInstallationId = installationId;
+      _installationDetail = null;
+      _installationDetailError = null;
+      _installationDetailLoading = true;
+    });
+    _syncInstallationEditors();
+    try {
+      final detail = await widget.controlPlaneApi.getInstallationDetail(
+        installationId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _installationDetail = detail;
+        _installationDetailLoading = false;
+      });
+      _syncInstallationEditors();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _installationDetailError = error.toString();
+        _installationDetailLoading = false;
       });
     }
   }
@@ -410,7 +452,7 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
 
     return ListView(
@@ -419,44 +461,46 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
           spacing: 14,
           runSpacing: 14,
           children: [
-            _MetricCard(
+            MetricCard(
               label: 'Tenants',
               value: '${_tenants.length}',
-              tone: _accent,
+              tone: accentColor,
               detail: 'Provisioned workspaces',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Users',
               value: '${_users.length}',
-              tone: _info,
+              tone: infoColor,
               detail: 'Known identities',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Agents',
               value: '${_agents.length}',
-              tone: _success,
+              tone: successColor,
               detail: 'Control-plane agents',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Installations',
               value: '${_installations.length}',
-              tone: _warning,
+              tone: warningColor,
               detail: 'Mapped integrations',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Conversations',
               value: '${_conversations.length}',
-              tone: _info,
+              tone: infoColor,
               detail: 'Conversation records',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Unhealthy routes',
               value:
                   '${_routes.where((ChannelRouteRecord route) => route.status != 'active').length}',
               tone:
-                  _routes.any((ChannelRouteRecord route) => route.status != 'active')
-                  ? _danger
-                  : _success,
+                  _routes.any(
+                    (ChannelRouteRecord route) => route.status != 'active',
+                  )
+                  ? dangerColor
+                  : successColor,
               detail: 'Non-active channel mappings',
             ),
           ],
@@ -475,7 +519,7 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
                     subtitle:
                         '${tenant.tenantId} • ${tenant.status} • ${tenant.type}',
                     meta:
-                        '${_blankAsUnknown(tenant.region)} • template ${tenant.defaultAgentTemplate}',
+                        '${blankAsUnknown(tenant.region)} • template ${tenant.defaultAgentTemplate}',
                     tags: tenant.enabledIntegrations,
                   ),
                 )
@@ -497,7 +541,7 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
                     subtitle:
                         '${agent.agentId} • ${agent.status} • ${agent.tenantId}',
                     meta:
-                        'Template ${agent.templateId} • onboarding ${_blankAsUnknown(agent.onboardingState)}',
+                        'Template ${agent.templateId} • onboarding ${blankAsUnknown(agent.onboardingState)}',
                     tags: <String>[
                       ...agent.integrationBindings,
                       ...agent.enabledCapabilities.take(3),
@@ -513,10 +557,7 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
           left: _EntityPanel(
             title: 'Installations',
             selectedId: _selectedInstallationId,
-            onSelect: (String id) {
-              setState(() => _selectedInstallationId = id);
-              _syncInstallationEditors();
-            },
+            onSelect: _selectInstallation,
             items: _installations
                 .map(
                   (InstallationRecord installation) => _EntityItem(
@@ -557,7 +598,8 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
                     id: '${membership.tenantId}:${membership.userId}',
                     title: membership.userId,
                     subtitle: membership.tenantId,
-                    meta: '${membership.role} • ${_formatDateTime(membership.createdAt)}',
+                    meta:
+                        '${membership.role} • ${formatDateTime(membership.createdAt)}',
                   ),
                 )
                 .toList(),
@@ -579,7 +621,7 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
                     subtitle:
                         '${conversation.conversationId} • ${conversation.status}',
                     meta:
-                        '${conversation.tenantId} • ${conversation.agentId} • ${_blankAsUnknown(conversation.kind)}',
+                        '${conversation.tenantId} • ${conversation.agentId} • ${blankAsUnknown(conversation.kind)}',
                   ),
                 )
                 .toList(),
@@ -587,7 +629,7 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
           right: _buildConversationDetail(),
         ),
         const SizedBox(height: 14),
-        _Panel(
+        PanelCard(
           title: 'Channel routes',
           trailing: FilledButton.icon(
             onPressed: _load,
@@ -595,7 +637,7 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
             label: const Text('Refresh'),
           ),
           child: _routes.isEmpty
-              ? const _EmptyState(
+              ? const EmptyState(
                   title: 'No routes',
                   body: 'No channel routes have been provisioned yet.',
                 )
@@ -604,11 +646,11 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
                       .map(
                         (ChannelRouteRecord route) => Padding(
                           padding: const EdgeInsets.only(bottom: 10),
-                          child: _InfoPanel(
+                          child: InfoPanel(
                             title:
-                                '${route.providerType}:${_blankAsUnknown(route.channelId)}',
+                                '${route.providerType}:${blankAsUnknown(route.channelId)}',
                             body:
-                                'Route: ${route.routeId}\nConversation: ${route.conversationId}\nInstallation: ${_blankAsUnknown(route.installationId)}\nThread: ${_blankAsUnknown(route.threadId)}\nStatus: ${route.status}\nCreated: ${_formatDateTime(route.createdAt)}',
+                                'Route: ${route.routeId}\nConversation: ${route.conversationId}\nInstallation: ${blankAsUnknown(route.installationId)}\nThread: ${blankAsUnknown(route.threadId)}\nStatus: ${route.status}\nCreated: ${formatDateTime(route.createdAt)}',
                           ),
                         ),
                       )
@@ -622,32 +664,33 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
   Widget _buildTenantDetail() {
     final tenant = _selectedTenant;
     if (tenant == null) {
-      return const _Panel(
+      return const PanelCard(
         title: 'Tenant detail',
-        child: _EmptyState(
+        child: EmptyState(
           title: 'No tenant selected',
-          body: 'Choose a tenant to inspect retention, onboarding, and live management actions.',
+          body:
+              'Choose a tenant to inspect retention, onboarding, and live management actions.',
         ),
       );
     }
-    return _Panel(
+    return PanelCard(
       title: 'Tenant detail',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _InfoPanel(
+          InfoPanel(
             title: tenant.displayName,
             body:
-                'Tenant: ${tenant.tenantId}\nStatus: ${tenant.status}\nType: ${tenant.type}\nRegion: ${_blankAsUnknown(tenant.region)}\nOwner: ${tenant.ownerUserId}\nOnboarding: ${_blankAsUnknown(tenant.onboardingState)}\nCreated: ${_formatDateTime(tenant.createdAt)}',
+                'Tenant: ${tenant.tenantId}\nStatus: ${tenant.status}\nType: ${tenant.type}\nRegion: ${blankAsUnknown(tenant.region)}\nOwner: ${tenant.ownerUserId}\nOnboarding: ${blankAsUnknown(tenant.onboardingState)}\nCreated: ${formatDateTime(tenant.createdAt)}',
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Policies',
             body:
-                'Default template: ${tenant.defaultAgentTemplate}\nApproval mode: ${_blankAsUnknown(tenant.defaultApprovalMode)}\nMax run seconds: ${tenant.maxRunSeconds}\nMax turns: ${tenant.maxTurns}\nBudget max runs/day: ${tenant.maxRunsPerDay}',
+                'Default template: ${tenant.defaultAgentTemplate}\nApproval mode: ${blankAsUnknown(tenant.defaultApprovalMode)}\nMax run seconds: ${tenant.maxRunSeconds}\nMax turns: ${tenant.maxTurns}\nBudget max runs/day: ${tenant.maxRunsPerDay}',
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Retention',
             body:
                 'Run history days: ${tenant.runHistoryDays}\nArtifact days: ${tenant.artifactDays}\nAudit log days: ${tenant.auditLogDays}',
@@ -666,7 +709,10 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
           ),
           if (_tenantActionError != null) ...<Widget>[
             const SizedBox(height: 10),
-            Text(_tenantActionError!, style: const TextStyle(color: _danger)),
+            Text(
+              _tenantActionError!,
+              style: const TextStyle(color: dangerColor),
+            ),
           ],
           const SizedBox(height: 12),
           FilledButton(
@@ -687,36 +733,37 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
   Widget _buildAgentDetail() {
     final agent = _selectedAgent;
     if (agent == null) {
-      return const _Panel(
+      return const PanelCard(
         title: 'Agent detail',
-        child: _EmptyState(
+        child: EmptyState(
           title: 'No agent selected',
-          body: 'Choose a control-plane agent to inspect bindings and management actions.',
+          body:
+              'Choose a control-plane agent to inspect bindings and management actions.',
         ),
       );
     }
-    return _Panel(
+    return PanelCard(
       title: 'Agent detail',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _InfoPanel(
+          InfoPanel(
             title: agent.name,
             body:
-                'Agent: ${agent.agentId}\nTenant: ${agent.tenantId}\nStatus: ${agent.status}\nTemplate: ${agent.templateId}\nOnboarding: ${_blankAsUnknown(agent.onboardingState)}\nApproval override: ${_blankAsUnknown(agent.approvalOverrideMode)}\nRuntime override: ${agent.runtimeOverrideMaxRunSeconds}/${agent.runtimeOverrideMaxTurns}',
+                'Agent: ${agent.agentId}\nTenant: ${agent.tenantId}\nStatus: ${agent.status}\nTemplate: ${agent.templateId}\nOnboarding: ${blankAsUnknown(agent.onboardingState)}\nApproval override: ${blankAsUnknown(agent.approvalOverrideMode)}\nRuntime override: ${agent.runtimeOverrideMaxRunSeconds}/${agent.runtimeOverrideMaxTurns}',
           ),
           const SizedBox(height: 12),
-          _TagSection(
+          TagSection(
             title: 'Enabled capabilities',
             tags: agent.enabledCapabilities,
           ),
           const SizedBox(height: 12),
-          _TagSection(
+          TagSection(
             title: 'Denied capabilities',
             tags: agent.deniedCapabilities,
           ),
           const SizedBox(height: 12),
-          _TagSection(
+          TagSection(
             title: 'Integration bindings',
             tags: agent.integrationBindings,
           ),
@@ -734,7 +781,10 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
           ),
           if (_agentActionError != null) ...<Widget>[
             const SizedBox(height: 10),
-            Text(_agentActionError!, style: const TextStyle(color: _danger)),
+            Text(
+              _agentActionError!,
+              style: const TextStyle(color: dangerColor),
+            ),
           ],
           const SizedBox(height: 12),
           FilledButton(
@@ -753,43 +803,53 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
   }
 
   Widget _buildInstallationDetail() {
-    final installation = _selectedInstallation;
-    if (installation == null) {
-      return const _Panel(
-        title: 'Installation access',
-        child: _EmptyState(
-          title: 'No installation selected',
-          body: 'Choose an installation to inspect route health and update live access controls.',
+    if (_installationDetailLoading) {
+      return const PanelCard(
+        title: 'Installation detail',
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_installationDetailError != null) {
+      return PanelCard(
+        title: 'Installation detail',
+        child: InfoPanel(
+          title: 'Installation detail',
+          body: _installationDetailError!,
+          tone: dangerColor,
         ),
       );
     }
-    final relatedRoutes = _routes
-        .where(
-          (ChannelRouteRecord route) =>
-              route.installationId == installation.installationId,
-        )
-        .toList();
-    final mappedAgent = _agents.where(
-      (AgentRecord agent) =>
-          agent.agentId == installation.mappedDefaultAgentId,
-    );
 
-    return _Panel(
-      title: 'Installation access',
+    final detail = _installationDetail;
+    final installation = detail?.installation ?? _selectedInstallation;
+    if (installation == null) {
+      return const PanelCard(
+        title: 'Installation detail',
+        child: EmptyState(
+          title: 'No installation selected',
+          body:
+              'Choose an installation to inspect route health and update live access controls.',
+        ),
+      );
+    }
+
+    return PanelCard(
+      title: 'Installation detail',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _InfoPanel(
+          InfoPanel(
             title:
                 '${installation.providerType}:${installation.externalWorkspaceId}',
             body:
-                'Installation: ${installation.installationId}\nStatus: ${installation.status}\nTenant: ${installation.mappedTenantId}\nDefault agent: ${installation.mappedDefaultAgentId}\nInstalled by: ${installation.installedBy}\nInstalled at: ${_formatDateTime(installation.installedAt)}\nLast verified: ${_formatDateTime(installation.lastVerifiedAt)}\nAdapter version: ${installation.adapterVersion}',
+                'Installation: ${installation.installationId}\nStatus: ${installation.status}\nTenant: ${installation.mappedTenantId}\nDefault agent: ${installation.mappedDefaultAgentId}\nInstalled by: ${installation.installedBy}\nInstalled at: ${formatDateTime(installation.installedAt)}\nLast verified: ${formatDateTime(installation.lastVerifiedAt)}\nAdapter version: ${installation.adapterVersion}',
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Route-aware health',
             body:
-                'Linked routes: ${relatedRoutes.length}\nUnhealthy routes: ${relatedRoutes.where((ChannelRouteRecord route) => route.status != 'active').length}\nMapped agent onboarding: ${mappedAgent.isEmpty ? 'not set' : _blankAsUnknown(mappedAgent.first.onboardingState)}',
+                'Linked routes: ${detail?.routeHealth.linkedRouteCount ?? 0}\nUnhealthy routes: ${detail?.routeHealth.unhealthyRouteCount ?? 0}\nMapped agent: ${blankAsUnknown(detail?.mappedAgent?.agentId ?? installation.mappedDefaultAgentId)}\nMapped agent onboarding: ${blankAsUnknown(detail?.routeHealth.mappedAgentOnboarding ?? '')}',
           ),
           const SizedBox(height: 12),
           TextFormField(
@@ -827,12 +887,14 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
             const SizedBox(height: 10),
             Text(
               _installationActionError!,
-              style: const TextStyle(color: _danger),
+              style: const TextStyle(color: dangerColor),
             ),
           ],
           const SizedBox(height: 12),
           FilledButton(
-            onPressed: _installationActionLoading ? null : _saveInstallationAccess,
+            onPressed: _installationActionLoading
+                ? null
+                : _saveInstallationAccess,
             child: _installationActionLoading
                 ? const SizedBox(
                     width: 18,
@@ -847,138 +909,97 @@ class _ControlPlanePageState extends State<_ControlPlanePage> {
   }
 
   Widget _buildConversationDetail() {
-    final conversation = _selectedConversation;
-    if (conversation == null) {
-      return const _Panel(
-        title: 'Conversation detail',
-        child: _EmptyState(
-          title: 'No conversation selected',
-          body: 'Choose a conversation to inspect recent turns and pending execution state.',
-        ),
-      );
-    }
-
-    final latestRun = _runs
-        .where(
-          (RunRecord run) =>
-              run.source.conversationId == conversation.conversationId ||
-              run.runId == _conversationState?.latestRunId,
-        )
-        .fold<RunRecord?>(null, (RunRecord? best, RunRecord current) {
-          if (best == null) {
-            return current;
-          }
-          final bestTime =
-              best.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final currentTime =
-              current.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return currentTime.isAfter(bestTime) ? current : best;
-        });
-    final latestApprovalId = _conversationState?.latestApprovalRequestId ?? '';
-    final latestApproval = _approvals
-        .where(
-          (ApprovalRecord record) =>
-              record.approvalRequestId == latestApprovalId ||
-              (latestRun != null && record.runId == latestRun.runId),
-        )
-        .fold<ApprovalRecord?>(null, (ApprovalRecord? best, ApprovalRecord current) {
-          if (best == null) {
-            return current;
-          }
-          final bestTime =
-              best.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final currentTime =
-              current.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return currentTime.isAfter(bestTime) ? current : best;
-        });
-    final scopedRoutes = _routes
-        .where(
-          (ChannelRouteRecord route) =>
-              route.conversationId == conversation.conversationId,
-        )
-        .toList();
-    final scopedInstallations = _installations.where((InstallationRecord install) {
-      return scopedRoutes.any(
-        (ChannelRouteRecord route) =>
-            route.installationId == install.installationId,
-      );
-    }).toList();
-
-    if (_conversationStateLoading) {
-      return const _Panel(
+    if (_conversationDetailLoading) {
+      return const PanelCard(
         title: 'Conversation detail',
         child: Center(child: CircularProgressIndicator()),
       );
     }
 
-    return _Panel(
+    final detail = _conversationDetail;
+    final conversation = detail?.conversation ?? _selectedConversation;
+    if (conversation == null) {
+      return const PanelCard(
+        title: 'Conversation detail',
+        child: EmptyState(
+          title: 'No conversation selected',
+          body:
+              'Choose a conversation to inspect recent turns and pending execution state.',
+        ),
+      );
+    }
+
+    return PanelCard(
       title: 'Conversation detail',
       child: ListView(
         shrinkWrap: true,
         children: [
-          _InfoPanel(
+          InfoPanel(
             title: conversation.name.isEmpty
                 ? conversation.conversationId
                 : conversation.name,
             body:
-                'Conversation: ${conversation.conversationId}\nTenant: ${conversation.tenantId}\nAgent: ${conversation.agentId}\nKind: ${_blankAsUnknown(conversation.kind)}\nStatus: ${conversation.status}\nCreated: ${_formatDateTime(conversation.createdAt)}',
+                'Conversation: ${conversation.conversationId}\nTenant: ${conversation.tenantId}\nAgent: ${conversation.agentId}\nKind: ${blankAsUnknown(conversation.kind)}\nStatus: ${conversation.status}\nCreated: ${formatDateTime(conversation.createdAt)}',
           ),
           const SizedBox(height: 12),
-          if (_conversationStateError != null)
-            _InfoPanel(
+          if (_conversationDetailError != null)
+            InfoPanel(
               title: 'Conversation state',
-              body: _conversationStateError!,
+              body: _conversationDetailError!,
+              tone: dangerColor,
             )
-          else if (_conversationState == null)
-            const _InfoPanel(
+          else if (detail == null)
+            const InfoPanel(
               title: 'Conversation state',
               body: 'No persisted conversation state was found.',
             )
           else
-            _InfoPanel(
+            InfoPanel(
               title: 'Pending execution',
               body:
-                  'Latest run: ${_blankAsUnknown(_conversationState!.latestRunId)}\nLatest approval: ${_blankAsUnknown(_conversationState!.latestApprovalRequestId)}\nPending status: ${_conversationState!.pending == null ? 'not pending' : _conversationState!.pending!.status}\nWait reason: ${_conversationState!.pending == null ? 'not waiting' : _blankAsUnknown(_conversationState!.pending!.waitReason)}\nPending question: ${_conversationState!.pending == null ? 'not set' : _blankAsUnknown(_conversationState!.pending!.pendingQuestion)}',
+                  'Latest run: ${blankAsUnknown(detail.state.latestRunId)}\nLatest approval: ${blankAsUnknown(detail.state.latestApprovalRequestId)}\nPending status: ${detail.state.pending == null ? 'not pending' : detail.state.pending!.status}\nWait reason: ${detail.state.pending == null ? 'not waiting' : blankAsUnknown(detail.state.pending!.waitReason)}\nPending question: ${detail.state.pending == null ? 'not set' : blankAsUnknown(detail.state.pending!.pendingQuestion)}',
             ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Latest approval',
-            body: latestApproval == null
+            body: detail?.latestApproval == null
                 ? 'No approval record is linked to this conversation.'
-                : 'Approval: ${latestApproval.approvalRequestId}\nRun: ${latestApproval.runId}\nDecision: ${latestApproval.decision}\nApprover: ${_blankAsUnknown(latestApproval.approverId)}\nCreated: ${_formatDateTime(latestApproval.createdAt)}',
+                : 'Approval: ${detail!.latestApproval!.approvalRequestId}\nRun: ${detail.latestApproval!.runId}\nDecision: ${detail.latestApproval!.decision}\nApprover: ${blankAsUnknown(detail.latestApproval!.approverId)}\nCreated: ${formatDateTime(detail.latestApproval!.createdAt)}',
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Latest run',
-            body: latestRun == null
+            body: detail?.latestRun == null
                 ? 'No run is linked to this conversation yet.'
-                : 'Run: ${latestRun.runId}\nStatus: ${latestRun.status}\nInvocation: ${_blankAsUnknown(latestRun.invocationMode)}\nCreated: ${_formatDateTime(latestRun.createdAt)}\nSummary: ${_blankAsUnknown(latestRun.resultSummary)}',
+                : 'Run: ${detail!.latestRun!.runId}\nStatus: ${detail.latestRun!.status}\nInvocation: ${blankAsUnknown(detail.latestRun!.invocationMode)}\nCreated: ${formatDateTime(detail.latestRun!.createdAt)}\nSummary: ${blankAsUnknown(detail.latestRun!.resultSummary)}',
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Route and install health',
             body:
-                'Routes: ${scopedRoutes.length}\nInstallations: ${scopedInstallations.length}\nUnhealthy routes: ${scopedRoutes.where((ChannelRouteRecord route) => route.status != 'active').length}\nInactive installations: ${scopedInstallations.where((InstallationRecord install) => install.status != 'active').length}',
+                'Routes: ${detail?.routeHealth.routeCount ?? 0}\nInstallations: ${detail?.routeHealth.installationCount ?? 0}\nUnhealthy routes: ${detail?.routeHealth.unhealthyRouteCount ?? 0}\nInactive installations: ${detail?.routeHealth.inactiveInstallationCount ?? 0}',
           ),
           const SizedBox(height: 12),
-          _SubsectionTitle('Recent turns'),
+          SubsectionTitle('Recent turns'),
           const SizedBox(height: 8),
-          if (_conversationState == null || _conversationState!.turns.isEmpty)
-            const _InfoPanel(
+          if (detail == null || detail.state.turns.isEmpty)
+            const InfoPanel(
               title: 'Recent turns',
               body: 'No recent turns were recorded for this conversation.',
             )
           else
-            ..._conversationState!.turns.reversed.take(6).map(
-              (ConversationTurnItem turn) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _InfoPanel(
-                  title: '${turn.role} • ${_formatDateTime(turn.createdAt)}',
-                  body:
-                      '${turn.content}\nActor: ${_blankAsUnknown(turn.actorId)}\nRun: ${_blankAsUnknown(turn.runId)}',
+            ...detail.state.turns.reversed
+                .take(6)
+                .map(
+                  (ConversationTurnItem turn) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InfoPanel(
+                      title: '${turn.role} • ${formatDateTime(turn.createdAt)}',
+                      body:
+                          '${turn.content}\nActor: ${blankAsUnknown(turn.actorId)}\nRun: ${blankAsUnknown(turn.runId)}',
+                    ),
+                  ),
                 ),
-              ),
-            ),
         ],
       ),
     );
@@ -1042,12 +1063,13 @@ class _EntityPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return PanelCard(
       title: title,
       child: items.isEmpty
-          ? const _EmptyState(
+          ? const EmptyState(
               title: 'No records',
-              body: 'No live records were returned for this control-plane view.',
+              body:
+                  'No live records were returned for this control-plane view.',
             )
           : Column(
               children: items
@@ -1056,16 +1078,22 @@ class _EntityPanel extends StatelessWidget {
                     (_EntityItem item) => Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: InkWell(
-                        onTap: onSelect == null ? null : () => onSelect!(item.id),
+                        onTap: onSelect == null
+                            ? null
+                            : () => onSelect!(item.id),
                         borderRadius: BorderRadius.circular(14),
                         child: Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: selectedId == item.id ? _panelRaised : _panelAlt,
+                            color: selectedId == item.id
+                                ? panelRaisedColor
+                                : panelAltColor,
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: selectedId == item.id ? _accent : _border,
+                              color: selectedId == item.id
+                                  ? accentColor
+                                  : borderColor,
                             ),
                           ),
                           child: Column(
@@ -1074,19 +1102,19 @@ class _EntityPanel extends StatelessWidget {
                               Text(
                                 item.title,
                                 style: const TextStyle(
-                                  color: _textPrimary,
+                                  color: textPrimaryColor,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
                               const SizedBox(height: 6),
                               Text(
                                 item.subtitle,
-                                style: const TextStyle(color: _textMuted),
+                                style: const TextStyle(color: textMutedColor),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 item.meta,
-                                style: const TextStyle(color: _textSubtle),
+                                style: const TextStyle(color: textSubtleColor),
                               ),
                               if (item.tags.isNotEmpty) ...<Widget>[
                                 const SizedBox(height: 10),
@@ -1097,7 +1125,9 @@ class _EntityPanel extends StatelessWidget {
                                       .where(
                                         (String tag) => tag.trim().isNotEmpty,
                                       )
-                                      .map((String tag) => _InlineTag(label: tag))
+                                      .map(
+                                        (String tag) => _InlineTag(label: tag),
+                                      )
                                       .toList(),
                                 ),
                               ],
@@ -1123,14 +1153,14 @@ class _InlineTag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: _panelRaised,
+        color: panelRaisedColor,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _border),
+        border: Border.all(color: borderColor),
       ),
       child: Text(
         label,
         style: const TextStyle(
-          color: _textMuted,
+          color: textMutedColor,
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),

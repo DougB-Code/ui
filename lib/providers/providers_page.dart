@@ -1,7 +1,11 @@
-part of 'main.dart';
+import 'dart:async';
 
-class _ProvidersPage extends StatefulWidget {
-  const _ProvidersPage({
+import 'package:flutter/material.dart';
+import 'package:ui/providers/provider_catalog_api.dart';
+import 'package:ui/shared/ui.dart';
+
+class ProvidersPage extends StatefulWidget {
+  const ProvidersPage({
     required this.providerApi,
     required this.providerCatalogAvailable,
   });
@@ -10,22 +14,34 @@ class _ProvidersPage extends StatefulWidget {
   final bool providerCatalogAvailable;
 
   @override
-  State<_ProvidersPage> createState() => _ProvidersPageState();
+  State<ProvidersPage> createState() => _ProvidersPageState();
 }
 
-class _ProvidersPageState extends State<_ProvidersPage> {
+class _ProvidersPageState extends State<ProvidersPage> {
   bool _loading = true;
   bool _busy = false;
+  bool _previewLoading = false;
   String? _error;
+  String? _previewError;
   String _configPath = '';
+  String _yamlPreview = '';
+  String _previewValidationStatus = '';
+  String _previewValidationSummary = '';
   List<ProviderConfig> _providers = <ProviderConfig>[];
   ProviderConfig _draft = ProviderConfig.empty();
   bool _isNew = true;
+  Timer? _previewDebounce;
 
   @override
   void initState() {
     super.initState();
     _loadProviders();
+  }
+
+  @override
+  void dispose() {
+    _previewDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadProviders({String? selectAlias}) async {
@@ -55,6 +71,7 @@ class _ProvidersPageState extends State<_ProvidersPage> {
         _isNew = isNew;
         _loading = false;
       });
+      _schedulePreview(immediate: true);
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -68,6 +85,7 @@ class _ProvidersPageState extends State<_ProvidersPage> {
       _draft = provider.copy();
       _isNew = false;
     });
+    _schedulePreview(immediate: true);
   }
 
   void _startNewProvider() {
@@ -75,6 +93,7 @@ class _ProvidersPageState extends State<_ProvidersPage> {
       _draft = ProviderConfig.empty();
       _isNew = true;
     });
+    _schedulePreview(immediate: true);
   }
 
   Future<void> _saveProvider() async {
@@ -104,13 +123,15 @@ class _ProvidersPageState extends State<_ProvidersPage> {
   }
 
   Future<void> _verifyProvider() async {
-    if (_isNew || _draft.alias.trim().isEmpty) {
+    if (_isNew || _draft.persistedAlias.trim().isEmpty) {
       _showMessage('Save the provider before verification.');
       return;
     }
     setState(() => _busy = true);
     try {
-      final report = await widget.providerApi.verifyProvider(_draft.alias);
+      final report = await widget.providerApi.verifyProvider(
+        _draft.persistedAlias,
+      );
       setState(() {
         _draft.verificationSummary = report.summary;
       });
@@ -151,16 +172,68 @@ class _ProvidersPageState extends State<_ProvidersPage> {
     return copy;
   }
 
+  void _onDraftChanged() {
+    setState(() {});
+    _schedulePreview();
+  }
+
+  void _schedulePreview({bool immediate = false}) {
+    _previewDebounce?.cancel();
+    if (_draft.alias.trim().isEmpty) {
+      if (mounted) {
+        setState(() {
+          _previewLoading = false;
+          _previewError = null;
+          _yamlPreview = '';
+          _previewValidationStatus = '';
+          _previewValidationSummary = '';
+        });
+      }
+      return;
+    }
+
+    final delay = immediate ? Duration.zero : const Duration(milliseconds: 300);
+    _previewDebounce = Timer(delay, _refreshPreview);
+  }
+
+  Future<void> _refreshPreview() async {
+    final snapshot = _normalizedDraft();
+    if (mounted) {
+      setState(() {
+        _previewLoading = true;
+        _previewError = null;
+      });
+    }
+    try {
+      final preview = await widget.providerApi.previewProvider(snapshot);
+      if (!mounted || _draft.alias.trim() != snapshot.alias.trim()) {
+        return;
+      }
+      setState(() {
+        _yamlPreview = preview.yamlPreview;
+        _previewValidationStatus = preview.validationStatus;
+        _previewValidationSummary = preview.validationSummary;
+        _previewLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || _draft.alias.trim() != snapshot.alias.trim()) {
+        return;
+      }
+      setState(() {
+        _previewError = error.toString();
+        _previewLoading = false;
+      });
+    }
+  }
+
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showAppMessage(context, message);
   }
 
   @override
   Widget build(BuildContext context) {
     if (!widget.providerCatalogAvailable) {
-      return const _InfoPanel(
+      return const InfoPanel(
         title: 'Provider catalog unavailable',
         body:
             'This deployment mode disables local harness provider catalog management routes. Switch to local mode to manage providers.',
@@ -170,13 +243,13 @@ class _ProvidersPageState extends State<_ProvidersPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: () => _loadProviders());
+      return ErrorState(message: _error!, onRetry: () => _loadProviders());
     }
 
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final stacked = constraints.maxWidth < 1150;
-        final listPane = _Panel(
+        final listPane = PanelCard(
           title: 'Providers',
           fill: true,
           trailing: Row(
@@ -196,14 +269,14 @@ class _ProvidersPageState extends State<_ProvidersPage> {
             ],
           ),
           child: _providers.isEmpty
-              ? const _EmptyState(
+              ? const EmptyState(
                   title: 'No providers configured',
                   body:
                       'Create a provider here to manage the harness provider catalog through the control plane.',
                 )
               : ListView.separated(
                   itemCount: _providers.length,
-                  separatorBuilder: (_, _) => const Divider(color: _border),
+                  separatorBuilder: (_, _) => const Divider(color: borderColor),
                   itemBuilder: (BuildContext context, int index) {
                     final provider = _providers[index];
                     final selected =
@@ -222,19 +295,24 @@ class _ProvidersPageState extends State<_ProvidersPage> {
                           if (provider.isDefault)
                             const Padding(
                               padding: EdgeInsets.only(right: 8),
-                              child: _StatusPill(
+                              child: StatusPill(
                                 label: 'default',
-                                color: _info,
+                                color: infoColor,
                               ),
                             ),
-                          _StatusPill(
+                          StatusPill(
                             label: provider.enabled ? 'enabled' : 'disabled',
-                            color: provider.enabled ? _success : _warning,
+                            color: provider.enabled
+                                ? successColor
+                                : warningColor,
                           ),
                           if (selected)
                             const Padding(
                               padding: EdgeInsets.only(left: 8),
-                              child: Icon(Icons.check_circle, color: _accent),
+                              child: Icon(
+                                Icons.check_circle,
+                                color: accentColor,
+                              ),
                             ),
                         ],
                       ),
@@ -248,8 +326,13 @@ class _ProvidersPageState extends State<_ProvidersPage> {
           draft: _draft,
           isNew: _isNew,
           busy: _busy,
+          previewLoading: _previewLoading,
+          previewError: _previewError,
+          yamlPreview: _yamlPreview,
+          previewValidationStatus: _previewValidationStatus,
+          previewValidationSummary: _previewValidationSummary,
           configPath: _configPath,
-          onChanged: () => setState(() {}),
+          onChanged: _onDraftChanged,
           onSave: _saveProvider,
           onVerify: _verifyProvider,
           onDelete: _deleteProvider,
@@ -283,6 +366,11 @@ class _ProviderEditorPane extends StatelessWidget {
     required this.draft,
     required this.isNew,
     required this.busy,
+    required this.previewLoading,
+    required this.previewError,
+    required this.yamlPreview,
+    required this.previewValidationStatus,
+    required this.previewValidationSummary,
     required this.configPath,
     required this.onChanged,
     required this.onSave,
@@ -293,6 +381,11 @@ class _ProviderEditorPane extends StatelessWidget {
   final ProviderConfig draft;
   final bool isNew;
   final bool busy;
+  final bool previewLoading;
+  final String? previewError;
+  final String yamlPreview;
+  final String previewValidationStatus;
+  final String previewValidationSummary;
   final String configPath;
   final VoidCallback onChanged;
   final Future<void> Function() onSave;
@@ -301,7 +394,7 @@ class _ProviderEditorPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return PanelCard(
       title: isNew ? 'New provider' : 'Provider editor',
       fill: true,
       trailing: Wrap(
@@ -327,47 +420,59 @@ class _ProviderEditorPane extends StatelessWidget {
           if (configPath.trim().isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: _InfoPanel(title: 'Catalog path', body: configPath),
+              child: InfoPanel(title: 'Catalog path', body: configPath),
             ),
-          _SubsectionTitle('General'),
+          SubsectionTitle('General'),
           const SizedBox(height: 8),
-          _FieldLabel('Alias'),
+          FieldLabel('Alias'),
           TextFormField(
             initialValue: draft.alias,
             key: ValueKey<String>(
               'provider-alias-${draft.persistedAlias}-${isNew.toString()}',
             ),
-            onChanged: (String value) => draft.alias = value,
+            onChanged: (String value) {
+              draft.alias = value;
+              onChanged();
+            },
           ),
           const SizedBox(height: 12),
-          _FieldLabel('Adapter'),
+          FieldLabel('Adapter'),
           TextFormField(
             initialValue: draft.adapter,
             key: ValueKey<String>(
               'provider-adapter-${draft.persistedAlias}-${isNew.toString()}',
             ),
-            onChanged: (String value) => draft.adapter = value,
+            onChanged: (String value) {
+              draft.adapter = value;
+              onChanged();
+            },
           ),
           const SizedBox(height: 12),
-          _FieldLabel('Base URL'),
+          FieldLabel('Base URL'),
           TextFormField(
             initialValue: draft.endpoint,
             key: ValueKey<String>(
               'provider-url-${draft.persistedAlias}-${isNew.toString()}',
             ),
-            onChanged: (String value) => draft.endpoint = value,
+            onChanged: (String value) {
+              draft.endpoint = value;
+              onChanged();
+            },
           ),
           const SizedBox(height: 12),
-          _FieldLabel('API key environment variable'),
+          FieldLabel('API key environment variable'),
           TextFormField(
             initialValue: draft.apiKeyEnv,
             key: ValueKey<String>(
               'provider-key-${draft.persistedAlias}-${isNew.toString()}',
             ),
-            onChanged: (String value) => draft.apiKeyEnv = value,
+            onChanged: (String value) {
+              draft.apiKeyEnv = value;
+              onChanged();
+            },
           ),
           const SizedBox(height: 12),
-          _FieldLabel('Allowed hosts (comma separated)'),
+          FieldLabel('Allowed hosts (comma separated)'),
           TextFormField(
             initialValue: draft.allowedHosts.join(', '),
             key: ValueKey<String>(
@@ -379,6 +484,7 @@ class _ProviderEditorPane extends StatelessWidget {
                   .map((String host) => host.trim())
                   .where((String host) => host.isNotEmpty)
                   .toList();
+              onChanged();
             },
           ),
           const SizedBox(height: 16),
@@ -421,7 +527,7 @@ class _ProviderEditorPane extends StatelessWidget {
             subtitle: const Text('Persist provider-level verification state.'),
           ),
           const SizedBox(height: 12),
-          _FieldLabel('Timeout seconds'),
+          FieldLabel('Timeout seconds'),
           TextFormField(
             initialValue: draft.timeoutSecs == 0 ? '' : '${draft.timeoutSecs}',
             key: ValueKey<String>(
@@ -430,39 +536,49 @@ class _ProviderEditorPane extends StatelessWidget {
             keyboardType: TextInputType.number,
             onChanged: (String value) {
               draft.timeoutSecs = int.tryParse(value.trim()) ?? 0;
+              onChanged();
             },
           ),
           const SizedBox(height: 12),
-          _FieldLabel('API version'),
+          FieldLabel('API version'),
           TextFormField(
             initialValue: draft.apiVersion,
             key: ValueKey<String>(
               'provider-version-${draft.persistedAlias}-${isNew.toString()}',
             ),
-            onChanged: (String value) => draft.apiVersion = value,
+            onChanged: (String value) {
+              draft.apiVersion = value;
+              onChanged();
+            },
           ),
           const SizedBox(height: 12),
-          _FieldLabel('Account ID'),
+          FieldLabel('Account ID'),
           TextFormField(
             initialValue: draft.accountId,
             key: ValueKey<String>(
               'provider-account-${draft.persistedAlias}-${isNew.toString()}',
             ),
-            onChanged: (String value) => draft.accountId = value,
+            onChanged: (String value) {
+              draft.accountId = value;
+              onChanged();
+            },
           ),
           const SizedBox(height: 12),
-          _FieldLabel('Gateway ID'),
+          FieldLabel('Gateway ID'),
           TextFormField(
             initialValue: draft.gatewayId,
             key: ValueKey<String>(
               'provider-gateway-${draft.persistedAlias}-${isNew.toString()}',
             ),
-            onChanged: (String value) => draft.gatewayId = value,
+            onChanged: (String value) {
+              draft.gatewayId = value;
+              onChanged();
+            },
           ),
           const SizedBox(height: 18),
           Row(
             children: [
-              const Expanded(child: _SubsectionTitle('Models')),
+              const Expanded(child: SubsectionTitle('Models')),
               FilledButton.icon(
                 onPressed: () {
                   draft.models.add(
@@ -481,7 +597,7 @@ class _ProviderEditorPane extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           if (draft.models.isEmpty)
-            const _InfoPanel(title: 'Models', body: 'No models configured yet.')
+            const InfoPanel(title: 'Models', body: 'No models configured yet.')
           else
             ...List<Widget>.generate(draft.models.length, (int index) {
               final model = draft.models[index];
@@ -490,9 +606,9 @@ class _ProviderEditorPane extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: _panelAlt,
+                    color: panelAltColor,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: _border),
+                    border: Border.all(color: borderColor),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -508,7 +624,10 @@ class _ProviderEditorPane extends StatelessWidget {
                               decoration: const InputDecoration(
                                 labelText: 'Model name',
                               ),
-                              onChanged: (String value) => model.name = value,
+                              onChanged: (String value) {
+                                model.name = value;
+                                onChanged();
+                              },
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -543,24 +662,52 @@ class _ProviderEditorPane extends StatelessWidget {
               );
             }),
           const SizedBox(height: 18),
-          _InfoPanel(title: 'Verification', body: draft.verificationSummary),
+          InfoPanel(title: 'Verification', body: draft.verificationSummary),
           const SizedBox(height: 18),
-          _SubsectionTitle('YAML preview'),
+          if (previewError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: InfoPanel(
+                title: 'Preview error',
+                body: previewError!,
+                tone: dangerColor,
+              ),
+            )
+          else if (previewValidationSummary.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: InfoPanel(
+                title: previewValidationStatus.trim().isEmpty
+                    ? 'Preview validation'
+                    : 'Preview validation (${previewValidationStatus.trim()})',
+                body: previewValidationSummary,
+                tone: previewValidationStatus == 'error'
+                    ? dangerColor
+                    : previewValidationStatus == 'warning'
+                    ? warningColor
+                    : infoColor,
+              ),
+            ),
+          SubsectionTitle('YAML preview'),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: _panelAlt,
+              color: panelAltColor,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: _border),
+              border: Border.all(color: borderColor),
             ),
             child: SelectableText(
               draft.alias.trim().isEmpty
                   ? 'Set an alias to preview YAML.'
-                  : draft.toYamlSnippet(),
+                  : previewLoading
+                  ? 'Refreshing preview...'
+                  : yamlPreview.trim().isEmpty
+                  ? 'Preview unavailable.'
+                  : yamlPreview,
               style: const TextStyle(
                 fontFamily: 'monospace',
-                color: _textPrimary,
+                color: textPrimaryColor,
                 height: 1.5,
               ),
             ),

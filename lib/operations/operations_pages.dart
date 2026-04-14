@@ -1,15 +1,17 @@
-part of 'main.dart';
+import 'package:flutter/material.dart';
+import 'package:ui/operations/operations_api.dart';
+import 'package:ui/shared/ui.dart';
 
-class _SummaryPage extends StatefulWidget {
-  const _SummaryPage({required this.operationsApi});
+class SummaryPage extends StatefulWidget {
+  const SummaryPage({required this.operationsApi});
 
   final OperationsApi operationsApi;
 
   @override
-  State<_SummaryPage> createState() => _SummaryPageState();
+  State<SummaryPage> createState() => _SummaryPageState();
 }
 
-class _SummaryPageState extends State<_SummaryPage> {
+class _SummaryPageState extends State<SummaryPage> {
   bool _loading = true;
   String? _error;
   MetricsSnapshot? _metrics;
@@ -55,7 +57,7 @@ class _SummaryPageState extends State<_SummaryPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
 
     final metrics = _metrics!;
@@ -75,40 +77,40 @@ class _SummaryPageState extends State<_SummaryPage> {
           spacing: 14,
           runSpacing: 14,
           children: [
-            _MetricCard(
+            MetricCard(
               label: 'Pending approvals',
               value: '${_pendingApprovals.length}',
-              tone: _warning,
+              tone: warningColor,
               detail: 'Live operator queue',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Avg run latency',
               value: '${metrics.runLatencySecs.toStringAsFixed(1)}s',
-              tone: _info,
+              tone: infoColor,
               detail: 'Completed runs',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Avg approval latency',
               value: '${metrics.approvalLatencySecs.toStringAsFixed(1)}s',
-              tone: _accent,
+              tone: accentColor,
               detail: 'Resolved approvals',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Integration errors',
               value: '${metrics.integrationErrors}',
-              tone: metrics.integrationErrors > 0 ? _danger : _success,
+              tone: metrics.integrationErrors > 0 ? dangerColor : successColor,
               detail: 'Observed control-plane errors',
             ),
-            _MetricCard(
+            MetricCard(
               label: 'Installations',
               value: '${metrics.installations}',
-              tone: _success,
+              tone: successColor,
               detail: 'Bound channel integrations',
             ),
           ],
         ),
         const SizedBox(height: 14),
-        _Panel(
+        PanelCard(
           title: 'Run status counts',
           trailing: FilledButton.icon(
             onPressed: _load,
@@ -116,7 +118,7 @@ class _SummaryPageState extends State<_SummaryPage> {
             label: const Text('Refresh'),
           ),
           child: sortedStatusEntries.isEmpty
-              ? const _EmptyState(
+              ? const EmptyState(
                   title: 'No run metrics',
                   body:
                       'Run metrics will appear once the control plane records execution history.',
@@ -130,22 +132,22 @@ class _SummaryPageState extends State<_SummaryPage> {
                           width: 180,
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: _panelAlt,
+                            color: panelAltColor,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: _border),
+                            border: Border.all(color: borderColor),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _StatusPill(
+                              StatusPill(
                                 label: entry.key,
-                                color: _statusColor(entry.key),
+                                color: statusColor(entry.key),
                               ),
                               const SizedBox(height: 10),
                               Text(
                                 '${entry.value}',
                                 style: const TextStyle(
-                                  color: _textPrimary,
+                                  color: textPrimaryColor,
                                   fontSize: 26,
                                   fontWeight: FontWeight.w800,
                                 ),
@@ -158,10 +160,10 @@ class _SummaryPageState extends State<_SummaryPage> {
                 ),
         ),
         const SizedBox(height: 14),
-        _Panel(
+        PanelCard(
           title: 'Pending approval queue',
           child: _pendingApprovals.isEmpty
-              ? const _InfoPanel(
+              ? const InfoPanel(
                   title: 'Approvals',
                   body: 'There are no pending approvals right now.',
                 )
@@ -171,10 +173,10 @@ class _SummaryPageState extends State<_SummaryPage> {
                       .map(
                         (ApprovalRecord approval) => Padding(
                           padding: const EdgeInsets.only(bottom: 10),
-                          child: _InfoPanel(
+                          child: InfoPanel(
                             title: approval.approvalRequestId,
                             body:
-                                'Run: ${approval.runId}\nDecision: ${approval.decision}\nCreated: ${_formatDateTime(approval.createdAt)}\nExpires: ${_formatDateTime(approval.expiresAt)}',
+                                'Run: ${approval.runId}\nDecision: ${approval.decision}\nCreated: ${formatDateTime(approval.createdAt)}\nExpires: ${formatDateTime(approval.expiresAt)}',
                           ),
                         ),
                       )
@@ -182,10 +184,10 @@ class _SummaryPageState extends State<_SummaryPage> {
                 ),
         ),
         const SizedBox(height: 14),
-        _Panel(
+        PanelCard(
           title: 'Recent runs',
           child: recentRuns.isEmpty
-              ? const _EmptyState(
+              ? const EmptyState(
                   title: 'No recent runs',
                   body:
                       'Submit a run through the control plane to see it here.',
@@ -195,12 +197,12 @@ class _SummaryPageState extends State<_SummaryPage> {
                       .map(
                         (RunRecord run) => Padding(
                           padding: const EdgeInsets.only(bottom: 10),
-                          child: _InfoPanel(
+                          child: InfoPanel(
                             title: run.resultSummary.isEmpty
                                 ? run.runId
                                 : run.resultSummary,
                             body:
-                                'Run: ${run.runId}\nTenant: ${run.tenantId}\nAgent: ${run.agentId}\nStatus: ${run.status}\nCreated: ${_formatDateTime(run.createdAt)}',
+                                'Run: ${run.runId}\nTenant: ${run.tenantId}\nAgent: ${run.agentId}\nStatus: ${run.status}\nCreated: ${formatDateTime(run.createdAt)}',
                           ),
                         ),
                       )
@@ -212,16 +214,16 @@ class _SummaryPageState extends State<_SummaryPage> {
   }
 }
 
-class _ApprovalsPage extends StatefulWidget {
-  const _ApprovalsPage({required this.operationsApi});
+class ApprovalsPage extends StatefulWidget {
+  const ApprovalsPage({required this.operationsApi});
 
   final OperationsApi operationsApi;
 
   @override
-  State<_ApprovalsPage> createState() => _ApprovalsPageState();
+  State<ApprovalsPage> createState() => _ApprovalsPageState();
 }
 
-class _ApprovalsPageState extends State<_ApprovalsPage> {
+class _ApprovalsPageState extends State<ApprovalsPage> {
   bool _loading = true;
   bool _resolving = false;
   String? _error;
@@ -362,14 +364,14 @@ class _ApprovalsPageState extends State<_ApprovalsPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
 
     final approval = _selectedApproval;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final stacked = constraints.maxWidth < 1120;
-        final queuePane = _Panel(
+        final queuePane = PanelCard(
           title: 'Pending approvals',
           fill: true,
           trailing: FilledButton.icon(
@@ -406,7 +408,7 @@ class _ApprovalsPageState extends State<_ApprovalsPage> {
               const SizedBox(height: 12),
               Expanded(
                 child: _approvals.isEmpty
-                    ? const _EmptyState(
+                    ? const EmptyState(
                         title: 'No pending approvals',
                         body:
                             'The live approval queue is empty for the current filters.',
@@ -414,7 +416,7 @@ class _ApprovalsPageState extends State<_ApprovalsPage> {
                     : ListView.separated(
                         itemCount: _approvals.length,
                         separatorBuilder: (_, _) =>
-                            const Divider(color: _border),
+                            const Divider(color: borderColor),
                         itemBuilder: (BuildContext context, int index) {
                           final record = _approvals[index];
                           final selected =
@@ -427,12 +429,12 @@ class _ApprovalsPageState extends State<_ApprovalsPage> {
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
                                 color: selected
-                                    ? _panelRaised
+                                    ? panelRaisedColor
                                     : Colors.transparent,
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
                                   color: selected
-                                      ? _accent
+                                      ? accentColor
                                       : Colors.transparent,
                                 ),
                               ),
@@ -445,26 +447,30 @@ class _ApprovalsPageState extends State<_ApprovalsPage> {
                                         child: Text(
                                           record.approvalRequestId,
                                           style: const TextStyle(
-                                            color: _textPrimary,
+                                            color: textPrimaryColor,
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
                                       ),
-                                      _StatusPill(
+                                      StatusPill(
                                         label: record.decision,
-                                        color: _warning,
+                                        color: warningColor,
                                       ),
                                     ],
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
                                     'Run ${record.runId}',
-                                    style: const TextStyle(color: _textMuted),
+                                    style: const TextStyle(
+                                      color: textMutedColor,
+                                    ),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Created ${_formatDateTime(record.createdAt)}',
-                                    style: const TextStyle(color: _textSubtle),
+                                    'Created ${formatDateTime(record.createdAt)}',
+                                    style: const TextStyle(
+                                      color: textSubtleColor,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -477,11 +483,11 @@ class _ApprovalsPageState extends State<_ApprovalsPage> {
           ),
         );
 
-        final detailPane = _Panel(
+        final detailPane = PanelCard(
           title: 'Approval detail',
           fill: true,
           child: approval == null
-              ? const _EmptyState(
+              ? const EmptyState(
                   title: 'No approval selected',
                   body:
                       'Choose a pending approval from the queue to inspect and resolve it.',
@@ -489,10 +495,10 @@ class _ApprovalsPageState extends State<_ApprovalsPage> {
               : ListView(
                   children: [
                     if (_run != null)
-                      _InfoPanel(
+                      InfoPanel(
                         title: 'Linked run',
                         body:
-                            'Run: ${_run!.runId}\nTenant: ${_run!.tenantId}\nAgent: ${_run!.agentId}\nStatus: ${_run!.status}\nSummary: ${_blankAsUnknown(_run!.resultSummary)}',
+                            'Run: ${_run!.runId}\nTenant: ${_run!.tenantId}\nAgent: ${_run!.agentId}\nStatus: ${_run!.status}\nSummary: ${blankAsUnknown(_run!.resultSummary)}',
                       ),
                     if (_run != null) const SizedBox(height: 12),
                     _ApprovalPanel(
@@ -529,17 +535,17 @@ class _ApprovalsPageState extends State<_ApprovalsPage> {
   }
 }
 
-class _RunsPage extends StatefulWidget {
-  const _RunsPage({required this.operationsApi, required this.initialRunId});
+class RunsPage extends StatefulWidget {
+  const RunsPage({required this.operationsApi, required this.initialRunId});
 
   final OperationsApi operationsApi;
   final String? initialRunId;
 
   @override
-  State<_RunsPage> createState() => _RunsPageState();
+  State<RunsPage> createState() => _RunsPageState();
 }
 
-class _RunsPageState extends State<_RunsPage> {
+class _RunsPageState extends State<RunsPage> {
   bool _loadingRuns = true;
   bool _loadingDetail = false;
   bool _resolvingApproval = false;
@@ -578,7 +584,7 @@ class _RunsPageState extends State<_RunsPage> {
   }
 
   @override
-  void didUpdateWidget(covariant _RunsPage oldWidget) {
+  void didUpdateWidget(covariant RunsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialRunId != null &&
         widget.initialRunId != oldWidget.initialRunId &&
@@ -748,7 +754,7 @@ class _RunsPageState extends State<_RunsPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_runsError != null) {
-      return _ErrorState(message: _runsError!, onRetry: () => _loadRuns());
+      return ErrorState(message: _runsError!, onRetry: () => _loadRuns());
     }
 
     return LayoutBuilder(
@@ -865,7 +871,7 @@ class _RunListPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return PanelCard(
       title: 'Runs',
       fill: true,
       trailing: FilledButton.icon(
@@ -1000,14 +1006,15 @@ class _RunListPane extends StatelessWidget {
           const SizedBox(height: 12),
           Expanded(
             child: runs.isEmpty
-                ? const _EmptyState(
+                ? const EmptyState(
                     title: 'No runs found',
                     body:
                         'Start a run through the control plane to inspect it here.',
                   )
                 : ListView.separated(
                     itemCount: runs.length,
-                    separatorBuilder: (_, _) => const Divider(color: _border),
+                    separatorBuilder: (_, _) =>
+                        const Divider(color: borderColor),
                     itemBuilder: (BuildContext context, int index) {
                       final run = runs[index];
                       final selected = run.runId == selectedRunId;
@@ -1017,10 +1024,14 @@ class _RunListPane extends StatelessWidget {
                         child: Ink(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: selected ? _panelRaised : Colors.transparent,
+                            color: selected
+                                ? panelRaisedColor
+                                : Colors.transparent,
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: selected ? _accent : Colors.transparent,
+                              color: selected
+                                  ? accentColor
+                                  : Colors.transparent,
                             ),
                           ),
                           child: Column(
@@ -1036,15 +1047,15 @@ class _RunListPane extends StatelessWidget {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
-                                        color: _textPrimary,
+                                        color: textPrimaryColor,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
-                                  _StatusPill(
+                                  StatusPill(
                                     label: run.status,
-                                    color: _statusColor(run.status),
+                                    color: statusColor(run.status),
                                   ),
                                 ],
                               ),
@@ -1052,19 +1063,19 @@ class _RunListPane extends StatelessWidget {
                               Text(
                                 run.runId,
                                 style: const TextStyle(
-                                  color: _textSubtle,
+                                  color: textSubtleColor,
                                   fontSize: 12,
                                 ),
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                '${run.tenantId} • ${run.agentId} • ${_blankAsUnknown(run.invocationMode)}',
-                                style: const TextStyle(color: _textMuted),
+                                '${run.tenantId} • ${run.agentId} • ${blankAsUnknown(run.invocationMode)}',
+                                style: const TextStyle(color: textMutedColor),
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                _formatDateTime(run.createdAt),
-                                style: const TextStyle(color: _textSubtle),
+                                formatDateTime(run.createdAt),
+                                style: const TextStyle(color: textSubtleColor),
                               ),
                             ],
                           ),
@@ -1119,24 +1130,24 @@ class _RunDetailPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const _Panel(
+      return const PanelCard(
         title: 'Run detail',
         fill: true,
         child: Center(child: CircularProgressIndicator()),
       );
     }
     if (error != null) {
-      return _Panel(
+      return PanelCard(
         title: 'Run detail',
         fill: true,
-        child: _ErrorState(message: error!, onRetry: onRetry),
+        child: ErrorState(message: error!, onRetry: onRetry),
       );
     }
     if (run == null) {
-      return const _Panel(
+      return const PanelCard(
         title: 'Run detail',
         fill: true,
-        child: _EmptyState(
+        child: EmptyState(
           title: 'No run selected',
           body: 'Choose a run from the list to inspect its runtime state.',
         ),
@@ -1144,7 +1155,7 @@ class _RunDetailPane extends StatelessWidget {
     }
 
     final profile = run!.profileSnapshot;
-    return _Panel(
+    return PanelCard(
       title: 'Run detail',
       fill: true,
       child: ListView(
@@ -1160,26 +1171,26 @@ class _RunDetailPane extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              _StatusPill(label: run!.status, color: _statusColor(run!.status)),
+              StatusPill(label: run!.status, color: statusColor(run!.status)),
             ],
           ),
           const SizedBox(height: 14),
-          _InfoPanel(
+          InfoPanel(
             title: 'Identity',
             body:
                 'Run: ${run!.runId}\nTenant: ${run!.tenantId}\nAgent: ${run!.agentId}\nActor: ${run!.actorId}',
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Timing',
             body:
-                'Created: ${_formatDateTime(run!.createdAt)}\nStarted: ${_formatDateTime(run!.startedAt)}\nCompleted: ${_formatDateTime(run!.completedAt)}',
+                'Created: ${formatDateTime(run!.createdAt)}\nStarted: ${formatDateTime(run!.startedAt)}\nCompleted: ${formatDateTime(run!.completedAt)}',
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Execution',
             body:
-                'Invocation mode: ${_blankAsUnknown(run!.invocationMode)}\nRequested autonomy: ${_blankAsUnknown(run!.requestedAutonomyMode)}\nWait reason: ${_blankAsUnknown(run!.waitReason)}\nArtifact manifest: ${_blankAsUnknown(run!.artifactManifestReference)}',
+                'Invocation mode: ${blankAsUnknown(run!.invocationMode)}\nRequested autonomy: ${blankAsUnknown(run!.requestedAutonomyMode)}\nWait reason: ${blankAsUnknown(run!.waitReason)}\nArtifact manifest: ${blankAsUnknown(run!.artifactManifestReference)}',
           ),
           const SizedBox(height: 12),
           _HarnessExecutionStatePanel(
@@ -1198,35 +1209,35 @@ class _RunDetailPane extends StatelessWidget {
             onReject: onReject,
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Source context',
             body:
-                'Interface: ${_blankAsUnknown(run!.source.interface)}\nInstallation: ${_blankAsUnknown(run!.source.installationId)}\nWorkspace: ${_blankAsUnknown(run!.source.externalWorkspaceId)}\nConversation: ${_blankAsUnknown(run!.source.conversationId)}\nChannel: ${_blankAsUnknown(run!.source.channelId)}\nThread: ${_blankAsUnknown(run!.source.threadId)}',
+                'Interface: ${blankAsUnknown(run!.source.interface)}\nInstallation: ${blankAsUnknown(run!.source.installationId)}\nWorkspace: ${blankAsUnknown(run!.source.externalWorkspaceId)}\nConversation: ${blankAsUnknown(run!.source.conversationId)}\nChannel: ${blankAsUnknown(run!.source.channelId)}\nThread: ${blankAsUnknown(run!.source.threadId)}',
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Runtime profile',
             body:
-                'Profile: ${profile.profileId}\nVersion: ${profile.version}\nModel: ${_blankAsUnknown(profile.model)}\nProvider: ${_blankAsUnknown(profile.provider)}\nApproval mode: ${_blankAsUnknown(profile.approvalPolicy.mode)}\nMax run seconds: ${profile.runtimeLimits.maxRunSeconds}\nMax turns: ${profile.runtimeLimits.maxTurns}',
+                'Profile: ${profile.profileId}\nVersion: ${profile.version}\nModel: ${blankAsUnknown(profile.model)}\nProvider: ${blankAsUnknown(profile.provider)}\nApproval mode: ${blankAsUnknown(profile.approvalPolicy.mode)}\nMax run seconds: ${profile.runtimeLimits.maxRunSeconds}\nMax turns: ${profile.runtimeLimits.maxTurns}',
           ),
           const SizedBox(height: 12),
-          _TagSection(
+          TagSection(
             title: 'Allowed capabilities',
             tags: profile.allowedCapabilities,
           ),
           const SizedBox(height: 12),
-          _TagSection(
+          TagSection(
             title: 'Denied capabilities',
             tags: profile.deniedCapabilities,
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Storage scope',
             body:
-                'Namespace: ${_blankAsUnknown(profile.storageScope.namespace)}\nArtifact prefix: ${_blankAsUnknown(profile.storageScope.artifactPrefix)}\nRetention days: ${profile.storageScope.retentionDays}',
+                'Namespace: ${blankAsUnknown(profile.storageScope.namespace)}\nArtifact prefix: ${blankAsUnknown(profile.storageScope.artifactPrefix)}\nRetention days: ${profile.storageScope.retentionDays}',
           ),
           const SizedBox(height: 12),
-          _TagSection(
+          TagSection(
             title: 'Secret bindings',
             tags: profile.secretBindings
                 .map(
@@ -1236,10 +1247,10 @@ class _RunDetailPane extends StatelessWidget {
                 .toList(),
           ),
           const SizedBox(height: 12),
-          _SubsectionTitle('Operator actions'),
+          SubsectionTitle('Operator actions'),
           const SizedBox(height: 8),
           if (run!.operatorActions.isEmpty)
-            const _InfoPanel(
+            const InfoPanel(
               title: 'Operator actions',
               body: 'No operator actions were recorded for this run.',
             )
@@ -1247,18 +1258,18 @@ class _RunDetailPane extends StatelessWidget {
             ...run!.operatorActions.map(
               (OperatorActionRecord action) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _InfoPanel(
+                child: InfoPanel(
                   title: action.action,
                   body:
-                      'Actor: ${_blankAsUnknown(action.actorId)}\nReason: ${_blankAsUnknown(action.reason)}\nOccurred: ${_formatDateTime(action.occurredAt)}',
+                      'Actor: ${blankAsUnknown(action.actorId)}\nReason: ${blankAsUnknown(action.reason)}\nOccurred: ${formatDateTime(action.occurredAt)}',
                 ),
               ),
             ),
           const SizedBox(height: 12),
-          _SubsectionTitle('Artifacts'),
+          SubsectionTitle('Artifacts'),
           const SizedBox(height: 8),
           if (artifacts.isEmpty)
-            const _InfoPanel(
+            const InfoPanel(
               title: 'Artifacts',
               body: 'No artifacts recorded for this run.',
             )
@@ -1266,18 +1277,18 @@ class _RunDetailPane extends StatelessWidget {
             ...artifacts.map(
               (ArtifactRecord artifact) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _InfoPanel(
+                child: InfoPanel(
                   title: artifact.kind,
                   body:
-                      'Reference: ${artifact.reference}\nCreated: ${_formatDateTime(artifact.createdAt)}\nRetention days: ${artifact.retentionDays}',
+                      'Reference: ${artifact.reference}\nCreated: ${formatDateTime(artifact.createdAt)}\nRetention days: ${artifact.retentionDays}',
                 ),
               ),
             ),
           const SizedBox(height: 12),
-          _SubsectionTitle('Audit trail'),
+          SubsectionTitle('Audit trail'),
           const SizedBox(height: 8),
           if (audits.isEmpty)
-            const _InfoPanel(
+            const InfoPanel(
               title: 'Audit',
               body: 'No audit records found for this run.',
             )
@@ -1285,10 +1296,10 @@ class _RunDetailPane extends StatelessWidget {
             ...audits.map(
               (AuditRecord audit) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _InfoPanel(
+                child: InfoPanel(
                   title: audit.action,
                   body:
-                      'Resource: ${audit.resourceType}/${audit.resourceId}\nUser: ${_blankAsUnknown(audit.userId)}\nOccurred: ${_formatDateTime(audit.occurredAt)}',
+                      'Resource: ${audit.resourceType}/${audit.resourceId}\nUser: ${blankAsUnknown(audit.userId)}\nOccurred: ${formatDateTime(audit.occurredAt)}',
                 ),
               ),
             ),
@@ -1312,17 +1323,17 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (unavailable) {
-      return const _InfoPanel(
+      return const InfoPanel(
         title: 'Harness execution state',
         body:
             'This deployment mode cannot inspect local harness session files. Switch to local mode to inspect workflow execution state for this run.',
       );
     }
     if (error != null) {
-      return _InfoPanel(title: 'Harness execution state', body: error!);
+      return InfoPanel(title: 'Harness execution state', body: error!);
     }
     if (state == null) {
-      return const _InfoPanel(
+      return const InfoPanel(
         title: 'Harness execution state',
         body: 'No harness session state was recorded for this run.',
       );
@@ -1334,9 +1345,9 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _panelAlt,
+        color: panelAltColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _border),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1347,17 +1358,17 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
                 child: Text(
                   'Harness execution state',
                   style: TextStyle(
-                    color: _textPrimary,
+                    color: textPrimaryColor,
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-              _StatusPill(
+              StatusPill(
                 label: session?.status.isNotEmpty == true
                     ? session!.status
                     : state!.runStatus,
-                color: _statusColor(
+                color: statusColor(
                   session?.status.isNotEmpty == true
                       ? _normalizedHarnessStatus(session!.status)
                       : state!.runStatus,
@@ -1370,57 +1381,57 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
             spacing: 12,
             runSpacing: 12,
             children: [
-              _MetricCard(
+              MetricCard(
                 label: 'Current node',
-                value: _blankAsUnknown(workflow?.currentNodeId ?? ''),
-                tone: _accent,
+                value: blankAsUnknown(workflow?.currentNodeId ?? ''),
+                tone: accentColor,
                 detail: 'Active workflow node',
               ),
-              _MetricCard(
+              MetricCard(
                 label: 'Transitions',
                 value: '${workflow?.transitionCount ?? 0}',
-                tone: _info,
+                tone: infoColor,
                 detail: 'Recorded workflow hops',
               ),
-              _MetricCard(
+              MetricCard(
                 label: 'Node results',
                 value: '${workflow?.nodeResults.length ?? 0}',
-                tone: _success,
+                tone: successColor,
                 detail: 'Persisted node outcomes',
               ),
-              _MetricCard(
+              MetricCard(
                 label: 'State source',
-                value: _blankAsUnknown(state!.stateSource),
-                tone: _warning,
+                value: blankAsUnknown(state!.stateSource),
+                tone: warningColor,
                 detail: 'Manifest/session origin',
               ),
             ],
           ),
           const SizedBox(height: 12),
-          _InfoPanel(
+          InfoPanel(
             title: 'Session',
             body:
-                'Run status: ${_blankAsUnknown(state!.runStatus)}\nWait reason: ${_blankAsUnknown(state!.runWaitReason)}\nWorkflow: ${_blankAsUnknown(session?.workflowName ?? '')}\nPending question: ${_blankAsUnknown(session?.pendingQuestion ?? '')}\nWaiting reason: ${_blankAsUnknown(session?.waitingReason ?? workflow?.waitingReason ?? '')}\nSummary: ${_blankAsUnknown(session?.summary ?? state!.resultSummary)}\nError: ${_blankAsUnknown(session?.error ?? '')}',
+                'Run status: ${blankAsUnknown(state!.runStatus)}\nWait reason: ${blankAsUnknown(state!.runWaitReason)}\nWorkflow: ${blankAsUnknown(session?.workflowName ?? '')}\nPending question: ${blankAsUnknown(session?.pendingQuestion ?? '')}\nWaiting reason: ${blankAsUnknown(session?.waitingReason ?? workflow?.waitingReason ?? '')}\nSummary: ${blankAsUnknown(session?.summary ?? state!.resultSummary)}\nError: ${blankAsUnknown(session?.error ?? '')}',
           ),
           const SizedBox(height: 10),
-          _InfoPanel(
+          InfoPanel(
             title: 'Execution files',
             body:
-                'Session ID: ${_blankAsUnknown(state!.manifest.sessionId)}\nWorking directory: ${_blankAsUnknown(state!.manifest.workingDirectory)}\nCommand: ${_blankAsUnknown(state!.manifest.command.join(' '))}\nRequest file: ${_blankAsUnknown(state!.manifest.requestFile)}\nGoal file: ${_blankAsUnknown(state!.manifest.goalFile)}\nStdout file: ${_blankAsUnknown(state!.manifest.stdoutFile)}\nStderr file: ${_blankAsUnknown(state!.manifest.stderrFile)}\nSession file: ${_blankAsUnknown(state!.manifest.sessionFile)}\nHarness state file: ${_blankAsUnknown(state!.manifest.harnessStateFile)}',
+                'Session ID: ${blankAsUnknown(state!.manifest.sessionId)}\nWorking directory: ${blankAsUnknown(state!.manifest.workingDirectory)}\nCommand: ${blankAsUnknown(state!.manifest.command.join(' '))}\nRequest file: ${blankAsUnknown(state!.manifest.requestFile)}\nGoal file: ${blankAsUnknown(state!.manifest.goalFile)}\nStdout file: ${blankAsUnknown(state!.manifest.stdoutFile)}\nStderr file: ${blankAsUnknown(state!.manifest.stderrFile)}\nSession file: ${blankAsUnknown(state!.manifest.sessionFile)}\nHarness state file: ${blankAsUnknown(state!.manifest.harnessStateFile)}',
           ),
           if (blocker != null) ...<Widget>[
             const SizedBox(height: 10),
-            _InfoPanel(
+            InfoPanel(
               title: 'Blocker',
               body:
-                  'Code: ${_blankAsUnknown(blocker.code)}\nNode: ${_blankAsUnknown(blocker.nodeId)}\nRetryable: ${blocker.retryable ? 'yes' : 'no'}\nSummary: ${_blankAsUnknown(blocker.summary)}',
+                  'Code: ${blankAsUnknown(blocker.code)}\nNode: ${blankAsUnknown(blocker.nodeId)}\nRetryable: ${blocker.retryable ? 'yes' : 'no'}\nSummary: ${blankAsUnknown(blocker.summary)}',
             ),
           ],
           if (workflow != null &&
               (workflow.nodeVisitCounts.isNotEmpty ||
                   workflow.nodeFailureCounts.isNotEmpty)) ...<Widget>[
             const SizedBox(height: 10),
-            _InfoPanel(
+            InfoPanel(
               title: 'Workflow counters',
               body: _joinNonEmpty(<String>[
                 if (workflow.artifactDir.isNotEmpty)
@@ -1434,11 +1445,11 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
           ],
           if (session?.finalResult != null) ...<Widget>[
             const SizedBox(height: 10),
-            _InfoPanel(
+            InfoPanel(
               title: 'Final result',
               body: _joinNonEmpty(<String>[
-                'Status: ${_blankAsUnknown(session!.finalResult!.status)}',
-                'Summary: ${_blankAsUnknown(session.finalResult!.summary)}',
+                'Status: ${blankAsUnknown(session!.finalResult!.status)}',
+                'Summary: ${blankAsUnknown(session.finalResult!.summary)}',
                 if (session.finalResult!.artifacts.isNotEmpty)
                   'Artifacts: ${session.finalResult!.artifacts.join(', ')}',
                 if (session.finalResult!.data.isNotEmpty)
@@ -1447,10 +1458,10 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 10),
-          _SubsectionTitle('Node results'),
+          SubsectionTitle('Node results'),
           const SizedBox(height: 8),
           if (workflow == null || workflow.nodeResults.isEmpty)
-            const _InfoPanel(
+            const InfoPanel(
               title: 'Node results',
               body: 'No workflow node results were captured for this run.',
             )
@@ -1458,16 +1469,16 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
             ...workflow.nodeResults.map(
               (HarnessExecutionNodeResultRecord result) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _InfoPanel(
+                child: InfoPanel(
                   title: result.nodeId,
                   body: _joinNonEmpty(<String>[
-                    'Outcome: ${_blankAsUnknown(result.outcome)}',
+                    'Outcome: ${blankAsUnknown(result.outcome)}',
                     if (result.gateStatus.isNotEmpty)
                       'Gate status: ${result.gateStatus}',
                     'Retryable: ${result.retryable ? 'yes' : 'no'}',
                     if (result.errorCode.isNotEmpty)
                       'Error code: ${result.errorCode}',
-                    'Summary: ${_blankAsUnknown(result.summary)}',
+                    'Summary: ${blankAsUnknown(result.summary)}',
                     if (result.artifacts.isNotEmpty)
                       'Artifacts: ${result.artifacts.join(', ')}',
                     if (result.metadata.isNotEmpty)
@@ -1478,7 +1489,7 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
             ),
           if (state!.manifest.metadata.isNotEmpty) ...<Widget>[
             const SizedBox(height: 10),
-            _InfoPanel(
+            InfoPanel(
               title: 'Manifest metadata',
               body: _formatStringMap(state!.manifest.metadata),
             ),
@@ -1487,6 +1498,13 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
       ),
     );
   }
+}
+
+String _joinNonEmpty(List<String> values) {
+  return values
+      .map((String value) => value.trim())
+      .where((String value) => value.isNotEmpty)
+      .join('\n');
 }
 
 String _normalizedHarnessStatus(String status) {
@@ -1526,16 +1544,16 @@ String _formatIntMap(Map<String, int> values) {
       .join(', ');
 }
 
-class _ArtifactsPage extends StatefulWidget {
-  const _ArtifactsPage({required this.operationsApi});
+class ArtifactsPage extends StatefulWidget {
+  const ArtifactsPage({required this.operationsApi});
 
   final OperationsApi operationsApi;
 
   @override
-  State<_ArtifactsPage> createState() => _ArtifactsPageState();
+  State<ArtifactsPage> createState() => _ArtifactsPageState();
 }
 
-class _ArtifactsPageState extends State<_ArtifactsPage> {
+class _ArtifactsPageState extends State<ArtifactsPage> {
   bool _loading = true;
   String? _error;
   final TextEditingController _tenantController = TextEditingController();
@@ -1587,12 +1605,12 @@ class _ArtifactsPageState extends State<_ArtifactsPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
 
     return ListView(
       children: [
-        _Panel(
+        PanelCard(
           title: 'Artifact filters',
           child: Wrap(
             spacing: 12,
@@ -1621,10 +1639,10 @@ class _ArtifactsPageState extends State<_ArtifactsPage> {
           ),
         ),
         const SizedBox(height: 14),
-        _Panel(
+        PanelCard(
           title: 'Artifacts',
           child: _artifacts.isEmpty
-              ? const _EmptyState(
+              ? const EmptyState(
                   title: 'No artifacts found',
                   body: 'No artifact records match the current filters.',
                 )
@@ -1633,10 +1651,10 @@ class _ArtifactsPageState extends State<_ArtifactsPage> {
                       .map(
                         (ArtifactRecord artifact) => Padding(
                           padding: const EdgeInsets.only(bottom: 10),
-                          child: _InfoPanel(
+                          child: InfoPanel(
                             title: artifact.kind,
                             body:
-                                'Artifact ${artifact.artifactId}\nTenant: ${artifact.tenantId}\nAgent: ${artifact.agentId}\nRun: ${artifact.runId}\nReference: ${artifact.reference}\nCreated: ${_formatDateTime(artifact.createdAt)}\nRetention days: ${artifact.retentionDays}',
+                                'Artifact ${artifact.artifactId}\nTenant: ${artifact.tenantId}\nAgent: ${artifact.agentId}\nRun: ${artifact.runId}\nReference: ${artifact.reference}\nCreated: ${formatDateTime(artifact.createdAt)}\nRetention days: ${artifact.retentionDays}',
                           ),
                         ),
                       )
@@ -1648,16 +1666,16 @@ class _ArtifactsPageState extends State<_ArtifactsPage> {
   }
 }
 
-class _AuditsPage extends StatefulWidget {
-  const _AuditsPage({required this.operationsApi});
+class AuditsPage extends StatefulWidget {
+  const AuditsPage({required this.operationsApi});
 
   final OperationsApi operationsApi;
 
   @override
-  State<_AuditsPage> createState() => _AuditsPageState();
+  State<AuditsPage> createState() => _AuditsPageState();
 }
 
-class _AuditsPageState extends State<_AuditsPage> {
+class _AuditsPageState extends State<AuditsPage> {
   bool _loading = true;
   String? _error;
   final TextEditingController _tenantController = TextEditingController();
@@ -1709,11 +1727,11 @@ class _AuditsPageState extends State<_AuditsPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
     return ListView(
       children: [
-        _Panel(
+        PanelCard(
           title: 'Audit filters',
           child: Wrap(
             spacing: 12,
@@ -1742,10 +1760,10 @@ class _AuditsPageState extends State<_AuditsPage> {
           ),
         ),
         const SizedBox(height: 14),
-        _Panel(
+        PanelCard(
           title: 'Audit records',
           child: _audits.isEmpty
-              ? const _EmptyState(
+              ? const EmptyState(
                   title: 'No audits found',
                   body: 'No audit records match the current filters.',
                 )
@@ -1754,10 +1772,10 @@ class _AuditsPageState extends State<_AuditsPage> {
                       .map(
                         (AuditRecord audit) => Padding(
                           padding: const EdgeInsets.only(bottom: 10),
-                          child: _InfoPanel(
+                          child: InfoPanel(
                             title: audit.action,
                             body:
-                                'Audit ${audit.auditId}\nTenant: ${audit.tenantId}\nAgent: ${audit.agentId}\nRun: ${audit.runId}\nResource: ${audit.resourceType}/${audit.resourceId}\nUser: ${_blankAsUnknown(audit.userId)}\nAdministrative: ${audit.administrative}\nOccurred: ${_formatDateTime(audit.occurredAt)}',
+                                'Audit ${audit.auditId}\nTenant: ${audit.tenantId}\nAgent: ${audit.agentId}\nRun: ${audit.runId}\nResource: ${audit.resourceType}/${audit.resourceId}\nUser: ${blankAsUnknown(audit.userId)}\nAdministrative: ${audit.administrative}\nOccurred: ${formatDateTime(audit.occurredAt)}',
                           ),
                         ),
                       )
@@ -1791,7 +1809,7 @@ class _ApprovalPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (approval == null) {
-      return const _InfoPanel(
+      return const InfoPanel(
         title: 'Approval',
         body: 'No approval record is attached to this run.',
       );
@@ -1800,9 +1818,9 @@ class _ApprovalPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _panelAlt,
+        color: panelAltColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _border),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1813,26 +1831,26 @@ class _ApprovalPanel extends StatelessWidget {
                 child: Text(
                   'Approval',
                   style: TextStyle(
-                    color: _textPrimary,
+                    color: textPrimaryColor,
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-              _StatusPill(
+              StatusPill(
                 label: approval!.decision,
                 color: approval!.decision == 'approved'
-                    ? _success
+                    ? successColor
                     : approval!.decision == 'rejected'
-                    ? _danger
-                    : _warning,
+                    ? dangerColor
+                    : warningColor,
               ),
             ],
           ),
           const SizedBox(height: 10),
           Text(
-            'Request ${approval!.approvalRequestId}\nCreated ${_formatDateTime(approval!.createdAt)}\nApprover ${_blankAsUnknown(approval!.approverId)}\nReason ${_blankAsUnknown(approval!.reason)}',
-            style: const TextStyle(color: _textMuted, height: 1.45),
+            'Request ${approval!.approvalRequestId}\nCreated ${formatDateTime(approval!.createdAt)}\nApprover ${blankAsUnknown(approval!.approverId)}\nReason ${blankAsUnknown(approval!.reason)}',
+            style: const TextStyle(color: textMutedColor, height: 1.45),
           ),
           if (approval!.decision == 'pending') ...<Widget>[
             const SizedBox(height: 12),
@@ -1849,7 +1867,7 @@ class _ApprovalPanel extends StatelessWidget {
             ),
             if (approvalError != null) ...<Widget>[
               const SizedBox(height: 10),
-              Text(approvalError!, style: const TextStyle(color: _danger)),
+              Text(approvalError!, style: const TextStyle(color: dangerColor)),
             ],
             const SizedBox(height: 12),
             Row(

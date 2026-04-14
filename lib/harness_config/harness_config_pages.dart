@@ -1,7 +1,9 @@
-part of 'main.dart';
+import 'package:flutter/material.dart';
+import 'package:ui/harness_config/harness_config_api.dart';
+import 'package:ui/shared/ui.dart';
 
-class _HarnessAgentsPage extends StatefulWidget {
-  const _HarnessAgentsPage({
+class HarnessAgentsPage extends StatefulWidget {
+  const HarnessAgentsPage({
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
   });
@@ -10,10 +12,10 @@ class _HarnessAgentsPage extends StatefulWidget {
   final bool harnessConfigAvailable;
 
   @override
-  State<_HarnessAgentsPage> createState() => _HarnessAgentsPageState();
+  State<HarnessAgentsPage> createState() => _HarnessAgentsPageState();
 }
 
-class _HarnessAgentsPageState extends State<_HarnessAgentsPage> {
+class _HarnessAgentsPageState extends State<HarnessAgentsPage> {
   final TextEditingController _controller = TextEditingController();
 
   bool _loading = true;
@@ -94,15 +96,13 @@ class _HarnessAgentsPageState extends State<_HarnessAgentsPage> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showAppMessage(context, message);
   }
 
   @override
   Widget build(BuildContext context) {
     if (!widget.harnessConfigAvailable) {
-      return const _InfoPanel(
+      return const InfoPanel(
         title: 'Harness config unavailable',
         body:
             'This deployment mode disables local harness config management routes. Switch to local mode to manage harness agents.',
@@ -112,11 +112,11 @@ class _HarnessAgentsPageState extends State<_HarnessAgentsPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
     final catalog = _catalog;
     if (catalog == null) {
-      return const _EmptyState(
+      return const EmptyState(
         title: 'No harness agent data',
         body: 'The control plane returned no harness agent document.',
       );
@@ -125,42 +125,42 @@ class _HarnessAgentsPageState extends State<_HarnessAgentsPage> {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final stacked = constraints.maxWidth < 1200;
-        final summaryPane = _Panel(
+        final summaryPane = PanelCard(
           title: 'Harness Agents',
           fill: true,
           child: ListView(
             children: [
-              _InfoPanel(
+              InfoPanel(
                 title: 'Config path',
-                body: _blankAsUnknown(catalog.configPath),
+                body: blankAsUnknown(catalog.configPath),
               ),
               const SizedBox(height: 14),
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  _MetricCard(
+                  MetricCard(
                     label: 'Lead agent',
-                    value: _blankAsUnknown(catalog.leadAgent),
-                    tone: _accent,
+                    value: blankAsUnknown(catalog.leadAgent),
+                    tone: accentColor,
                     detail: 'Resolved bootstrap lead role.',
                   ),
-                  _MetricCard(
+                  MetricCard(
                     label: 'Agents',
                     value: '${catalog.agents.length}',
-                    tone: _info,
+                    tone: infoColor,
                     detail: 'Concrete runtime roles in `agent.yaml`.',
                   ),
-                  _MetricCard(
+                  MetricCard(
                     label: 'Templates',
                     value: '${catalog.roleTemplates.length}',
-                    tone: _success,
+                    tone: successColor,
                     detail: 'Reusable role defaults.',
                   ),
-                  _MetricCard(
+                  MetricCard(
                     label: 'Policies',
                     value: '${catalog.policyPresets.length}',
-                    tone: _warning,
+                    tone: warningColor,
                     detail: 'Named policy preset entries.',
                   ),
                 ],
@@ -171,7 +171,7 @@ class _HarnessAgentsPageState extends State<_HarnessAgentsPage> {
                 rows: <MapEntry<String, String>>[
                   MapEntry(
                     'Approval mode',
-                    _blankAsUnknown(catalog.approvalMode),
+                    blankAsUnknown(catalog.approvalMode),
                   ),
                   MapEntry(
                     'Default max steps',
@@ -204,7 +204,7 @@ class _HarnessAgentsPageState extends State<_HarnessAgentsPage> {
                 ],
               ),
               const SizedBox(height: 18),
-              _TagSection(title: 'Policy presets', tags: catalog.policyPresets),
+              TagSection(title: 'Policy presets', tags: catalog.policyPresets),
               const SizedBox(height: 18),
               _CatalogListSection(
                 title: 'Role templates',
@@ -288,8 +288,8 @@ class _HarnessAgentsPageState extends State<_HarnessAgentsPage> {
   }
 }
 
-class _HarnessToolsPage extends StatefulWidget {
-  const _HarnessToolsPage({
+class HarnessToolsPage extends StatefulWidget {
+  const HarnessToolsPage({
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
   });
@@ -298,10 +298,10 @@ class _HarnessToolsPage extends StatefulWidget {
   final bool harnessConfigAvailable;
 
   @override
-  State<_HarnessToolsPage> createState() => _HarnessToolsPageState();
+  State<HarnessToolsPage> createState() => _HarnessToolsPageState();
 }
 
-class _HarnessToolsPageState extends State<_HarnessToolsPage> {
+class _HarnessToolsPageState extends State<HarnessToolsPage> {
   final TextEditingController _controller = TextEditingController();
 
   bool _loading = true;
@@ -380,15 +380,13 @@ class _HarnessToolsPageState extends State<_HarnessToolsPage> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showAppMessage(context, message);
   }
 
   @override
   Widget build(BuildContext context) {
     if (!widget.harnessConfigAvailable) {
-      return const _InfoPanel(
+      return const InfoPanel(
         title: 'Harness config unavailable',
         body:
             'This deployment mode disables local harness config management routes. Switch to local mode to manage harness tools.',
@@ -398,11 +396,11 @@ class _HarnessToolsPageState extends State<_HarnessToolsPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
     final catalog = _catalog;
     if (catalog == null) {
-      return const _EmptyState(
+      return const EmptyState(
         title: 'No harness tool data',
         body: 'The control plane returned no harness tool document.',
       );
@@ -411,36 +409,36 @@ class _HarnessToolsPageState extends State<_HarnessToolsPage> {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final stacked = constraints.maxWidth < 1200;
-        final summaryPane = _Panel(
+        final summaryPane = PanelCard(
           title: 'Harness Tools',
           fill: true,
           child: ListView(
             children: [
-              _InfoPanel(
+              InfoPanel(
                 title: 'Config path',
-                body: _blankAsUnknown(catalog.configPath),
+                body: blankAsUnknown(catalog.configPath),
               ),
               const SizedBox(height: 14),
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  _MetricCard(
+                  MetricCard(
                     label: 'Tool groups',
                     value: '${catalog.toolGroups.length}',
-                    tone: _accent,
+                    tone: accentColor,
                     detail: 'Reusable tool bundles.',
                   ),
-                  _MetricCard(
+                  MetricCard(
                     label: 'External tools',
                     value: '${catalog.externalTools.length}',
-                    tone: _info,
+                    tone: infoColor,
                     detail: 'Executable runtime tools.',
                   ),
-                  _MetricCard(
+                  MetricCard(
                     label: 'MCP servers',
                     value: '${catalog.mcpServers.length}',
-                    tone: _success,
+                    tone: successColor,
                     detail: 'Surfaced MCP processes.',
                   ),
                 ],
@@ -572,7 +570,7 @@ class _HarnessDocumentEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return PanelCard(
       title: title,
       fill: true,
       trailing: Wrap(
@@ -601,7 +599,7 @@ class _HarnessDocumentEditor extends StatelessWidget {
         children: [
           const Text(
             'This editor round-trips the full harness YAML document through the control plane. Validation runs the real harness config checks before save.',
-            style: TextStyle(color: _textMuted),
+            style: TextStyle(color: textMutedColor),
           ),
           if (validation != null) ...[
             const SizedBox(height: 16),
@@ -615,7 +613,7 @@ class _HarnessDocumentEditor extends StatelessWidget {
               maxLines: null,
               minLines: null,
               style: const TextStyle(
-                color: _textPrimary,
+                color: textPrimaryColor,
                 fontFamily: 'monospace',
                 fontSize: 13,
                 height: 1.45,
@@ -652,18 +650,18 @@ class _HarnessValidationPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _panelAlt,
+        color: panelAltColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ok ? _success : _danger),
+        border: Border.all(color: ok ? successColor : dangerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _StatusPill(
+              StatusPill(
                 label: ok ? 'valid' : 'invalid',
-                color: ok ? _success : _danger,
+                color: ok ? successColor : dangerColor,
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -671,7 +669,7 @@ class _HarnessValidationPanel extends StatelessWidget {
                   report.summary.isEmpty
                       ? 'Validation finished.'
                       : report.summary,
-                  style: const TextStyle(color: _textPrimary),
+                  style: const TextStyle(color: textPrimaryColor),
                 ),
               ),
             ],
@@ -682,7 +680,7 @@ class _HarnessValidationPanel extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: tags
-                  .map((String tag) => _StatusPill(label: tag, color: _info))
+                  .map((String tag) => StatusPill(label: tag, color: infoColor))
                   .toList(),
             ),
           ],
@@ -694,13 +692,13 @@ class _HarnessValidationPanel extends StatelessWidget {
               report.unavailableMcpServers.isNotEmpty) ...[
             const SizedBox(height: 14),
             if (report.validatedModels.isNotEmpty)
-              _TagSection(
+              TagSection(
                 title: 'Validated models',
                 tags: report.validatedModels,
               ),
             if (report.availableExternalTools.isNotEmpty) ...[
               if (report.validatedModels.isNotEmpty) const SizedBox(height: 12),
-              _TagSection(
+              TagSection(
                 title: 'Available external tools',
                 tags: report.availableExternalTools,
               ),
@@ -709,7 +707,7 @@ class _HarnessValidationPanel extends StatelessWidget {
               if (report.validatedModels.isNotEmpty ||
                   report.availableExternalTools.isNotEmpty)
                 const SizedBox(height: 12),
-              _TagSection(
+              TagSection(
                 title: 'Available MCP servers',
                 tags: report.availableMcpServers,
               ),
@@ -718,7 +716,7 @@ class _HarnessValidationPanel extends StatelessWidget {
                 report.unavailableExternalTools.isNotEmpty ||
                 report.unavailableMcpServers.isNotEmpty) ...[
               const SizedBox(height: 12),
-              _TagSection(
+              TagSection(
                 title: 'Unavailable or failed entries',
                 tags: <String>[
                   ...report.failedModels,
@@ -745,13 +743,13 @@ class _CatalogKeyValueSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SubsectionTitle(title),
+        SubsectionTitle(title),
         const SizedBox(height: 10),
         Container(
           decoration: BoxDecoration(
-            color: _panelAlt,
+            color: panelAltColor,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _border),
+            border: Border.all(color: borderColor),
           ),
           child: Column(
             children: rows
@@ -760,14 +758,14 @@ class _CatalogKeyValueSection extends StatelessWidget {
                     dense: true,
                     title: Text(
                       row.key,
-                      style: const TextStyle(color: _textMuted),
+                      style: const TextStyle(color: textMutedColor),
                     ),
                     trailing: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 280),
                       child: Text(
                         row.value,
                         style: const TextStyle(
-                          color: _textPrimary,
+                          color: textPrimaryColor,
                           fontWeight: FontWeight.w600,
                         ),
                         textAlign: TextAlign.right,
@@ -802,10 +800,10 @@ class _CatalogListSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SubsectionTitle(title),
+        SubsectionTitle(title),
         const SizedBox(height: 10),
         if (children.isEmpty)
-          _InfoPanel(title: emptyTitle, body: emptyBody)
+          InfoPanel(title: emptyTitle, body: emptyBody)
         else
           Column(
             children:
@@ -841,9 +839,9 @@ class _ConfigSummaryCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _panelAlt,
+        color: panelAltColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _border),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -851,13 +849,13 @@ class _ConfigSummaryCard extends StatelessWidget {
           Text(
             title,
             style: const TextStyle(
-              color: _textPrimary,
+              color: textPrimaryColor,
               fontWeight: FontWeight.w700,
             ),
           ),
           if (subtitle.trim().isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(subtitle, style: const TextStyle(color: _textMuted)),
+            Text(subtitle, style: const TextStyle(color: textMutedColor)),
           ],
           if (tags.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -867,7 +865,8 @@ class _ConfigSummaryCard extends StatelessWidget {
               children: tags
                   .where((String value) => value.trim().isNotEmpty)
                   .map(
-                    (String value) => _StatusPill(label: value, color: _info),
+                    (String value) =>
+                        StatusPill(label: value, color: infoColor),
                   )
                   .toList(),
             ),
@@ -885,8 +884,8 @@ String _joinNonEmpty(List<String> values) {
       .join(' • ');
 }
 
-class _HarnessWorkflowsPage extends StatefulWidget {
-  const _HarnessWorkflowsPage({
+class HarnessWorkflowsPage extends StatefulWidget {
+  const HarnessWorkflowsPage({
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
   });
@@ -895,10 +894,10 @@ class _HarnessWorkflowsPage extends StatefulWidget {
   final bool harnessConfigAvailable;
 
   @override
-  State<_HarnessWorkflowsPage> createState() => _HarnessWorkflowsPageState();
+  State<HarnessWorkflowsPage> createState() => _HarnessWorkflowsPageState();
 }
 
-class _HarnessWorkflowsPageState extends State<_HarnessWorkflowsPage> {
+class _HarnessWorkflowsPageState extends State<HarnessWorkflowsPage> {
   final TextEditingController _controller = TextEditingController();
 
   bool _loading = true;
@@ -996,9 +995,7 @@ class _HarnessWorkflowsPageState extends State<_HarnessWorkflowsPage> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showAppMessage(context, message);
   }
 
   HarnessWorkflowSummary? _selectedWorkflow(HarnessWorkflowCatalog catalog) {
@@ -1013,7 +1010,7 @@ class _HarnessWorkflowsPageState extends State<_HarnessWorkflowsPage> {
   @override
   Widget build(BuildContext context) {
     if (!widget.harnessConfigAvailable) {
-      return const _InfoPanel(
+      return const InfoPanel(
         title: 'Harness config unavailable',
         body:
             'This deployment mode disables local harness config management routes. Switch to local mode to manage harness workflows.',
@@ -1023,11 +1020,11 @@ class _HarnessWorkflowsPageState extends State<_HarnessWorkflowsPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _load);
+      return ErrorState(message: _error!, onRetry: _load);
     }
     final catalog = _catalog;
     if (catalog == null) {
-      return const _EmptyState(
+      return const EmptyState(
         title: 'No harness workflow data',
         body: 'The control plane returned no harness workflow document.',
       );
@@ -1037,47 +1034,47 @@ class _HarnessWorkflowsPageState extends State<_HarnessWorkflowsPage> {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final stacked = constraints.maxWidth < 1280;
-        final summaryPane = _Panel(
+        final summaryPane = PanelCard(
           title: 'Harness Workflows',
           fill: true,
           child: ListView(
             children: [
-              _InfoPanel(
+              InfoPanel(
                 title: 'Config path',
-                body: _blankAsUnknown(catalog.configPath),
+                body: blankAsUnknown(catalog.configPath),
               ),
               const SizedBox(height: 14),
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  _MetricCard(
+                  MetricCard(
                     label: 'Workflows',
                     value: '${catalog.workflows.length}',
-                    tone: _accent,
+                    tone: accentColor,
                     detail: 'Named runtime workflow definitions.',
                   ),
-                  _MetricCard(
+                  MetricCard(
                     label: 'Nodes',
                     value:
                         '${catalog.workflows.fold<int>(0, (int total, HarnessWorkflowSummary workflow) => total + workflow.nodes.length)}',
-                    tone: _info,
+                    tone: infoColor,
                     detail: 'Total nodes across `workflow.yaml`.',
                   ),
-                  _MetricCard(
+                  MetricCard(
                     label: 'Rule sets',
                     value:
                         '${catalog.workflows.fold<int>(0, (int total, HarnessWorkflowSummary workflow) => total + workflow.ruleSets.length)}',
-                    tone: _success,
+                    tone: successColor,
                     detail: 'Reusable policy rule set entries.',
                   ),
                 ],
               ),
               const SizedBox(height: 18),
-              _SubsectionTitle('Workflow catalog'),
+              SubsectionTitle('Workflow catalog'),
               const SizedBox(height: 10),
               if (catalog.workflows.isEmpty)
-                const _InfoPanel(
+                const InfoPanel(
                   title: 'No workflows',
                   body:
                       'Workflow definitions will appear here after the harness workflow config loads them.',
@@ -1168,9 +1165,9 @@ class _WorkflowListCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: selected ? _panelRaised : _panelAlt,
+          color: selected ? panelRaisedColor : panelAltColor,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? _accent : _border),
+          border: Border.all(color: selected ? accentColor : borderColor),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1181,13 +1178,13 @@ class _WorkflowListCard extends StatelessWidget {
                   child: Text(
                     workflow.name,
                     style: const TextStyle(
-                      color: _textPrimary,
+                      color: textPrimaryColor,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
                 if (selected)
-                  const Icon(Icons.check_circle, color: _accent, size: 18),
+                  const Icon(Icons.check_circle, color: accentColor, size: 18),
               ],
             ),
             const SizedBox(height: 6),
@@ -1202,7 +1199,7 @@ class _WorkflowListCard extends StatelessWidget {
                     ? ''
                     : '${workflow.maxTotalTransitions} transitions',
               ]),
-              style: const TextStyle(color: _textMuted),
+              style: const TextStyle(color: textMutedColor),
             ),
           ],
         ),
@@ -1221,12 +1218,12 @@ class _WorkflowDetailSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SubsectionTitle('Workflow detail'),
+        SubsectionTitle('Workflow detail'),
         const SizedBox(height: 10),
         _CatalogKeyValueSection(
           title: workflow.name,
           rows: <MapEntry<String, String>>[
-            MapEntry('Start node', _blankAsUnknown(workflow.startNode)),
+            MapEntry('Start node', blankAsUnknown(workflow.startNode)),
             MapEntry(
               'Max visits per node',
               workflow.maxVisitsPerNode == 0
@@ -1278,7 +1275,7 @@ class _WorkflowDetailSection extends StatelessWidget {
           ),
           const SizedBox(height: 18),
         ],
-        _SubsectionTitle('Transition graph'),
+        SubsectionTitle('Transition graph'),
         const SizedBox(height: 10),
         _WorkflowTransitionGraph(workflow: workflow),
         const SizedBox(height: 18),
@@ -1306,7 +1303,7 @@ class _WorkflowTransitionGraph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (workflow.nodes.isEmpty) {
-      return const _InfoPanel(
+      return const InfoPanel(
         title: 'No graph',
         body: 'Workflow graph data will appear after nodes are configured.',
       );
@@ -1315,9 +1312,9 @@ class _WorkflowTransitionGraph extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _panelAlt,
+        color: panelAltColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _border),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         children: workflow.nodes
@@ -1327,10 +1324,12 @@ class _WorkflowTransitionGraph extends StatelessWidget {
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: _panel,
+                  color: panelColor,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: node.id == workflow.startNode ? _accent : _border,
+                    color: node.id == workflow.startNode
+                        ? accentColor
+                        : borderColor,
                   ),
                 ),
                 child: Column(
@@ -1342,22 +1341,22 @@ class _WorkflowTransitionGraph extends StatelessWidget {
                           child: Text(
                             node.id,
                             style: const TextStyle(
-                              color: _textPrimary,
+                              color: textPrimaryColor,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
-                        _StatusPill(
+                        StatusPill(
                           label: node.kind.isEmpty ? 'node' : node.kind,
                           color: node.kind == 'gate'
-                              ? _warning
+                              ? warningColor
                               : node.kind == 'finish'
-                              ? _success
-                              : _info,
+                              ? successColor
+                              : infoColor,
                         ),
                         if (node.id == workflow.startNode) ...[
                           const SizedBox(width: 8),
-                          const _StatusPill(label: 'start', color: _accent),
+                          const StatusPill(label: 'start', color: accentColor),
                         ],
                       ],
                     ),
@@ -1365,14 +1364,14 @@ class _WorkflowTransitionGraph extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         node.uses,
-                        style: const TextStyle(color: _textMuted),
+                        style: const TextStyle(color: textMutedColor),
                       ),
                     ],
                     const SizedBox(height: 10),
                     if (node.transitions.targets().isEmpty)
                       const Text(
                         'No outgoing transitions.',
-                        style: TextStyle(color: _textSubtle),
+                        style: TextStyle(color: textSubtleColor),
                       )
                     else
                       Wrap(
@@ -1387,13 +1386,15 @@ class _WorkflowTransitionGraph extends StatelessWidget {
                                   vertical: 8,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _panelRaised,
+                                  color: panelRaisedColor,
                                   borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(color: _border),
+                                  border: Border.all(color: borderColor),
                                 ),
                                 child: Text(
                                   '${target.key} -> ${target.value}',
-                                  style: const TextStyle(color: _textPrimary),
+                                  style: const TextStyle(
+                                    color: textPrimaryColor,
+                                  ),
                                 ),
                               ),
                             )
@@ -1443,9 +1444,9 @@ class _WorkflowNodeDetailCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _panelAlt,
+        color: panelAltColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _border),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1453,13 +1454,13 @@ class _WorkflowNodeDetailCard extends StatelessWidget {
           Text(
             node.id,
             style: const TextStyle(
-              color: _textPrimary,
+              color: textPrimaryColor,
               fontWeight: FontWeight.w700,
             ),
           ),
           if (subtitle.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(subtitle, style: const TextStyle(color: _textMuted)),
+            Text(subtitle, style: const TextStyle(color: textMutedColor)),
           ],
           if (tags.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -1468,7 +1469,8 @@ class _WorkflowNodeDetailCard extends StatelessWidget {
               runSpacing: 8,
               children: tags
                   .map(
-                    (String value) => _StatusPill(label: value, color: _info),
+                    (String value) =>
+                        StatusPill(label: value, color: infoColor),
                   )
                   .toList(),
             ),
@@ -1601,7 +1603,7 @@ class _WorkflowNodeFieldSet extends StatelessWidget {
         Text(
           title,
           style: const TextStyle(
-            color: _textPrimary,
+            color: textPrimaryColor,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -1610,7 +1612,9 @@ class _WorkflowNodeFieldSet extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: filtered
-              .map((String value) => _StatusPill(label: value, color: _warning))
+              .map(
+                (String value) => StatusPill(label: value, color: warningColor),
+              )
               .toList(),
         ),
       ],

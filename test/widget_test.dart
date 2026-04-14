@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ui/control_plane_api.dart';
-import 'package:ui/harness_config_api.dart';
+import 'package:ui/control_plane/control_plane_api.dart';
+import 'package:ui/harness_config/harness_config_api.dart';
 import 'package:ui/main.dart';
-import 'package:ui/operations_api.dart';
-import 'package:ui/provider_catalog_api.dart';
+import 'package:ui/operations/operations_api.dart';
+import 'package:ui/providers/provider_catalog_api.dart';
 
 void main() {
   testWidgets('renders live-shell navigation and provider data', (
@@ -75,6 +75,92 @@ void main() {
     expect(find.text('Tenants'), findsWidgets);
     expect(find.text('Acme'), findsWidgets);
     expect(find.text('Tenant detail'), findsOneWidget);
+
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets(
+    'provider preview is backend-owned and verify uses persisted alias',
+    (WidgetTester tester) async {
+      final providerApi = _FakeProviderCatalogApi();
+
+      await tester.binding.setSurfaceSize(const Size(1440, 1100));
+      await tester.pumpWidget(
+        AgentAwesomeBetaApp(
+          controlPlaneBaseUrl: 'http://127.0.0.1:8080',
+          controlPlaneApi: _FakeControlPlaneApi(),
+          harnessConfigApi: _FakeHarnessConfigApi(),
+          operationsApi: _FakeOperationsApi(),
+          providerApi: providerApi,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Providers').first);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('api_key_env: OPENAI_API_KEY'),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('provider-alias-openai-prod-false')),
+        'renamed-prod',
+      );
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      expect(providerApi.lastPreviewAlias, 'renamed-prod');
+      expect(find.textContaining('alias: renamed-prod'), findsOneWidget);
+      expect(
+        find.textContaining('api_key_env: OPENAI_API_KEY'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Verify'));
+      await tester.pumpAndSettle();
+
+      expect(providerApi.lastVerifiedAlias, 'openai-prod');
+
+      await tester.binding.setSurfaceSize(null);
+    },
+  );
+
+  testWidgets('control-plane detail panes load backend-owned detail DTOs', (
+    WidgetTester tester,
+  ) async {
+    final controlPlaneApi = _FakeControlPlaneApi();
+
+    await tester.binding.setSurfaceSize(const Size(1440, 1100));
+    await tester.pumpWidget(
+      AgentAwesomeBetaApp(
+        controlPlaneBaseUrl: 'http://127.0.0.1:8080',
+        controlPlaneApi: controlPlaneApi,
+        harnessConfigApi: _FakeHarnessConfigApi(),
+        operationsApi: _FakeOperationsApi(),
+        providerApi: _FakeProviderCatalogApi(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Control Plane').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('slack:T-001').first);
+    await tester.pumpAndSettle();
+    expect(controlPlaneApi.installationDetailRequests, contains('inst-001'));
+    expect(find.textContaining('Linked routes: 3'), findsOneWidget);
+    expect(
+      find.textContaining('Mapped agent onboarding: waiting_for_credentials'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Inbox triage').first);
+    await tester.pumpAndSettle();
+    expect(controlPlaneApi.conversationDetailRequests, contains('conv-001'));
+    expect(find.textContaining('Latest approval: apr-001'), findsOneWidget);
+    expect(find.textContaining('Inactive installations: 1'), findsOneWidget);
 
     await tester.binding.setSurfaceSize(null);
   });
@@ -558,6 +644,9 @@ class _FakeOperationsApi implements OperationsApi {
 }
 
 class _FakeControlPlaneApi implements ControlPlaneApi {
+  final List<String> conversationDetailRequests = <String>[];
+  final List<String> installationDetailRequests = <String>[];
+
   @override
   Future<List<AgentRecord>> listAgents({String? tenantId}) async {
     return <AgentRecord>[
@@ -630,45 +719,71 @@ class _FakeControlPlaneApi implements ControlPlaneApi {
   }
 
   @override
-  Future<ConversationStateRecord> getConversationState(
+  Future<ConversationDetailRecord> getConversationDetail(
     String conversationId,
   ) async {
-    return ConversationStateRecord(
-      conversationKey: 'tenant:tenant-001:conversation:$conversationId',
-      tenantId: 'tenant-001',
-      conversationId: conversationId,
-      agentId: 'agent-001',
-      providerType: 'slack',
-      installationId: 'inst-001',
-      externalWorkspaceId: 'T-001',
-      channelId: 'C-001',
-      threadId: 'thread-001',
-      historySummary: '',
-      turns: <ConversationTurnItem>[
-        ConversationTurnItem(
-          turnId: 'turn-001',
-          role: 'user',
-          content: 'Can you triage my inbox?',
-          actorId: 'user-001',
-          requestId: 'req-001',
+    conversationDetailRequests.add(conversationId);
+    return ConversationDetailRecord(
+      conversation: ConversationRecord(
+        conversationId: conversationId,
+        tenantId: 'tenant-001',
+        agentId: 'agent-001',
+        name: 'Inbox triage',
+        kind: 'channel_route',
+        status: 'active',
+        createdBy: 'user-001',
+        createdAt: DateTime(2026, 4, 14, 10, 0),
+      ),
+      state: ConversationStateRecord(
+        conversationKey: 'tenant:tenant-001:conversation:$conversationId',
+        tenantId: 'tenant-001',
+        conversationId: conversationId,
+        agentId: 'agent-001',
+        providerType: 'slack',
+        installationId: 'inst-001',
+        externalWorkspaceId: 'T-001',
+        channelId: 'C-001',
+        threadId: 'thread-001',
+        historySummary: '',
+        turns: <ConversationTurnItem>[
+          ConversationTurnItem(
+            turnId: 'turn-001',
+            role: 'user',
+            content: 'Can you triage my inbox?',
+            actorId: 'user-001',
+            requestId: 'req-001',
+            runId: 'run-001',
+            createdAt: DateTime(2026, 4, 14, 10, 0),
+          ),
+        ],
+        pending: PendingConversationExecutionRecord(
           runId: 'run-001',
-          createdAt: DateTime(2026, 4, 14, 10, 0),
+          status: 'waiting_approval',
+          waitReason: 'approval required',
+          pendingQuestion: '',
+          approvalRequestId: 'apr-001',
+          resumeSessionId: '',
+          checkpointReference: '',
+          updatedAt: DateTime(2026, 4, 14, 10, 2),
         ),
-      ],
-      pending: PendingConversationExecutionRecord(
-        runId: 'run-001',
-        status: 'waiting_approval',
-        waitReason: 'approval required',
-        pendingQuestion: '',
-        approvalRequestId: 'apr-001',
-        resumeSessionId: '',
-        checkpointReference: '',
+        latestRunId: 'run-001',
+        latestApprovalRequestId: 'apr-001',
         updatedAt: DateTime(2026, 4, 14, 10, 2),
       ),
-      latestRunId: 'run-001',
-      latestApprovalRequestId: 'apr-001',
-      updatedAt: DateTime(2026, 4, 14, 10, 2),
+      latestRun: _run,
+      latestApproval: _approval,
+      routeHealth: ConversationRouteHealthRecord(
+        routeCount: 2,
+        unhealthyRouteCount: 1,
+        installationCount: 2,
+        inactiveInstallationCount: 1,
+      ),
     );
+  }
+
+  @override
+  Future<ConversationStateRecord> getConversationState(String conversationId) {
+    throw UnimplementedError('Conversation detail endpoint is used instead.');
   }
 
   @override
@@ -690,6 +805,49 @@ class _FakeControlPlaneApi implements ControlPlaneApi {
         adapterVersion: 1,
       ),
     ];
+  }
+
+  @override
+  Future<InstallationDetailRecord> getInstallationDetail(
+    String installationId,
+  ) async {
+    installationDetailRequests.add(installationId);
+    return InstallationDetailRecord(
+      installation: InstallationRecord(
+        installationId: installationId,
+        providerType: 'slack',
+        externalWorkspaceId: 'T-001',
+        mappedTenantId: 'tenant-001',
+        mappedDefaultAgentId: 'agent-001',
+        status: 'inactive',
+        installedBy: 'user-001',
+        installedAt: DateTime(2026, 4, 14, 9, 0),
+        lastVerifiedAt: DateTime(2026, 4, 14, 9, 30),
+        allowedChannelIds: <String>['C-001'],
+        allowedExternalUserIds: <String>['U-001'],
+        allowedAgentIds: <String>['agent-001'],
+        adapterVersion: 1,
+      ),
+      mappedAgent: AgentRecord(
+        agentId: 'agent-001',
+        tenantId: 'tenant-001',
+        name: 'Default Agent',
+        status: 'active',
+        templateId: 'tpl-default',
+        enabledCapabilities: <String>['filesystem_read'],
+        deniedCapabilities: <String>[],
+        integrationBindings: <String>['slack'],
+        onboardingState: 'waiting_for_credentials',
+        approvalOverrideMode: '',
+        runtimeOverrideMaxRunSeconds: 0,
+        runtimeOverrideMaxTurns: 0,
+      ),
+      routeHealth: InstallationRouteHealthRecord(
+        linkedRouteCount: 3,
+        unhealthyRouteCount: 1,
+        mappedAgentOnboarding: 'waiting_for_credentials',
+      ),
+    );
   }
 
   @override
@@ -798,6 +956,9 @@ class _FakeControlPlaneApi implements ControlPlaneApi {
 }
 
 class _FakeProviderCatalogApi implements ProviderCatalogApi {
+  String? lastPreviewAlias;
+  String? lastVerifiedAlias;
+
   @override
   Future<ProviderMutationResult> createProvider(ProviderConfig provider) async {
     return ProviderMutationResult(
@@ -870,6 +1031,7 @@ class _FakeProviderCatalogApi implements ProviderCatalogApi {
 
   @override
   Future<ProviderVerificationReport> verifyProvider(String alias) async {
+    lastVerifiedAlias = alias;
     return ProviderVerificationReport(
       alias: alias,
       status: 'ok',
@@ -879,6 +1041,18 @@ class _FakeProviderCatalogApi implements ProviderCatalogApi {
       validatedModels: <String>['$alias/gpt-5.4'],
       failedModels: <String>[],
       probeErrors: <String, String>{},
+    );
+  }
+
+  @override
+  Future<ProviderPreviewResult> previewProvider(ProviderConfig provider) async {
+    lastPreviewAlias = provider.alias;
+    return ProviderPreviewResult(
+      provider: provider,
+      yamlPreview:
+          'provider:\n  alias: ${provider.alias}\n  adapter: ${provider.adapter}\n  api_key_env: ${provider.apiKeyEnv}',
+      validationStatus: 'ok',
+      validationSummary: 'Preview generated from backend response.',
     );
   }
 }

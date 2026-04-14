@@ -1,6 +1,6 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
+import 'package:ui/operations/operations_api.dart';
+import 'package:ui/shared/admin_http_client.dart';
 
 class UserRecord {
   UserRecord({
@@ -63,31 +63,38 @@ class TenantRecord {
       onboardingState: (json['onboarding_state'] as String? ?? '').trim(),
       runHistoryDays:
           ((json['retention_policy'] as Map<String, dynamic>?) ??
-              <String, dynamic>{})['run_history_days'] as int? ??
+                  <String, dynamic>{})['run_history_days']
+              as int? ??
           0,
       artifactDays:
           ((json['retention_policy'] as Map<String, dynamic>?) ??
-              <String, dynamic>{})['artifact_days'] as int? ??
+                  <String, dynamic>{})['artifact_days']
+              as int? ??
           0,
       auditLogDays:
           ((json['retention_policy'] as Map<String, dynamic>?) ??
-              <String, dynamic>{})['audit_log_days'] as int? ??
+                  <String, dynamic>{})['audit_log_days']
+              as int? ??
           0,
       maxRunsPerDay:
           ((json['budget_policy'] as Map<String, dynamic>?) ??
-              <String, dynamic>{})['max_runs_per_day'] as int? ??
+                  <String, dynamic>{})['max_runs_per_day']
+              as int? ??
           0,
       defaultApprovalMode:
           ((json['default_approval_policy'] as Map<String, dynamic>?) ??
-                  <String, dynamic>{})['mode'] as String? ??
-              '',
+                  <String, dynamic>{})['mode']
+              as String? ??
+          '',
       maxRunSeconds:
           ((json['runtime_limits'] as Map<String, dynamic>?) ??
-              <String, dynamic>{})['max_run_seconds'] as int? ??
+                  <String, dynamic>{})['max_run_seconds']
+              as int? ??
           0,
       maxTurns:
           ((json['runtime_limits'] as Map<String, dynamic>?) ??
-              <String, dynamic>{})['max_turns'] as int? ??
+                  <String, dynamic>{})['max_turns']
+              as int? ??
           0,
       createdAt: _parseDateTime(json['created_at']),
     );
@@ -173,15 +180,18 @@ class AgentRecord {
       onboardingState: (json['onboarding_state'] as String? ?? '').trim(),
       approvalOverrideMode:
           ((json['approval_override'] as Map<String, dynamic>?) ??
-                  <String, dynamic>{})['mode'] as String? ??
-              '',
+                  <String, dynamic>{})['mode']
+              as String? ??
+          '',
       runtimeOverrideMaxRunSeconds:
           ((json['runtime_limits_override'] as Map<String, dynamic>?) ??
-              <String, dynamic>{})['max_run_seconds'] as int? ??
+                  <String, dynamic>{})['max_run_seconds']
+              as int? ??
           0,
       runtimeOverrideMaxTurns:
           ((json['runtime_limits_override'] as Map<String, dynamic>?) ??
-              <String, dynamic>{})['max_turns'] as int? ??
+                  <String, dynamic>{})['max_turns']
+              as int? ??
           0,
     );
   }
@@ -395,8 +405,8 @@ class PendingConversationExecutionRecord {
       pendingQuestion: (json['pending_question'] as String? ?? '').trim(),
       approvalRequestId: (json['approval_request_id'] as String? ?? '').trim(),
       resumeSessionId: (json['resume_session_id'] as String? ?? '').trim(),
-      checkpointReference:
-          (json['checkpoint_reference'] as String? ?? '').trim(),
+      checkpointReference: (json['checkpoint_reference'] as String? ?? '')
+          .trim(),
       updatedAt: _parseDateTime(json['updated_at']),
     );
   }
@@ -476,6 +486,115 @@ class ConversationStateRecord {
   final DateTime? updatedAt;
 }
 
+class ConversationRouteHealthRecord {
+  ConversationRouteHealthRecord({
+    required this.routeCount,
+    required this.unhealthyRouteCount,
+    required this.installationCount,
+    required this.inactiveInstallationCount,
+  });
+
+  factory ConversationRouteHealthRecord.fromJson(Map<String, dynamic> json) {
+    return ConversationRouteHealthRecord(
+      routeCount: json['route_count'] as int? ?? 0,
+      unhealthyRouteCount: json['unhealthy_route_count'] as int? ?? 0,
+      installationCount: json['installation_count'] as int? ?? 0,
+      inactiveInstallationCount:
+          json['inactive_installation_count'] as int? ?? 0,
+    );
+  }
+
+  final int routeCount;
+  final int unhealthyRouteCount;
+  final int installationCount;
+  final int inactiveInstallationCount;
+}
+
+class ConversationDetailRecord {
+  ConversationDetailRecord({
+    required this.conversation,
+    required this.state,
+    required this.latestRun,
+    required this.latestApproval,
+    required this.routeHealth,
+  });
+
+  factory ConversationDetailRecord.fromJson(Map<String, dynamic> json) {
+    return ConversationDetailRecord(
+      conversation: ConversationRecord.fromJson(
+        (json['conversation'] as Map<String, dynamic>? ?? <String, dynamic>{}),
+      ),
+      state: ConversationStateRecord.fromJson(
+        (json['state'] as Map<String, dynamic>? ?? <String, dynamic>{}),
+      ),
+      latestRun: (json['latest_run'] as Map<String, dynamic>?) == null
+          ? null
+          : RunRecord.fromJson(json['latest_run'] as Map<String, dynamic>),
+      latestApproval: (json['latest_approval'] as Map<String, dynamic>?) == null
+          ? null
+          : ApprovalRecord.fromJson(
+              json['latest_approval'] as Map<String, dynamic>,
+            ),
+      routeHealth: ConversationRouteHealthRecord.fromJson(
+        (json['route_health'] as Map<String, dynamic>? ?? <String, dynamic>{}),
+      ),
+    );
+  }
+
+  final ConversationRecord conversation;
+  final ConversationStateRecord state;
+  final RunRecord? latestRun;
+  final ApprovalRecord? latestApproval;
+  final ConversationRouteHealthRecord routeHealth;
+}
+
+class InstallationRouteHealthRecord {
+  InstallationRouteHealthRecord({
+    required this.linkedRouteCount,
+    required this.unhealthyRouteCount,
+    required this.mappedAgentOnboarding,
+  });
+
+  factory InstallationRouteHealthRecord.fromJson(Map<String, dynamic> json) {
+    return InstallationRouteHealthRecord(
+      linkedRouteCount: json['linked_route_count'] as int? ?? 0,
+      unhealthyRouteCount: json['unhealthy_route_count'] as int? ?? 0,
+      mappedAgentOnboarding: (json['mapped_agent_onboarding'] as String? ?? '')
+          .trim(),
+    );
+  }
+
+  final int linkedRouteCount;
+  final int unhealthyRouteCount;
+  final String mappedAgentOnboarding;
+}
+
+class InstallationDetailRecord {
+  InstallationDetailRecord({
+    required this.installation,
+    required this.mappedAgent,
+    required this.routeHealth,
+  });
+
+  factory InstallationDetailRecord.fromJson(Map<String, dynamic> json) {
+    return InstallationDetailRecord(
+      installation: InstallationRecord.fromJson(
+        (json['installation'] as Map<String, dynamic>? ?? <String, dynamic>{}),
+      ),
+      mappedAgent: (json['mapped_agent'] as Map<String, dynamic>?) == null
+          ? null
+          : AgentRecord.fromJson(json['mapped_agent'] as Map<String, dynamic>),
+      routeHealth: InstallationRouteHealthRecord.fromJson(
+        (json['route_health'] as Map<String, dynamic>? ?? <String, dynamic>{}),
+      ),
+    );
+  }
+
+  final InstallationRecord installation;
+  final AgentRecord? mappedAgent;
+  final InstallationRouteHealthRecord routeHealth;
+}
+
 abstract class ControlPlaneApi {
   Future<List<UserRecord>> listUsers();
 
@@ -503,6 +622,10 @@ abstract class ControlPlaneApi {
 
   Future<ConversationStateRecord> getConversationState(String conversationId);
 
+  Future<ConversationDetailRecord> getConversationDetail(String conversationId);
+
+  Future<InstallationDetailRecord> getInstallationDetail(String installationId);
+
   Future<TenantRecord> disableTenant({
     required String tenantId,
     required String actorId,
@@ -529,7 +652,11 @@ class HttpControlPlaneApi implements ControlPlaneApi {
     required this.baseUrl,
     required this.adminToken,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  }) : _http = AdminHttpClient(
+         baseUrl: baseUrl,
+         adminToken: adminToken,
+         client: client,
+       );
 
   factory HttpControlPlaneApi.fromEnvironment() {
     return HttpControlPlaneApi(
@@ -543,18 +670,48 @@ class HttpControlPlaneApi implements ControlPlaneApi {
 
   final String baseUrl;
   final String adminToken;
-  final http.Client _client;
+  final AdminHttpClient _http;
 
   @override
   Future<ConversationStateRecord> getConversationState(
     String conversationId,
   ) async {
-    final response = await _client.get(
-      _uri('/v1/admin/conversations/${Uri.encodeComponent(conversationId)}/state'),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/conversations/${Uri.encodeComponent(conversationId)}/state',
     );
-    final payload = await _decodeJsonMap(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      ControlPlaneApiException.new,
+    );
     return ConversationStateRecord.fromJson(payload);
+  }
+
+  @override
+  Future<ConversationDetailRecord> getConversationDetail(
+    String conversationId,
+  ) async {
+    final response = await _http.get(
+      '/v1/admin/conversations/${Uri.encodeComponent(conversationId)}/detail',
+    );
+    final payload = await _http.decodeJsonMap(
+      response,
+      ControlPlaneApiException.new,
+    );
+    return ConversationDetailRecord.fromJson(payload);
+  }
+
+  @override
+  Future<InstallationDetailRecord> getInstallationDetail(
+    String installationId,
+  ) async {
+    final response = await _http.get(
+      '/v1/admin/installations/${Uri.encodeComponent(installationId)}/detail',
+    );
+    final payload = await _http.decodeJsonMap(
+      response,
+      ControlPlaneApiException.new,
+    );
+    return InstallationDetailRecord.fromJson(payload);
   }
 
   @override
@@ -563,15 +720,17 @@ class HttpControlPlaneApi implements ControlPlaneApi {
     required String actorId,
     String reason = '',
   }) async {
-    final response = await _client.post(
-      _uri('/v1/admin/tenants/${Uri.encodeComponent(tenantId)}/disable'),
-      headers: _jsonHeaders(),
-      body: jsonEncode(<String, String>{
+    final response = await _http.post(
+      '/v1/admin/tenants/${Uri.encodeComponent(tenantId)}/disable',
+      body: <String, String>{
         'actor_id': actorId.trim(),
         'reason': reason.trim(),
-      }),
+      },
     );
-    final payload = await _decodeJsonMap(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      ControlPlaneApiException.new,
+    );
     return TenantRecord.fromJson(payload);
   }
 
@@ -581,15 +740,17 @@ class HttpControlPlaneApi implements ControlPlaneApi {
     required String actorId,
     String reason = '',
   }) async {
-    final response = await _client.post(
-      _uri('/v1/admin/agents/${Uri.encodeComponent(agentId)}/disable'),
-      headers: _jsonHeaders(),
-      body: jsonEncode(<String, String>{
+    final response = await _http.post(
+      '/v1/admin/agents/${Uri.encodeComponent(agentId)}/disable',
+      body: <String, String>{
         'actor_id': actorId.trim(),
         'reason': reason.trim(),
-      }),
+      },
     );
-    final payload = await _decodeJsonMap(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      ControlPlaneApiException.new,
+    );
     return AgentRecord.fromJson(payload);
   }
 
@@ -601,30 +762,32 @@ class HttpControlPlaneApi implements ControlPlaneApi {
     required List<String> allowedExternalUserIds,
     required List<String> allowedAgentIds,
   }) async {
-    final response = await _client.post(
-      _uri('/v1/admin/installations/${Uri.encodeComponent(installationId)}/access'),
-      headers: _jsonHeaders(),
-      body: jsonEncode(<String, dynamic>{
+    final response = await _http.post(
+      '/v1/admin/installations/${Uri.encodeComponent(installationId)}/access',
+      body: <String, dynamic>{
         'actor_id': actorId.trim(),
         'allowed_channel_ids': allowedChannelIds,
         'allowed_external_user_ids': allowedExternalUserIds,
         'allowed_agent_ids': allowedAgentIds,
-      }),
+      },
     );
-    final payload = await _decodeJsonMap(response);
+    final payload = await _http.decodeJsonMap(
+      response,
+      ControlPlaneApiException.new,
+    );
     return InstallationRecord.fromJson(payload);
   }
 
   @override
   Future<List<AgentRecord>> listAgents({String? tenantId}) async {
-    final response = await _client.get(
-      _uri(
-        '/v1/admin/agents',
-        _query(<String, String?>{'tenant_id': tenantId}),
-      ),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/agents',
+      query: _query(<String, String?>{'tenant_id': tenantId}),
     );
-    final payload = await _decodeJsonList(response);
+    final payload = await _http.decodeJsonList(
+      response,
+      ControlPlaneApiException.new,
+    );
     return payload.map(AgentRecord.fromJson).toList();
   }
 
@@ -634,18 +797,18 @@ class HttpControlPlaneApi implements ControlPlaneApi {
     String? agentId,
     String? installationId,
   }) async {
-    final response = await _client.get(
-      _uri(
-        '/v1/admin/channel-routes',
-        _query(<String, String?>{
-          'tenant_id': tenantId,
-          'agent_id': agentId,
-          'installation_id': installationId,
-        }),
-      ),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/channel-routes',
+      query: _query(<String, String?>{
+        'tenant_id': tenantId,
+        'agent_id': agentId,
+        'installation_id': installationId,
+      }),
     );
-    final payload = await _decodeJsonList(response);
+    final payload = await _http.decodeJsonList(
+      response,
+      ControlPlaneApiException.new,
+    );
     return payload.map(ChannelRouteRecord.fromJson).toList();
   }
 
@@ -654,27 +817,30 @@ class HttpControlPlaneApi implements ControlPlaneApi {
     String? tenantId,
     String? agentId,
   }) async {
-    final response = await _client.get(
-      _uri(
-        '/v1/admin/conversations',
-        _query(<String, String?>{'tenant_id': tenantId, 'agent_id': agentId}),
-      ),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/conversations',
+      query: _query(<String, String?>{
+        'tenant_id': tenantId,
+        'agent_id': agentId,
+      }),
     );
-    final payload = await _decodeJsonList(response);
+    final payload = await _http.decodeJsonList(
+      response,
+      ControlPlaneApiException.new,
+    );
     return payload.map(ConversationRecord.fromJson).toList();
   }
 
   @override
   Future<List<InstallationRecord>> listInstallations({String? tenantId}) async {
-    final response = await _client.get(
-      _uri(
-        '/v1/admin/installations',
-        _query(<String, String?>{'tenant_id': tenantId}),
-      ),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/installations',
+      query: _query(<String, String?>{'tenant_id': tenantId}),
     );
-    final payload = await _decodeJsonList(response);
+    final payload = await _http.decodeJsonList(
+      response,
+      ControlPlaneApiException.new,
+    );
     return payload.map(InstallationRecord.fromJson).toList();
   }
 
@@ -683,54 +849,38 @@ class HttpControlPlaneApi implements ControlPlaneApi {
     String? tenantId,
     String? userId,
   }) async {
-    final response = await _client.get(
-      _uri(
-        '/v1/admin/memberships',
-        _query(<String, String?>{'tenant_id': tenantId, 'user_id': userId}),
-      ),
-      headers: _headers(),
+    final response = await _http.get(
+      '/v1/admin/memberships',
+      query: _query(<String, String?>{
+        'tenant_id': tenantId,
+        'user_id': userId,
+      }),
     );
-    final payload = await _decodeJsonList(response);
+    final payload = await _http.decodeJsonList(
+      response,
+      ControlPlaneApiException.new,
+    );
     return payload.map(MembershipRecord.fromJson).toList();
   }
 
   @override
   Future<List<TenantRecord>> listTenants() async {
-    final response = await _client.get(
-      _uri('/v1/admin/tenants'),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/tenants');
+    final payload = await _http.decodeJsonList(
+      response,
+      ControlPlaneApiException.new,
     );
-    final payload = await _decodeJsonList(response);
     return payload.map(TenantRecord.fromJson).toList();
   }
 
   @override
   Future<List<UserRecord>> listUsers() async {
-    final response = await _client.get(
-      _uri('/v1/admin/users'),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/users');
+    final payload = await _http.decodeJsonList(
+      response,
+      ControlPlaneApiException.new,
     );
-    final payload = await _decodeJsonList(response);
     return payload.map(UserRecord.fromJson).toList();
-  }
-
-  Uri _uri(String path, [Map<String, String>? query]) {
-    final normalizedBase = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-    return Uri.parse('$normalizedBase$path').replace(queryParameters: query);
-  }
-
-  Map<String, String> _headers() {
-    final headers = <String, String>{'Accept': 'application/json'};
-    if (adminToken.trim().isNotEmpty) {
-      headers['X-Admin-Token'] = adminToken.trim();
-    }
-    return headers;
-  }
-
-  Map<String, String> _jsonHeaders() {
-    return <String, String>{..._headers(), 'Content-Type': 'application/json'};
   }
 
   Map<String, String> _query(Map<String, String?> input) {
@@ -741,38 +891,6 @@ class HttpControlPlaneApi implements ControlPlaneApi {
       }
     });
     return query;
-  }
-
-  Future<List<Map<String, dynamic>>> _decodeJsonList(
-    http.Response response,
-  ) async {
-    final bodyText = utf8.decode(response.bodyBytes);
-    final payload = bodyText.trim().isEmpty
-        ? <dynamic>[]
-        : (jsonDecode(bodyText) as List<dynamic>);
-    if (response.statusCode >= 400) {
-      throw ControlPlaneApiException(
-        payload.isNotEmpty && payload.first is Map<String, dynamic>
-            ? ((payload.first as Map<String, dynamic>)['error'] as String? ??
-                  'Request failed with status ${response.statusCode}.')
-            : 'Request failed with status ${response.statusCode}.',
-      );
-    }
-    return payload.whereType<Map<String, dynamic>>().toList();
-  }
-
-  Future<Map<String, dynamic>> _decodeJsonMap(http.Response response) async {
-    final bodyText = utf8.decode(response.bodyBytes);
-    final payload = bodyText.trim().isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(bodyText) as Map<String, dynamic>;
-    if (response.statusCode >= 400) {
-      throw ControlPlaneApiException(
-        payload['error'] as String? ??
-            'Request failed with status ${response.statusCode}.',
-      );
-    }
-    return payload;
   }
 }
 

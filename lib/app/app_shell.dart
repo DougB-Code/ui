@@ -1,4 +1,13 @@
-part of 'main.dart';
+import 'package:flutter/material.dart';
+import 'package:ui/control_plane/control_plane_api.dart';
+import 'package:ui/control_plane/control_plane_page.dart';
+import 'package:ui/harness_config/harness_config_api.dart';
+import 'package:ui/harness_config/harness_config_pages.dart';
+import 'package:ui/operations/operations_api.dart';
+import 'package:ui/operations/operations_pages.dart';
+import 'package:ui/providers/provider_catalog_api.dart';
+import 'package:ui/providers/providers_page.dart';
+import 'package:ui/shared/ui.dart';
 
 enum AppSection {
   summary('Summary', Icons.dashboard_outlined),
@@ -18,8 +27,8 @@ enum AppSection {
   final IconData icon;
 }
 
-class _BetaShell extends StatefulWidget {
-  const _BetaShell({
+class BetaShell extends StatefulWidget {
+  const BetaShell({
     required this.controlPlaneBaseUrl,
     required this.controlPlaneApi,
     required this.harnessConfigApi,
@@ -34,10 +43,10 @@ class _BetaShell extends StatefulWidget {
   final ProviderCatalogApi providerApi;
 
   @override
-  State<_BetaShell> createState() => _BetaShellState();
+  State<BetaShell> createState() => _BetaShellState();
 }
 
-class _BetaShellState extends State<_BetaShell> {
+class _BetaShellState extends State<BetaShell> {
   AppSection _section = AppSection.runs;
   final _deploymentMode = const String.fromEnvironment(
     'CONTROL_PLANE_DEPLOYMENT',
@@ -47,35 +56,35 @@ class _BetaShellState extends State<_BetaShell> {
   @override
   Widget build(BuildContext context) {
     final content = switch (_section) {
-      AppSection.summary => _SummaryPage(operationsApi: widget.operationsApi),
-      AppSection.runs => _RunsPage(
+      AppSection.summary => SummaryPage(operationsApi: widget.operationsApi),
+      AppSection.runs => RunsPage(
         operationsApi: widget.operationsApi,
         initialRunId: null,
       ),
-      AppSection.approvals => _ApprovalsPage(
+      AppSection.approvals => ApprovalsPage(
         operationsApi: widget.operationsApi,
       ),
-      AppSection.artifacts => _ArtifactsPage(
+      AppSection.artifacts => ArtifactsPage(
         operationsApi: widget.operationsApi,
       ),
-      AppSection.audits => _AuditsPage(operationsApi: widget.operationsApi),
-      AppSection.controlPlane => _ControlPlanePage(
+      AppSection.audits => AuditsPage(operationsApi: widget.operationsApi),
+      AppSection.controlPlane => ControlPlanePage(
         controlPlaneApi: widget.controlPlaneApi,
         operationsApi: widget.operationsApi,
       ),
-      AppSection.harnessAgents => _HarnessAgentsPage(
+      AppSection.harnessAgents => HarnessAgentsPage(
         harnessConfigApi: widget.harnessConfigApi,
         harnessConfigAvailable: _deploymentMode != 'cloudflare',
       ),
-      AppSection.harnessTools => _HarnessToolsPage(
+      AppSection.harnessTools => HarnessToolsPage(
         harnessConfigApi: widget.harnessConfigApi,
         harnessConfigAvailable: _deploymentMode != 'cloudflare',
       ),
-      AppSection.harnessWorkflows => _HarnessWorkflowsPage(
+      AppSection.harnessWorkflows => HarnessWorkflowsPage(
         harnessConfigApi: widget.harnessConfigApi,
         harnessConfigAvailable: _deploymentMode != 'cloudflare',
       ),
-      AppSection.providers => _ProvidersPage(
+      AppSection.providers => ProvidersPage(
         providerApi: widget.providerApi,
         providerCatalogAvailable: _deploymentMode != 'cloudflare',
       ),
@@ -135,7 +144,7 @@ class _Sidebar extends StatelessWidget {
       width: 250,
       decoration: const BoxDecoration(
         color: Color(0xFF0D131A),
-        border: Border(right: BorderSide(color: _border)),
+        border: Border(right: BorderSide(color: borderColor)),
       ),
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
       child: Column(
@@ -218,14 +227,14 @@ class _Sidebar extends StatelessWidget {
                 ),
                 if (deploymentMode == 'cloudflare') ...[
                   const SizedBox(height: 16),
-                  const _InfoPanel(
+                  const InfoPanel(
                     title: 'Deployed mode',
                     body:
                         'Harness config editors are intentionally local-only. Run detail still shows live control-plane data, and harness session inspection appears when the deployment can read local harness state.',
                   ),
                 ],
                 const SizedBox(height: 16),
-                const _InfoPanel(
+                const InfoPanel(
                   title: 'Beta mode',
                   body:
                       'This shell exposes only live control-plane-backed surfaces. Seed data and design-only sections have been removed from the beta path.',
@@ -265,7 +274,7 @@ class _BrandLockup extends StatelessWidget {
               Text(
                 'Agent Awesome',
                 style: TextStyle(
-                  color: _textPrimary,
+                  color: textPrimaryColor,
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
                 ),
@@ -273,7 +282,7 @@ class _BrandLockup extends StatelessWidget {
               SizedBox(height: 2),
               Text(
                 'Beta operator console',
-                style: TextStyle(color: _textMuted, fontSize: 12),
+                style: TextStyle(color: textMutedColor, fontSize: 12),
               ),
             ],
           ),
@@ -293,7 +302,7 @@ class _NavLabel extends StatelessWidget {
     return Text(
       label.toUpperCase(),
       style: const TextStyle(
-        color: _textSubtle,
+        color: textSubtleColor,
         fontSize: 11,
         letterSpacing: 1.1,
         fontWeight: FontWeight.w700,
@@ -318,7 +327,7 @@ class _NavButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? _panelRaised : Colors.transparent,
+      color: selected ? panelRaisedColor : Colors.transparent,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -330,7 +339,7 @@ class _NavButton extends StatelessWidget {
             children: [
               Icon(
                 section.icon,
-                color: selected ? _textPrimary : _textMuted,
+                color: selected ? textPrimaryColor : textMutedColor,
                 size: 20,
               ),
               const SizedBox(width: 12),
@@ -339,7 +348,7 @@ class _NavButton extends StatelessWidget {
                   section.label,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: selected ? _textPrimary : _textMuted,
+                    color: selected ? textPrimaryColor : textMutedColor,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -352,14 +361,16 @@ class _NavButton extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: _warning.withValues(alpha: 0.12),
+                    color: warningColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: _warning.withValues(alpha: 0.35)),
+                    border: Border.all(
+                      color: warningColor.withValues(alpha: 0.35),
+                    ),
                   ),
                   child: Text(
                     badge!,
                     style: const TextStyle(
-                      color: _warning,
+                      color: warningColor,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -400,14 +411,14 @@ class _HeaderBar extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 'Connected to $controlPlaneBaseUrl (${deploymentMode.toUpperCase()})',
-                style: const TextStyle(color: _textMuted),
+                style: const TextStyle(color: textMutedColor),
               ),
             ],
           ),
         ),
-        _StatusPill(
+        StatusPill(
           label: deploymentMode == 'cloudflare' ? 'Deployed mode' : 'Live API',
-          color: deploymentMode == 'cloudflare' ? _warning : _success,
+          color: deploymentMode == 'cloudflare' ? warningColor : successColor,
         ),
       ],
     );

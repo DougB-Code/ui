@@ -1,6 +1,5 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
+import 'package:ui/shared/admin_http_client.dart';
 
 class HarnessAgentTemplateSummary {
   HarnessAgentTemplateSummary({
@@ -734,7 +733,11 @@ class HttpHarnessConfigApi implements HarnessConfigApi {
     required this.baseUrl,
     required this.adminToken,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  }) : _http = AdminHttpClient(
+         baseUrl: baseUrl,
+         adminToken: adminToken,
+         client: client,
+       );
 
   factory HttpHarnessConfigApi.fromEnvironment() {
     return HttpHarnessConfigApi(
@@ -748,125 +751,96 @@ class HttpHarnessConfigApi implements HarnessConfigApi {
 
   final String baseUrl;
   final String adminToken;
-  final http.Client _client;
+  final AdminHttpClient _http;
 
   @override
   Future<HarnessAgentCatalog> getAgents() async {
-    final response = await _client.get(
-      _uri('/v1/admin/harness/agents'),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/harness/agents');
+    return HarnessAgentCatalog.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
     );
-    return HarnessAgentCatalog.fromJson(await _decodeJson(response));
   }
 
   @override
   Future<HarnessToolCatalog> getTools() async {
-    final response = await _client.get(
-      _uri('/v1/admin/harness/tools'),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/harness/tools');
+    return HarnessToolCatalog.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
     );
-    return HarnessToolCatalog.fromJson(await _decodeJson(response));
   }
 
   @override
   Future<HarnessAgentCatalog> saveAgents(String yaml) async {
-    final response = await _client.put(
-      _uri('/v1/admin/harness/agents'),
-      headers: _headers(),
-      body: jsonEncode(<String, dynamic>{'yaml': yaml}),
+    final response = await _http.put(
+      '/v1/admin/harness/agents',
+      body: <String, dynamic>{'yaml': yaml},
     );
-    return HarnessAgentCatalog.fromJson(await _decodeJson(response));
+    return HarnessAgentCatalog.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
+    );
   }
 
   @override
   Future<HarnessToolCatalog> saveTools(String yaml) async {
-    final response = await _client.put(
-      _uri('/v1/admin/harness/tools'),
-      headers: _headers(),
-      body: jsonEncode(<String, dynamic>{'yaml': yaml}),
+    final response = await _http.put(
+      '/v1/admin/harness/tools',
+      body: <String, dynamic>{'yaml': yaml},
     );
-    return HarnessToolCatalog.fromJson(await _decodeJson(response));
+    return HarnessToolCatalog.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
+    );
   }
 
   @override
   Future<HarnessWorkflowCatalog> getWorkflows() async {
-    final response = await _client.get(
-      _uri('/v1/admin/harness/workflows'),
-      headers: _headers(),
+    final response = await _http.get('/v1/admin/harness/workflows');
+    return HarnessWorkflowCatalog.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
     );
-    return HarnessWorkflowCatalog.fromJson(await _decodeJson(response));
   }
 
   @override
   Future<HarnessWorkflowCatalog> saveWorkflows(String yaml) async {
-    final response = await _client.put(
-      _uri('/v1/admin/harness/workflows'),
-      headers: _headers(),
-      body: jsonEncode(<String, dynamic>{'yaml': yaml}),
+    final response = await _http.put(
+      '/v1/admin/harness/workflows',
+      body: <String, dynamic>{'yaml': yaml},
     );
-    return HarnessWorkflowCatalog.fromJson(await _decodeJson(response));
+    return HarnessWorkflowCatalog.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
+    );
   }
 
   @override
   Future<HarnessConfigValidationReport> validateAgents(String yaml) async {
-    final response = await _client.post(
-      _uri('/v1/admin/harness/agents/validate'),
-      headers: _headers(),
-      body: jsonEncode(<String, dynamic>{'yaml': yaml}),
+    final response = await _http.post(
+      '/v1/admin/harness/agents/validate',
+      body: <String, dynamic>{'yaml': yaml},
     );
-    return HarnessConfigValidationReport.fromJson(await _decodeJson(response));
+    return HarnessConfigValidationReport.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
+    );
   }
 
   @override
   Future<HarnessConfigValidationReport> validateTools(String yaml) async {
-    final response = await _client.post(
-      _uri('/v1/admin/harness/tools/validate'),
-      headers: _headers(),
-      body: jsonEncode(<String, dynamic>{'yaml': yaml}),
+    final response = await _http.post(
+      '/v1/admin/harness/tools/validate',
+      body: <String, dynamic>{'yaml': yaml},
     );
-    return HarnessConfigValidationReport.fromJson(await _decodeJson(response));
+    return HarnessConfigValidationReport.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
+    );
   }
 
   @override
   Future<HarnessConfigValidationReport> validateWorkflows(String yaml) async {
-    final response = await _client.post(
-      _uri('/v1/admin/harness/workflows/validate'),
-      headers: _headers(),
-      body: jsonEncode(<String, dynamic>{'yaml': yaml}),
+    final response = await _http.post(
+      '/v1/admin/harness/workflows/validate',
+      body: <String, dynamic>{'yaml': yaml},
     );
-    return HarnessConfigValidationReport.fromJson(await _decodeJson(response));
-  }
-
-  Uri _uri(String path) {
-    final normalizedBase = baseUrl.endsWith('/')
-        ? baseUrl.substring(0, baseUrl.length - 1)
-        : baseUrl;
-    return Uri.parse('$normalizedBase$path');
-  }
-
-  Map<String, String> _headers() {
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    if (adminToken.trim().isNotEmpty) {
-      headers['X-Admin-Token'] = adminToken.trim();
-    }
-    return headers;
-  }
-
-  Future<Map<String, dynamic>> _decodeJson(http.Response response) async {
-    final bodyText = utf8.decode(response.bodyBytes);
-    final payload = bodyText.trim().isEmpty
-        ? <String, dynamic>{}
-        : (jsonDecode(bodyText) as Map<String, dynamic>);
-    if (response.statusCode >= 400) {
-      throw HarnessConfigApiException(
-        payload['error'] as String? ??
-            'Request failed with status ${response.statusCode}.',
-      );
-    }
-    return payload;
+    return HarnessConfigValidationReport.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
+    );
   }
 }
 
