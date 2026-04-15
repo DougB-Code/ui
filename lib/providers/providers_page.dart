@@ -40,6 +40,8 @@ class _ProvidersPageState extends State<ProvidersPage> {
   ProviderConfig _draft = ProviderConfig.empty();
   bool _isNew = true;
   Timer? _previewDebounce;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -50,6 +52,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
   @override
   void dispose() {
     _previewDebounce?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -265,6 +268,15 @@ class _ProvidersPageState extends State<ProvidersPage> {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final stacked = constraints.maxWidth < 1150;
+        final filteredProviders = _providers.where((ProviderConfig provider) {
+          final query = _searchQuery.trim().toLowerCase();
+          if (query.isEmpty) {
+            return true;
+          }
+          return provider.alias.toLowerCase().contains(query) ||
+              provider.adapter.toLowerCase().contains(query);
+        }).toList();
+
         final listPane = PanelCard(
           title: 'Providers',
           fill: true,
@@ -290,52 +302,54 @@ class _ProvidersPageState extends State<ProvidersPage> {
                   body:
                       'Create a provider here to manage the harness provider catalog through the control plane.',
                 )
-              : ListView.separated(
-                  itemCount: _providers.length,
-                  separatorBuilder: (_, _) => const Divider(color: borderColor),
-                  itemBuilder: (BuildContext context, int index) {
-                    final provider = _providers[index];
-                    final selected =
-                        !_isNew && provider.alias == _draft.persistedAlias;
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(provider.alias),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              if (provider.isDefault)
-                                const StatusPill(
-                                  label: 'default',
-                                  color: infoColor,
-                                ),
-                              StatusPill(
-                                label: provider.enabled
-                                    ? 'enabled'
-                                    : 'disabled',
-                                color: provider.enabled
-                                    ? successColor
-                                    : warningColor,
+              : Column(
+                  children: [
+                    TextField(
+                      controller: _searchController,
+                      onChanged: (String value) {
+                        setState(() => _searchQuery = value);
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Search providers...',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: _searchQuery.trim().isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                                icon: const Icon(Icons.close_rounded),
                               ),
-                              if (provider.accessVerified)
-                                const StatusPill(
-                                  label: 'verified',
-                                  color: successColor,
-                                ),
-                            ],
-                          ),
-                        ],
                       ),
-                      trailing: selected
-                          ? const Icon(Icons.check_circle, color: accentColor)
-                          : null,
-                      onTap: () => _selectProvider(provider),
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 14),
+                    if (filteredProviders.isEmpty)
+                      const Expanded(
+                        child: EmptyState(
+                          title: 'No matching providers',
+                          body: 'Try another search term.',
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: filteredProviders.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 10),
+                          itemBuilder: (BuildContext context, int index) {
+                            final provider = filteredProviders[index];
+                            final selected =
+                                !_isNew &&
+                                provider.alias == _draft.persistedAlias;
+                            return _ProviderListCard(
+                              provider: provider,
+                              selected: selected,
+                              onTap: () => _selectProvider(provider),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
                 ),
         );
 
@@ -672,6 +686,108 @@ class _ProviderEditorPane extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ProviderListCard extends StatelessWidget {
+  const _ProviderListCard({
+    required this.provider,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ProviderConfig provider;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = provider.enabled ? infoColor : warningColor;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      decoration: BoxDecoration(
+        color: selected ? panelRaisedColor : panelAltColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: selected ? infoColor.withValues(alpha: 0.7) : borderColor,
+        ),
+        boxShadow: [
+          if (selected)
+            BoxShadow(
+              color: infoColor.withValues(alpha: 0.22),
+              blurRadius: 22,
+              spreadRadius: 1,
+            ),
+        ],
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: accent.withValues(alpha: 0.18),
+                child: Icon(
+                  Icons.cloud_outlined,
+                  color: accent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      provider.alias,
+                      style: const TextStyle(
+                        color: textPrimaryColor,
+                        fontSize: 26 / 1.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        StatusPill(
+                          label: provider.enabled ? 'enabled' : 'disabled',
+                          color: provider.enabled ? successColor : warningColor,
+                        ),
+                        if (provider.accessVerified)
+                          const StatusPill(label: 'verified', color: successColor),
+                        if (provider.isDefault)
+                          const StatusPill(label: 'default', color: infoColor),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    onPressed: onTap,
+                    icon: const Icon(Icons.edit_outlined),
+                    color: textMutedColor,
+                  ),
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.chevron_right_rounded,
+                    color: selected ? infoColor : textSubtleColor,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
