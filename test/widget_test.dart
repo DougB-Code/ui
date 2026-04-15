@@ -1,3 +1,5 @@
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/control_plane/control_plane_api.dart';
@@ -5,6 +7,12 @@ import 'package:ui/harness_config/harness_config_api.dart';
 import 'package:ui/main.dart';
 import 'package:ui/operations/operations_api.dart';
 import 'package:ui/providers/provider_catalog_api.dart';
+
+const ValueKey<String> _appRailKey = ValueKey<String>('app-rail');
+const ValueKey<String> _appRailLogoKey = ValueKey<String>('app-rail-logo');
+const ValueKey<String> _appRailExpandIconKey = ValueKey<String>(
+  'app-rail-expand-icon',
+);
 
 void main() {
   final providersSearchField = find.byWidgetPredicate(
@@ -40,6 +48,9 @@ void main() {
     expect(find.text('Harness Workflows'), findsWidgets);
     expect(find.text('Providers'), findsWidgets);
     expect(find.text('Live API'), findsOneWidget);
+    expect(find.text('Agent Awesome'), findsNothing);
+    expect(find.text('Beta operator console'), findsNothing);
+    expect(find.byKey(_appRailLogoKey), findsOneWidget);
 
     await tester.tap(find.text('Summary').first);
     await tester.pumpAndSettle();
@@ -118,9 +129,39 @@ void main() {
     await tester.tap(find.byTooltip('Collapse navigation'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Agent Awesome'), findsNothing);
     expect(find.text('Operations'), findsNothing);
     expect(find.byTooltip('Providers'), findsOneWidget);
+    expect(find.byKey(_appRailLogoKey), findsOneWidget);
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: const Offset(0, 0));
+    final railRect = tester.getRect(find.byKey(_appRailKey));
+    final logoRect = tester.getRect(find.byKey(_appRailLogoKey));
+
+    await gesture.moveTo(Offset(railRect.left + 6, logoRect.center.dy));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(_appRailExpandIconKey), findsNothing);
+    expect(find.byKey(_appRailLogoKey), findsOneWidget);
+
+    await gesture.moveTo(logoRect.center);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(_appRailExpandIconKey), findsOneWidget);
+
+    final providersCenter = tester.getCenter(find.byTooltip('Providers'));
+    await gesture.moveTo(Offset(railRect.left + 14, providersCenter.dy));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(_appRailExpandIconKey), findsNothing);
+    expect(find.byKey(_appRailLogoKey), findsOneWidget);
+
+    await gesture.moveTo(providersCenter);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(_appRailExpandIconKey), findsNothing);
+    expect(find.byKey(_appRailLogoKey), findsOneWidget);
+    await gesture.removePointer();
 
     await tester.binding.setSurfaceSize(null);
   });

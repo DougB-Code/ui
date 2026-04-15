@@ -100,6 +100,13 @@ const List<_NavigationGroup> _navigationGroups = <_NavigationGroup>[
   ]),
 ];
 
+const String _railLogoAssetPath = 'assets/images/agentawesome-logo.png';
+const ValueKey<String> _appRailKey = ValueKey<String>('app-rail');
+const ValueKey<String> _appRailLogoKey = ValueKey<String>('app-rail-logo');
+const ValueKey<String> _appRailExpandIconKey = ValueKey<String>(
+  'app-rail-expand-icon',
+);
+
 class BetaShell extends StatefulWidget {
   const BetaShell({
     super.key,
@@ -309,7 +316,7 @@ class _BetaShellState extends State<BetaShell> with WidgetsBindingObserver {
   }
 }
 
-class _AppRail extends StatelessWidget {
+class _AppRail extends StatefulWidget {
   const _AppRail({
     required this.expanded,
     required this.selected,
@@ -327,89 +334,143 @@ class _AppRail extends StatelessWidget {
   final VoidCallback onLogout;
 
   @override
+  State<_AppRail> createState() => _AppRailState();
+}
+
+class _AppRailState extends State<_AppRail> {
+  bool _toggleControlHovered = false;
+
+  bool get _showToggleIcon => !widget.expanded && _toggleControlHovered;
+
+  void _setToggleControlHovered(bool hovered) {
+    if (_toggleControlHovered == hovered) {
+      return;
+    }
+    setState(() => _toggleControlHovered = hovered);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      width: expanded ? 304 : 84,
-      color: const Color(0xCC09101C),
-      padding: EdgeInsets.fromLTRB(
-        expanded ? 18 : 12,
-        18,
-        expanded ? 18 : 12,
-        18,
-      ),
-      child: Column(
-        crossAxisAlignment: expanded
-            ? CrossAxisAlignment.start
-            : CrossAxisAlignment.center,
-        children: [
-          _RailIconButton(
-            icon: expanded
-                ? Icons.arrow_back_ios_new_rounded
-                : Icons.arrow_forward_ios_rounded,
-            tooltip: expanded ? 'Collapse navigation' : 'Expand navigation',
-            onTap: onToggleExpanded,
-          ),
-          if (expanded) ...[
-            const SizedBox(height: 18),
-            const _BrandLockup(),
-            const SizedBox(height: 28),
-          ] else
-            const SizedBox(height: 14),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                for (final group in _navigationGroups) ...[
-                  if (expanded) ...[
-                    _NavLabel(group.label),
-                    const SizedBox(height: 8),
-                    for (final section in group.sections) ...[
-                      _NavButton(
-                        section: section,
-                        selected: selected == section,
-                        badge: _badgeForSection(section),
-                        onTap: onSelect,
-                      ),
+    return MouseRegion(
+      cursor: widget.expanded ? MouseCursor.defer : SystemMouseCursors.click,
+      child: AnimatedContainer(
+        key: _appRailKey,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        width: widget.expanded ? 304 : 84,
+        color: const Color(0xCC09101C),
+        padding: EdgeInsets.fromLTRB(
+          widget.expanded ? 18 : 12,
+          18,
+          widget.expanded ? 18 : 12,
+          18,
+        ),
+        child: Column(
+          crossAxisAlignment: widget.expanded
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
+          children: [
+            if (widget.expanded)
+              Row(
+                children: [
+                  const _RailLogoBadge(
+                    key: _appRailLogoKey,
+                    size: 44,
+                    padded: false,
+                  ),
+                  const Spacer(),
+                  _RailIconButton(
+                    icon: Icons.menu_open_rounded,
+                    tooltip: 'Collapse navigation',
+                    onTap: widget.onToggleExpanded,
+                  ),
+                ],
+              )
+            else
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: MouseRegion(
+                  onEnter: (_) => _setToggleControlHovered(true),
+                  onExit: (_) => _setToggleControlHovered(false),
+                  child: _RailSurfaceButton(
+                    tooltip: 'Expand navigation',
+                    onTap: widget.onToggleExpanded,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeOutCubic,
+                      child: _showToggleIcon
+                          ? const Icon(
+                              Icons.menu_open_rounded,
+                              key: _appRailExpandIconKey,
+                              color: textPrimaryColor,
+                              size: 22,
+                            )
+                          : const _RailLogoBadge(
+                              key: _appRailLogoKey,
+                              size: 44,
+                              padded: false,
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            SizedBox(height: widget.expanded ? 24 : 18),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  for (final group in _navigationGroups) ...[
+                    if (widget.expanded) ...[
+                      _NavLabel(group.label),
                       const SizedBox(height: 8),
-                    ],
-                    const SizedBox(height: 14),
-                  ] else ...[
-                    for (final section in group.sections) ...[
-                      _RailNavButton(
-                        section: section,
-                        selected: selected == section,
-                        badge: _badgeForSection(section),
-                        onTap: onSelect,
-                      ),
+                      for (final section in group.sections) ...[
+                        _NavButton(
+                          section: section,
+                          selected: widget.selected == section,
+                          badge: _badgeForSection(section),
+                          onTap: widget.onSelect,
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      const SizedBox(height: 14),
+                    ] else ...[
+                      for (final section in group.sections) ...[
+                        _RailNavButton(
+                          section: section,
+                          selected: widget.selected == section,
+                          badge: _badgeForSection(section),
+                          onTap: widget.onSelect,
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       const SizedBox(height: 10),
                     ],
-                    const SizedBox(height: 10),
                   ],
                 ],
-              ],
+              ),
             ),
-          ),
-          if (expanded)
-            _FooterNavButton(
-              icon: Icons.logout_rounded,
-              label: 'Logout',
-              onTap: onLogout,
-            ),
-          if (!expanded)
-            _RailIconButton(
-              icon: Icons.logout_rounded,
-              tooltip: 'Logout',
-              onTap: onLogout,
-            ),
-        ],
+            if (widget.expanded)
+              _FooterNavButton(
+                icon: Icons.logout_rounded,
+                label: 'Logout',
+                onTap: widget.onLogout,
+              ),
+            if (!widget.expanded)
+              _RailIconButton(
+                icon: Icons.logout_rounded,
+                tooltip: 'Logout',
+                onTap: widget.onLogout,
+                fullWidth: true,
+              ),
+          ],
+        ),
       ),
     );
   }
 
   String? _badgeForSection(AppSection section) {
-    if (deploymentMode != 'cloudflare') {
+    if (widget.deploymentMode != 'cloudflare') {
       return null;
     }
     switch (section) {
@@ -430,16 +491,21 @@ class _RailNavButton extends StatelessWidget {
     required this.selected,
     this.badge,
     required this.onTap,
+    this.onHoverChanged,
   });
 
   final AppSection section;
   final bool selected;
   final String? badge;
   final ValueChanged<AppSection> onTap;
+  final ValueChanged<bool>? onHoverChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => onHoverChanged?.call(true),
+      onExit: (_) => onHoverChanged?.call(false),
       child: Tooltip(
         message: badge == null ? section.label : '${section.label} ($badge)',
         child: Material(
@@ -447,31 +513,34 @@ class _RailNavButton extends StatelessWidget {
           child: InkWell(
             borderRadius: BorderRadius.circular(18),
             onTap: () => onTap(section),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 52,
+            child: SizedBox(
+              width: double.infinity,
               height: 52,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                color: selected ? panelRaisedColor : Colors.transparent,
-                gradient: selected
-                    ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: <Color>[
-                          accentColor.withValues(alpha: 0.20),
-                          infoColor.withValues(alpha: 0.12),
-                        ],
-                      )
-                    : null,
-                border: selected
-                    ? Border.all(color: infoColor.withValues(alpha: 0.32))
-                    : null,
-              ),
-              child: Icon(
-                section.icon,
-                color: selected ? textPrimaryColor : textMutedColor,
-                size: 22,
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    color: selected ? panelRaisedColor : Colors.transparent,
+                    gradient: selected
+                        ? LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: <Color>[
+                              accentColor.withValues(alpha: 0.20),
+                              infoColor.withValues(alpha: 0.12),
+                            ],
+                          )
+                        : null,
+                  ),
+                  child: Icon(
+                    section.icon,
+                    color: selected ? textPrimaryColor : textMutedColor,
+                    size: 22,
+                  ),
+                ),
               ),
             ),
           ),
@@ -486,32 +555,27 @@ class _RailIconButton extends StatelessWidget {
     required this.icon,
     required this.onTap,
     required this.tooltip,
+    this.onHoverChanged,
+    this.fullWidth = false,
   });
 
   final IconData icon;
   final VoidCallback onTap;
   final String tooltip;
+  final ValueChanged<bool>? onHoverChanged;
+  final bool fullWidth;
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: onTap,
-          child: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              color: panelAltColor,
-              border: Border.all(color: borderColor.withValues(alpha: 0.45)),
-            ),
-            child: Icon(icon, color: textMutedColor, size: 22),
-          ),
-        ),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => onHoverChanged?.call(true),
+      onExit: (_) => onHoverChanged?.call(false),
+      child: _RailSurfaceButton(
+        onTap: onTap,
+        tooltip: tooltip,
+        fullWidth: fullWidth,
+        child: Icon(icon, color: textMutedColor, size: 22),
       ),
     );
   }
@@ -522,35 +586,42 @@ class _FooterNavButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.onHoverChanged,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final ValueChanged<bool>? onHoverChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => onHoverChanged?.call(true),
+      onExit: (_) => onHoverChanged?.call(false),
+      child: Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Row(
-            children: [
-              Icon(icon, color: textMutedColor, size: 20),
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: textMutedColor,
-                  fontWeight: FontWeight.w700,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Icon(icon, color: textMutedColor, size: 20),
+                const SizedBox(width: 12),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: textMutedColor,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -558,46 +629,84 @@ class _FooterNavButton extends StatelessWidget {
   }
 }
 
-class _BrandLockup extends StatelessWidget {
-  const _BrandLockup();
+class _RailSurfaceButton extends StatelessWidget {
+  const _RailSurfaceButton({
+    super.key,
+    required this.child,
+    required this.onTap,
+    required this.tooltip,
+    this.fullWidth = false,
+  });
+
+  final Widget child;
+  final VoidCallback onTap;
+  final String tooltip;
+  final bool fullWidth;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: const LinearGradient(
-              colors: <Color>[Color(0xFFE28A2B), Color(0xFFB85417)],
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: SizedBox(
+            width: fullWidth ? double.infinity : 44,
+            height: 44,
+            child: Center(
+              child: Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  color: panelAltColor,
+                  border: Border.all(color: borderColor.withValues(alpha: 0.45)),
+                ),
+                child: child,
+              ),
             ),
           ),
-          child: const Icon(Icons.hub_outlined, color: Colors.white),
         ),
-        const SizedBox(width: 12),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Agent Awesome',
-                style: TextStyle(
-                  color: textPrimaryColor,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              SizedBox(height: 2),
-              Text(
-                'Beta operator console',
-                style: TextStyle(color: textMutedColor, fontSize: 12),
-              ),
-            ],
+      ),
+    );
+  }
+}
+
+class _RailLogoBadge extends StatelessWidget {
+  const _RailLogoBadge({
+    super.key,
+    required this.size,
+    this.padded = true,
+  });
+
+  final double size;
+  final bool padded;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: const Color(0xFF050A12),
+        border: Border.all(color: borderColor.withValues(alpha: 0.5)),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(padded ? 3 : 0),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Image.asset(
+            _railLogoAssetPath,
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -627,67 +736,74 @@ class _NavButton extends StatelessWidget {
     required this.selected,
     this.badge,
     required this.onTap,
+    this.onHoverChanged,
   });
 
   final AppSection section;
   final bool selected;
   final String? badge;
   final ValueChanged<AppSection> onTap;
+  final ValueChanged<bool>? onHoverChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: selected ? panelRaisedColor : Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => onHoverChanged?.call(true),
+      onExit: (_) => onHoverChanged?.call(false),
+      child: Material(
+        color: selected ? panelRaisedColor : Colors.transparent,
         borderRadius: BorderRadius.circular(14),
-        onTap: () => onTap(section),
-        child: Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Row(
-            children: [
-              Icon(
-                section.icon,
-                color: selected ? textPrimaryColor : textMutedColor,
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  section.label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: selected ? textPrimaryColor : textMutedColor,
-                    fontWeight: FontWeight.w700,
-                  ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => onTap(section),
+          child: Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Icon(
+                  section.icon,
+                  color: selected ? textPrimaryColor : textMutedColor,
+                  size: 20,
                 ),
-              ),
-              if (badge != null) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: warningColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: warningColor.withValues(alpha: 0.35),
-                    ),
-                  ),
+                const SizedBox(width: 12),
+                Expanded(
                   child: Text(
-                    badge!,
-                    style: const TextStyle(
-                      color: warningColor,
-                      fontSize: 11,
+                    section.label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? textPrimaryColor : textMutedColor,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
+                if (badge != null) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: warningColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: warningColor.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        color: warningColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
