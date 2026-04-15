@@ -7,6 +7,12 @@ import 'package:ui/operations/operations_api.dart';
 import 'package:ui/providers/provider_catalog_api.dart';
 
 void main() {
+  final providersSearchField = find.byWidgetPredicate(
+    (Widget widget) =>
+        widget is TextField &&
+        widget.decoration?.hintText == 'Search providers...',
+  );
+
   testWidgets('renders live-shell navigation and provider data', (
     WidgetTester tester,
   ) async {
@@ -79,6 +85,46 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
+  testWidgets('rail collapses to icons and keeps pane state alive', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 1100));
+
+    await tester.pumpWidget(
+      AgentAwesomeBetaApp(
+        controlPlaneBaseUrl: 'http://127.0.0.1:8080',
+        controlPlaneApi: _FakeControlPlaneApi(),
+        harnessConfigApi: _FakeHarnessConfigApi(),
+        operationsApi: _FakeOperationsApi(),
+        providerApi: _FakeProviderCatalogApi(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Providers').first);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(providersSearchField, 'google');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Runs').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Providers').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('google'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Collapse navigation'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent Awesome'), findsNothing);
+    expect(find.text('Operations'), findsNothing);
+    expect(find.byTooltip('Providers'), findsOneWidget);
+
+    await tester.binding.setSurfaceSize(null);
+  });
+
   testWidgets(
     'provider preview is backend-owned and verify uses persisted alias',
     (WidgetTester tester) async {
@@ -110,7 +156,7 @@ void main() {
 
       expect(providerApi.lastPreviewAlias, 'renamed-prod');
 
-      await tester.tap(find.text('Verify'));
+      await tester.tap(find.textContaining('Verif').first);
       await tester.pumpAndSettle();
 
       expect(providerApi.lastVerifiedAlias, 'openai-prod');
