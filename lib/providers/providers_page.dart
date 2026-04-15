@@ -19,6 +19,16 @@ class ProvidersPage extends StatefulWidget {
 }
 
 class _ProvidersPageState extends State<ProvidersPage> {
+  static const List<String> _supportedAdapters = <String>[
+    'anthropic',
+    'cloudflare',
+    'google',
+    'huggingface',
+    'openai',
+    'openai_compatible',
+    'xai',
+  ];
+
   bool _loading = true;
   bool _busy = false;
   bool _previewLoading = false;
@@ -26,8 +36,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
   String? _previewError;
   String _configPath = '';
   String _yamlPreview = '';
-  String _previewValidationStatus = '';
-  String _previewValidationSummary = '';
   List<ProviderConfig> _providers = <ProviderConfig>[];
   ProviderConfig _draft = ProviderConfig.empty();
   bool _isNew = true;
@@ -99,7 +107,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
 
   Future<void> _saveProvider() async {
     if (_draft.alias.trim().isEmpty) {
-      _showMessage('Provider alias is required.');
+      _showMessage('Provider name is required.');
       return;
     }
 
@@ -130,12 +138,14 @@ class _ProvidersPageState extends State<ProvidersPage> {
     }
     setState(() => _busy = true);
     try {
-      final report = await widget.providerApi.verifyProvider(
-        _draft.persistedAlias,
-      );
-      setState(() {
-        _draft.verificationSummary = report.summary;
-      });
+      final alias = _draft.persistedAlias;
+      final report = await widget.providerApi.verifyProvider(alias);
+      await _loadProviders(selectAlias: alias);
+      if (mounted) {
+        setState(() {
+          _draft.verificationSummary = report.summary;
+        });
+      }
       _showMessage(report.summary);
     } catch (error) {
       _showMessage(error.toString());
@@ -167,6 +177,9 @@ class _ProvidersPageState extends State<ProvidersPage> {
 
   ProviderConfig _normalizedDraft() {
     final copy = _draft.copy();
+    if (copy.isDefault) {
+      copy.enabled = true;
+    }
     copy.models = copy.models
         .where((ProviderModelConfig model) => model.name.trim().isNotEmpty)
         .toList();
@@ -186,8 +199,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
           _previewLoading = false;
           _previewError = null;
           _yamlPreview = '';
-          _previewValidationStatus = '';
-          _previewValidationSummary = '';
         });
       }
       return;
@@ -218,8 +229,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
       }
       setState(() {
         _yamlPreview = preview.yamlPreview;
-        _previewValidationStatus = preview.validationStatus;
-        _previewValidationSummary = preview.validationSummary;
         _previewLoading = false;
       });
     } catch (error) {
@@ -290,39 +299,40 @@ class _ProvidersPageState extends State<ProvidersPage> {
                         !_isNew && provider.alias == _draft.persistedAlias;
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: Text(provider.alias),
-                      subtitle: Text(
-                        provider.adapter.isEmpty
-                            ? 'adapter not set'
-                            : provider.adapter,
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
+                      title: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (provider.isDefault)
-                            const Padding(
-                              padding: EdgeInsets.only(right: 8),
-                              child: StatusPill(
-                                label: 'default',
-                                color: infoColor,
+                          Text(provider.alias),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              if (provider.isDefault)
+                                const StatusPill(
+                                  label: 'default',
+                                  color: infoColor,
+                                ),
+                              StatusPill(
+                                label: provider.enabled
+                                    ? 'enabled'
+                                    : 'disabled',
+                                color: provider.enabled
+                                    ? successColor
+                                    : warningColor,
                               ),
-                            ),
-                          StatusPill(
-                            label: provider.enabled ? 'enabled' : 'disabled',
-                            color: provider.enabled
-                                ? successColor
-                                : warningColor,
+                              if (provider.accessVerified)
+                                const StatusPill(
+                                  label: 'verified',
+                                  color: successColor,
+                                ),
+                            ],
                           ),
-                          if (selected)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 8),
-                              child: Icon(
-                                Icons.check_circle,
-                                color: accentColor,
-                              ),
-                            ),
                         ],
                       ),
+                      trailing: selected
+                          ? const Icon(Icons.check_circle, color: accentColor)
+                          : null,
                       onTap: () => _selectProvider(provider),
                     );
                   },
@@ -336,8 +346,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
           previewLoading: _previewLoading,
           previewError: _previewError,
           yamlPreview: _yamlPreview,
-          previewValidationStatus: _previewValidationStatus,
-          previewValidationSummary: _previewValidationSummary,
+          supportedAdapters: _supportedAdapters,
           configPath: _configPath,
           onChanged: _onDraftChanged,
           onSave: _saveProvider,
@@ -376,8 +385,7 @@ class _ProviderEditorPane extends StatelessWidget {
     required this.previewLoading,
     required this.previewError,
     required this.yamlPreview,
-    required this.previewValidationStatus,
-    required this.previewValidationSummary,
+    required this.supportedAdapters,
     required this.configPath,
     required this.onChanged,
     required this.onSave,
@@ -391,13 +399,25 @@ class _ProviderEditorPane extends StatelessWidget {
   final bool previewLoading;
   final String? previewError;
   final String yamlPreview;
-  final String previewValidationStatus;
-  final String previewValidationSummary;
+  final List<String> supportedAdapters;
   final String configPath;
   final VoidCallback onChanged;
   final Future<void> Function() onSave;
   final Future<void> Function() onVerify;
   final Future<void> Function() onDelete;
+
+  Widget _verificationActionButton() {
+    final verified = draft.accessVerified;
+    final color = verified ? successColor : dangerColor;
+    return FilledButton(
+      onPressed: busy || isNew ? null : onVerify,
+      style: FilledButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: textPrimaryColor,
+      ),
+      child: Text(verified ? 'Verified' : 'Verify'),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -412,10 +432,7 @@ class _ProviderEditorPane extends StatelessWidget {
             onPressed: busy ? null : onSave,
             child: Text(isNew ? 'Create' : 'Save'),
           ),
-          OutlinedButton(
-            onPressed: busy || isNew ? null : onVerify,
-            child: const Text('Verify'),
-          ),
+          _verificationActionButton(),
           OutlinedButton(
             onPressed: busy || isNew ? null : onDelete,
             child: const Text('Delete'),
@@ -431,7 +448,7 @@ class _ProviderEditorPane extends StatelessWidget {
             ),
           SubsectionTitle('General'),
           const SizedBox(height: 8),
-          FieldLabel('Alias'),
+          FieldLabel('Name'),
           TextFormField(
             initialValue: draft.alias,
             key: ValueKey<String>(
@@ -444,15 +461,26 @@ class _ProviderEditorPane extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           FieldLabel('Adapter'),
-          TextFormField(
-            initialValue: draft.adapter,
+          DropdownButtonFormField<String>(
+            initialValue: supportedAdapters.contains(draft.adapter)
+                ? draft.adapter
+                : null,
             key: ValueKey<String>(
               'provider-adapter-${draft.persistedAlias}-${isNew.toString()}',
             ),
-            onChanged: (String value) {
-              draft.adapter = value;
+            items: supportedAdapters
+                .map(
+                  (String adapter) => DropdownMenuItem<String>(
+                    value: adapter,
+                    child: Text(adapter),
+                  ),
+                )
+                .toList(),
+            onChanged: (String? value) {
+              draft.adapter = value ?? '';
               onChanged();
             },
+            decoration: const InputDecoration(),
           ),
           const SizedBox(height: 12),
           FieldLabel('Base URL'),
@@ -478,27 +506,14 @@ class _ProviderEditorPane extends StatelessWidget {
               onChanged();
             },
           ),
-          const SizedBox(height: 12),
-          FieldLabel('Allowed hosts (comma separated)'),
-          TextFormField(
-            initialValue: draft.allowedHosts.join(', '),
-            key: ValueKey<String>(
-              'provider-hosts-${draft.persistedAlias}-${isNew.toString()}',
-            ),
-            onChanged: (String value) {
-              draft.allowedHosts = value
-                  .split(',')
-                  .map((String host) => host.trim())
-                  .where((String host) => host.isNotEmpty)
-                  .toList();
-              onChanged();
-            },
-          ),
           const SizedBox(height: 16),
           SwitchListTile(
             value: draft.enabled,
             onChanged: (bool value) {
               draft.enabled = value;
+              if (!value) {
+                draft.isDefault = false;
+              }
               onChanged();
             },
             title: const Text('Enabled'),
@@ -510,28 +525,24 @@ class _ProviderEditorPane extends StatelessWidget {
             value: draft.isDefault,
             onChanged: (bool value) {
               draft.isDefault = value;
+              if (value) {
+                draft.enabled = true;
+              }
               onChanged();
             },
             title: const Text('Default provider'),
             subtitle: const Text('Mark this provider as the catalog default.'),
           ),
           SwitchListTile(
-            value: draft.local,
+            value: draft.secure,
             onChanged: (bool value) {
-              draft.local = value;
+              draft.secure = value;
               onChanged();
             },
-            title: const Text('Local endpoint'),
-            subtitle: const Text('Allow loopback or local provider access.'),
-          ),
-          SwitchListTile(
-            value: draft.accessVerified,
-            onChanged: (bool value) {
-              draft.accessVerified = value;
-              onChanged();
-            },
-            title: const Text('Access verified'),
-            subtitle: const Text('Persist provider-level verification state.'),
+            title: const Text('Secure connection'),
+            subtitle: const Text(
+              'Require HTTPS. Disable only for local HTTP endpoints.',
+            ),
           ),
           const SizedBox(height: 12),
           FieldLabel('Timeout seconds'),
@@ -543,42 +554,6 @@ class _ProviderEditorPane extends StatelessWidget {
             keyboardType: TextInputType.number,
             onChanged: (String value) {
               draft.timeoutSecs = int.tryParse(value.trim()) ?? 0;
-              onChanged();
-            },
-          ),
-          const SizedBox(height: 12),
-          FieldLabel('API version'),
-          TextFormField(
-            initialValue: draft.apiVersion,
-            key: ValueKey<String>(
-              'provider-version-${draft.persistedAlias}-${isNew.toString()}',
-            ),
-            onChanged: (String value) {
-              draft.apiVersion = value;
-              onChanged();
-            },
-          ),
-          const SizedBox(height: 12),
-          FieldLabel('Account ID'),
-          TextFormField(
-            initialValue: draft.accountId,
-            key: ValueKey<String>(
-              'provider-account-${draft.persistedAlias}-${isNew.toString()}',
-            ),
-            onChanged: (String value) {
-              draft.accountId = value;
-              onChanged();
-            },
-          ),
-          const SizedBox(height: 12),
-          FieldLabel('Gateway ID'),
-          TextFormField(
-            initialValue: draft.gatewayId,
-            key: ValueKey<String>(
-              'provider-gateway-${draft.persistedAlias}-${isNew.toString()}',
-            ),
-            onChanged: (String value) {
-              draft.gatewayId = value;
               onChanged();
             },
           ),
@@ -655,21 +630,11 @@ class _ProviderEditorPane extends StatelessWidget {
                         },
                         title: const Text('Enabled'),
                       ),
-                      SwitchListTile(
-                        value: model.accessVerified,
-                        onChanged: (bool value) {
-                          model.accessVerified = value;
-                          onChanged();
-                        },
-                        title: const Text('Access verified'),
-                      ),
                     ],
                   ),
                 ),
               );
             }),
-          const SizedBox(height: 18),
-          InfoPanel(title: 'Verification', body: draft.verificationSummary),
           const SizedBox(height: 18),
           if (previewError != null)
             Padding(
@@ -678,21 +643,6 @@ class _ProviderEditorPane extends StatelessWidget {
                 title: 'Preview error',
                 body: previewError!,
                 tone: dangerColor,
-              ),
-            )
-          else if (previewValidationSummary.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: InfoPanel(
-                title: previewValidationStatus.trim().isEmpty
-                    ? 'Preview validation'
-                    : 'Preview validation (${previewValidationStatus.trim()})',
-                body: previewValidationSummary,
-                tone: previewValidationStatus == 'error'
-                    ? dangerColor
-                    : previewValidationStatus == 'warning'
-                    ? warningColor
-                    : infoColor,
               ),
             ),
           SubsectionTitle('YAML preview'),
@@ -707,7 +657,7 @@ class _ProviderEditorPane extends StatelessWidget {
               ),
               child: Text(
                 draft.alias.trim().isEmpty
-                    ? 'Set an alias to preview YAML.'
+                    ? 'Set a name to preview YAML.'
                     : previewLoading
                     ? 'Refreshing preview...'
                     : yamlPreview.trim().isEmpty

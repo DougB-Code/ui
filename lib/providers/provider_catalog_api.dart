@@ -44,13 +44,9 @@ class ProviderConfig {
     required this.isDefault,
     required this.endpoint,
     required this.apiKeyEnv,
-    required this.accountId,
-    required this.gatewayId,
-    required this.apiVersion,
     required this.timeoutSecs,
     required this.accessVerified,
-    required this.allowedHosts,
-    required this.local,
+    required this.secure,
     required this.models,
     required this.verificationSummary,
   }) : persistedAlias = persistedAlias ?? alias;
@@ -67,17 +63,9 @@ class ProviderConfig {
       isDefault: json['is_default'] as bool? ?? false,
       endpoint: (json['base_url'] as String? ?? '').trim(),
       apiKeyEnv: (json['api_key_env'] as String? ?? '').trim(),
-      accountId: (json['account_id'] as String? ?? '').trim(),
-      gatewayId: (json['gateway_id'] as String? ?? '').trim(),
-      apiVersion: (json['api_version'] as String? ?? '').trim(),
       timeoutSecs: json['timeout_secs'] as int? ?? 0,
       accessVerified: json['access_verified'] as bool? ?? false,
-      allowedHosts:
-          (json['allowed_hosts'] as List<dynamic>? ?? const <dynamic>[])
-              .map((dynamic value) => value.toString().trim())
-              .where((String value) => value.isNotEmpty)
-              .toList(),
-      local: json['local'] as bool? ?? false,
+      secure: json['secure'] as bool? ?? true,
       models: modelsJson,
       verificationSummary: 'Not yet verified.',
     );
@@ -92,13 +80,9 @@ class ProviderConfig {
       isDefault: false,
       endpoint: '',
       apiKeyEnv: '',
-      accountId: '',
-      gatewayId: '',
-      apiVersion: '',
       timeoutSecs: 0,
       accessVerified: false,
-      allowedHosts: <String>[],
-      local: false,
+      secure: true,
       models: <ProviderModelConfig>[],
       verificationSummary: 'Not yet verified.',
     );
@@ -111,13 +95,9 @@ class ProviderConfig {
   bool isDefault;
   String endpoint;
   String apiKeyEnv;
-  String accountId;
-  String gatewayId;
-  String apiVersion;
   int timeoutSecs;
   bool accessVerified;
-  List<String> allowedHosts;
-  bool local;
+  bool secure;
   List<ProviderModelConfig> models;
   String verificationSummary;
 
@@ -130,13 +110,9 @@ class ProviderConfig {
       isDefault: isDefault,
       endpoint: endpoint,
       apiKeyEnv: apiKeyEnv,
-      accountId: accountId,
-      gatewayId: gatewayId,
-      apiVersion: apiVersion,
       timeoutSecs: timeoutSecs,
       accessVerified: accessVerified,
-      allowedHosts: List<String>.from(allowedHosts),
-      local: local,
+      secure: secure,
       models: models.map((ProviderModelConfig model) => model.copy()).toList(),
       verificationSummary: verificationSummary,
     );
@@ -149,16 +125,9 @@ class ProviderConfig {
     'is_default': isDefault,
     'base_url': endpoint.trim(),
     'api_key_env': apiKeyEnv.trim(),
-    'account_id': accountId.trim(),
-    'gateway_id': gatewayId.trim(),
-    'api_version': apiVersion.trim(),
     'timeout_secs': timeoutSecs,
     'access_verified': accessVerified,
-    'allowed_hosts': allowedHosts
-        .map((String value) => value.trim())
-        .where((String value) => value.isNotEmpty)
-        .toList(),
-    'local': local,
+    'secure': secure,
     'models': models
         .map((ProviderModelConfig model) => model.toJson())
         .toList(),

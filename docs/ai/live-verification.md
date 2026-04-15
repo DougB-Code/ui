@@ -68,12 +68,11 @@ google-chrome --headless=new \
 The live provider screen should show:
 
 - A provider loaded from the control plane response.
-- Title: `<alias> Provider Settings`
-- Actions: `Save`, `Verify`, `Delete`
-- Tabs: `General`, `Status`, `Models`, `Verification`, `YAML`
-- Editable provider alias, adapter, base URL, API key env var, and model rows
-- The `Verification` tab should update after pressing `Verify`
-- The `YAML` tab should render a provider YAML preview from the current editor state
+- Title: `Provider editor`
+- Actions: `Save`, `Verify` or `Verified`, `Delete`
+- Editable provider name, adapter, base URL, API key env var, secure connection setting, timeout, and model rows
+- The middle action should be red `Verify` before validation and green `Verified` after a successful validation
+- The YAML preview should render provider YAML from the current editor state
 
 Optional live checks:
 

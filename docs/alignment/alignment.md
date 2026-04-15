@@ -41,7 +41,7 @@ The provider screen is the clearest example of genuine alignment:
 - The UI calls the control-plane admin provider API in `ui/lib/provider_catalog_api.dart`.
 - The control plane exposes matching routes in `control-plane/internal/controlplane/http.go`.
 - Those routes mutate the harness `provider.yaml` through the control plane's provider catalog manager.
-- The UI reflects several real harness provider fields: alias, adapter, base URL, API key env var, allowed hosts, model enablement, verification bits, timeout, API version, account ID, and gateway ID.
+- The UI reflects the real harness provider fields that still matter at runtime: alias, adapter, base URL, API key env var, model enablement, verification state, timeout, and secure-connection policy.
 
 This is a good pattern because the UI is not editing harness files directly. It is asking the control plane to manage harness config on its behalf.
 

@@ -974,13 +974,9 @@ class _FakeProviderCatalogApi implements ProviderCatalogApi {
           isDefault: true,
           endpoint: 'https://api.openai.com/v1',
           apiKeyEnv: 'OPENAI_API_KEY',
-          accountId: '',
-          gatewayId: '',
-          apiVersion: '',
           timeoutSecs: 30,
           accessVerified: true,
-          allowedHosts: <String>[],
-          local: false,
+          secure: true,
           models: <ProviderModelConfig>[
             ProviderModelConfig(
               name: 'gpt-5.4',
