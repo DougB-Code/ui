@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-const bgColor = Color(0xFF10151C);
-const panelColor = Color(0xFF17202B);
-const panelAltColor = Color(0xFF1D2835);
-const panelRaisedColor = Color(0xFF233142);
-const borderColor = Color(0xFF324355);
+const bgColor = Color(0xFF090D16);
+const panelColor = Color(0xB3141C2B);
+const panelAltColor = Color(0xD61A2435);
+const panelRaisedColor = Color(0xFF1E2D45);
+const borderColor = Color(0xFF2A3A52);
 const textPrimaryColor = Color(0xFFF4F7FA);
 const textMutedColor = Color(0xFFB8C4D3);
 const textSubtleColor = Color(0xFF7E8DA0);
-const accentColor = Color(0xFFE28A2B);
-const infoColor = Color(0xFF3BA0FF);
+const accentColor = Color(0xFFEE9A3D);
+const infoColor = Color(0xFF37B6F6);
 const successColor = Color(0xFF26C281);
 const warningColor = Color(0xFFF4B942);
 const dangerColor = Color(0xFFE25C5C);
@@ -44,7 +44,7 @@ ThemeData buildAgentAwesomeTheme() {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: panelAltColor,
+      fillColor: const Color(0x99212D41),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: borderColor),
@@ -58,6 +58,20 @@ ThemeData buildAgentAwesomeTheme() {
         borderSide: const BorderSide(color: accentColor),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFF2B6C8A),
+        foregroundColor: textPrimaryColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: textMutedColor,
+        side: BorderSide(color: borderColor.withValues(alpha: 0.8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     ),
   );
 }
@@ -89,6 +103,13 @@ class PanelCard extends StatelessWidget {
         color: panelColor,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.28),
+            blurRadius: 28,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Padding(
         padding: const EdgeInsets.all(18),

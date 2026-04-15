@@ -160,32 +160,59 @@ class _BetaShellState extends State<BetaShell> {
     };
 
     return Scaffold(
-      body: SafeArea(
-        child: Row(
-          children: [
-            _Sidebar(
-              selected: _section,
-              deploymentMode: _deploymentMode,
-              onSelect: _selectSection,
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _HeaderBar(
-                      section: _section,
-                      controlPlaneBaseUrl: widget.controlPlaneBaseUrl,
-                      deploymentMode: _deploymentMode,
-                    ),
-                    const SizedBox(height: 18),
-                    Expanded(child: content),
-                  ],
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[
+              Color(0xFF090D16),
+              Color(0xFF0B1221),
+              Color(0xFF060A14),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: borderColor.withValues(alpha: 0.7)),
+              boxShadow: [
+                BoxShadow(
+                  color: infoColor.withValues(alpha: 0.12),
+                  blurRadius: 36,
+                  spreadRadius: 1,
                 ),
-              ),
+              ],
             ),
-          ],
+            child: Row(
+              children: [
+                _Sidebar(
+                  selected: _section,
+                  deploymentMode: _deploymentMode,
+                  onSelect: _selectSection,
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _HeaderBar(
+                          section: _section,
+                          controlPlaneBaseUrl: widget.controlPlaneBaseUrl,
+                          deploymentMode: _deploymentMode,
+                        ),
+                        const SizedBox(height: 18),
+                        Expanded(child: content),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -208,7 +235,7 @@ class _Sidebar extends StatelessWidget {
     return Container(
       width: 250,
       decoration: const BoxDecoration(
-        color: Color(0xFF0D131A),
+        color: Color(0xCC090F1C),
         border: Border(right: BorderSide(color: borderColor)),
       ),
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
