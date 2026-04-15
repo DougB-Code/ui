@@ -316,34 +316,26 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
     if (selected == null) {
       return;
     }
-    if (_approverController.text.trim().isEmpty) {
-      setState(() {
-        _approvalError = 'Approver ID is required to resolve approval.';
-      });
-      return;
-    }
     setState(() {
       _resolving = true;
       _approvalError = null;
     });
-    try {
-      await widget.operationsApi.resolveApproval(
-        approvalRequestId: selected.approvalRequestId,
-        approverId: _approverController.text.trim(),
-        decision: decision,
-        reason: _reasonController.text.trim(),
-      );
-      _reasonController.clear();
-      await _load();
-    } catch (error) {
-      setState(() {
-        _approvalError = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() => _resolving = false);
-      }
+    final error = await _resolveApprovalDecision(
+      operationsApi: widget.operationsApi,
+      approval: selected,
+      approverController: _approverController,
+      reasonController: _reasonController,
+      decision: decision,
+      clearReasonOnSuccess: true,
+      onResolved: () => _load(),
+    );
+    if (!mounted) {
+      return;
     }
+    setState(() {
+      _approvalError = error;
+      _resolving = false;
+    });
   }
 
   ApprovalRecord? get _selectedApproval {
@@ -717,35 +709,25 @@ class _RunsPageState extends State<RunsPage> {
     if (approval == null) {
       return;
     }
-    if (_approverController.text.trim().isEmpty) {
-      setState(() {
-        _approvalError = 'Approver ID is required to resolve approval.';
-      });
-      return;
-    }
     setState(() {
       _resolvingApproval = true;
       _approvalError = null;
     });
-    try {
-      await widget.operationsApi.resolveApproval(
-        approvalRequestId: approval.approvalRequestId,
-        approverId: _approverController.text.trim(),
-        decision: decision,
-        reason: _approvalReasonController.text.trim(),
-      );
-      await _loadRuns(preferredRunId: approval.runId);
-    } catch (error) {
-      setState(() {
-        _approvalError = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _resolvingApproval = false;
-        });
-      }
+    final error = await _resolveApprovalDecision(
+      operationsApi: widget.operationsApi,
+      approval: approval,
+      approverController: _approverController,
+      reasonController: _approvalReasonController,
+      decision: decision,
+      onResolved: () => _loadRuns(preferredRunId: approval.runId),
+    );
+    if (!mounted) {
+      return;
     }
+    setState(() {
+      _approvalError = error;
+      _resolvingApproval = false;
+    });
   }
 
   @override
@@ -1544,143 +1526,136 @@ String _formatIntMap(Map<String, int> values) {
       .join(', ');
 }
 
-class ArtifactsPage extends StatefulWidget {
-  const ArtifactsPage({required this.operationsApi});
+String? _trimmedOrNull(String value) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+Future<String?> _resolveApprovalDecision({
+  required OperationsApi operationsApi,
+  required ApprovalRecord approval,
+  required TextEditingController approverController,
+  required TextEditingController reasonController,
+  required String decision,
+  required Future<void> Function() onResolved,
+  bool clearReasonOnSuccess = false,
+}) async {
+  final approverId = approverController.text.trim();
+  if (approverId.isEmpty) {
+    return 'Approver ID is required to resolve approval.';
+  }
+  try {
+    await operationsApi.resolveApproval(
+      approvalRequestId: approval.approvalRequestId,
+      approverId: approverId,
+      decision: decision,
+      reason: reasonController.text.trim(),
+    );
+    if (clearReasonOnSuccess) {
+      reasonController.clear();
+    }
+    await onResolved();
+    return null;
+  } catch (error) {
+    return error.toString();
+  }
+}
+
+class ArtifactsPage extends StatelessWidget {
+  const ArtifactsPage({super.key, required this.operationsApi});
 
   final OperationsApi operationsApi;
 
   @override
-  State<ArtifactsPage> createState() => _ArtifactsPageState();
-}
-
-class _ArtifactsPageState extends State<ArtifactsPage> {
-  bool _loading = true;
-  String? _error;
-  final TextEditingController _tenantController = TextEditingController();
-  final TextEditingController _runController = TextEditingController();
-  List<ArtifactRecord> _artifacts = <ArtifactRecord>[];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _tenantController.dispose();
-    _runController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final records = await widget.operationsApi.listArtifacts(
-        tenantId: _tenantController.text.trim().isEmpty
-            ? null
-            : _tenantController.text.trim(),
-        runId: _runController.text.trim().isEmpty
-            ? null
-            : _runController.text.trim(),
-      );
-      setState(() {
-        _artifacts = records;
-        _loading = false;
-      });
-    } catch (error) {
-      setState(() {
-        _error = error.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return ErrorState(message: _error!, onRetry: _load);
-    }
-
-    return ListView(
-      children: [
-        PanelCard(
-          title: 'Artifact filters',
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              SizedBox(
-                width: 260,
-                child: TextFormField(
-                  controller: _tenantController,
-                  decoration: const InputDecoration(labelText: 'Tenant ID'),
-                ),
-              ),
-              SizedBox(
-                width: 260,
-                child: TextFormField(
-                  controller: _runController,
-                  decoration: const InputDecoration(labelText: 'Run ID'),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.search_rounded),
-                label: const Text('Apply'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        PanelCard(
-          title: 'Artifacts',
-          child: _artifacts.isEmpty
-              ? const EmptyState(
-                  title: 'No artifacts found',
-                  body: 'No artifact records match the current filters.',
-                )
-              : Column(
-                  children: _artifacts
-                      .map(
-                        (ArtifactRecord artifact) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: InfoPanel(
-                            title: artifact.kind,
-                            body:
-                                'Artifact ${artifact.artifactId}\nTenant: ${artifact.tenantId}\nAgent: ${artifact.agentId}\nRun: ${artifact.runId}\nReference: ${artifact.reference}\nCreated: ${formatDateTime(artifact.createdAt)}\nRetention days: ${artifact.retentionDays}',
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-        ),
-      ],
+    return _TenantRunFilteredRecordsPage<ArtifactRecord>(
+      filterTitle: 'Artifact filters',
+      panelTitle: 'Artifacts',
+      emptyTitle: 'No artifacts found',
+      emptyBody: 'No artifact records match the current filters.',
+      loadRecords: ({required String? tenantId, required String? runId}) {
+        return operationsApi.listArtifacts(tenantId: tenantId, runId: runId);
+      },
+      recordTitle: (ArtifactRecord artifact) => artifact.kind,
+      recordBody: (ArtifactRecord artifact) {
+        return 'Artifact ${artifact.artifactId}\nTenant: ${artifact.tenantId}\nAgent: ${artifact.agentId}\nRun: ${artifact.runId}\nReference: ${artifact.reference}\nCreated: ${formatDateTime(artifact.createdAt)}\nRetention days: ${artifact.retentionDays}';
+      },
+      recordKey: (ArtifactRecord artifact) => artifact.artifactId,
+      recordCountLabel: (int count) => '$count artifacts',
     );
   }
 }
 
-class AuditsPage extends StatefulWidget {
-  const AuditsPage({required this.operationsApi});
+class AuditsPage extends StatelessWidget {
+  const AuditsPage({super.key, required this.operationsApi});
 
   final OperationsApi operationsApi;
 
   @override
-  State<AuditsPage> createState() => _AuditsPageState();
+  Widget build(BuildContext context) {
+    return _TenantRunFilteredRecordsPage<AuditRecord>(
+      filterTitle: 'Audit filters',
+      panelTitle: 'Audit records',
+      emptyTitle: 'No audits found',
+      emptyBody: 'No audit records match the current filters.',
+      loadRecords: ({required String? tenantId, required String? runId}) {
+        return operationsApi.listAudits(tenantId: tenantId, runId: runId);
+      },
+      recordTitle: (AuditRecord audit) => audit.action,
+      recordBody: (AuditRecord audit) {
+        return 'Audit ${audit.auditId}\nTenant: ${audit.tenantId}\nAgent: ${audit.agentId}\nRun: ${audit.runId}\nResource: ${audit.resourceType}/${audit.resourceId}\nUser: ${blankAsUnknown(audit.userId)}\nAdministrative: ${audit.administrative}\nOccurred: ${formatDateTime(audit.occurredAt)}';
+      },
+      recordKey: (AuditRecord audit) => audit.auditId,
+      recordCountLabel: (int count) => '$count audits',
+    );
+  }
 }
 
-class _AuditsPageState extends State<AuditsPage> {
+typedef _TenantRunRecordLoader<T> =
+    Future<List<T>> Function({
+      required String? tenantId,
+      required String? runId,
+    });
+typedef _TenantRunRecordTitle<T> = String Function(T record);
+typedef _TenantRunRecordBody<T> = String Function(T record);
+typedef _TenantRunRecordKey<T> = String Function(T record);
+typedef _TenantRunRecordCountLabel = String Function(int count);
+
+class _TenantRunFilteredRecordsPage<T> extends StatefulWidget {
+  const _TenantRunFilteredRecordsPage({
+    required this.filterTitle,
+    required this.panelTitle,
+    required this.emptyTitle,
+    required this.emptyBody,
+    required this.loadRecords,
+    required this.recordTitle,
+    required this.recordBody,
+    required this.recordKey,
+    required this.recordCountLabel,
+  });
+
+  final String filterTitle;
+  final String panelTitle;
+  final String emptyTitle;
+  final String emptyBody;
+  final _TenantRunRecordLoader<T> loadRecords;
+  final _TenantRunRecordTitle<T> recordTitle;
+  final _TenantRunRecordBody<T> recordBody;
+  final _TenantRunRecordKey<T> recordKey;
+  final _TenantRunRecordCountLabel recordCountLabel;
+
+  @override
+  State<_TenantRunFilteredRecordsPage<T>> createState() =>
+      _TenantRunFilteredRecordsPageState<T>();
+}
+
+class _TenantRunFilteredRecordsPageState<T>
+    extends State<_TenantRunFilteredRecordsPage<T>> {
   bool _loading = true;
   String? _error;
   final TextEditingController _tenantController = TextEditingController();
   final TextEditingController _runController = TextEditingController();
-  List<AuditRecord> _audits = <AuditRecord>[];
+  List<T> _records = <T>[];
 
   @override
   void initState() {
@@ -1701,16 +1676,12 @@ class _AuditsPageState extends State<AuditsPage> {
       _error = null;
     });
     try {
-      final records = await widget.operationsApi.listAudits(
-        tenantId: _tenantController.text.trim().isEmpty
-            ? null
-            : _tenantController.text.trim(),
-        runId: _runController.text.trim().isEmpty
-            ? null
-            : _runController.text.trim(),
+      final records = await widget.loadRecords(
+        tenantId: _trimmedOrNull(_tenantController.text),
+        runId: _trimmedOrNull(_runController.text),
       );
       setState(() {
-        _audits = records;
+        _records = records;
         _loading = false;
       });
     } catch (error) {
@@ -1729,10 +1700,11 @@ class _AuditsPageState extends State<AuditsPage> {
     if (_error != null) {
       return ErrorState(message: _error!, onRetry: _load);
     }
+
     return ListView(
       children: [
         PanelCard(
-          title: 'Audit filters',
+          title: widget.filterTitle,
           child: Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -1761,25 +1733,26 @@ class _AuditsPageState extends State<AuditsPage> {
         ),
         const SizedBox(height: 14),
         PanelCard(
-          title: 'Audit records',
-          child: _audits.isEmpty
-              ? const EmptyState(
-                  title: 'No audits found',
-                  body: 'No audit records match the current filters.',
-                )
-              : Column(
-                  children: _audits
-                      .map(
-                        (AuditRecord audit) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: InfoPanel(
-                            title: audit.action,
-                            body:
-                                'Audit ${audit.auditId}\nTenant: ${audit.tenantId}\nAgent: ${audit.agentId}\nRun: ${audit.runId}\nResource: ${audit.resourceType}/${audit.resourceId}\nUser: ${blankAsUnknown(audit.userId)}\nAdministrative: ${audit.administrative}\nOccurred: ${formatDateTime(audit.occurredAt)}',
-                          ),
-                        ),
-                      )
-                      .toList(),
+          title: widget.panelTitle,
+          trailing: Text(
+            widget.recordCountLabel(_records.length),
+            style: const TextStyle(color: textSubtleColor),
+          ),
+          child: _records.isEmpty
+              ? EmptyState(title: widget.emptyTitle, body: widget.emptyBody)
+              : ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _records.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (BuildContext context, int index) {
+                    final record = _records[index];
+                    return InfoPanel(
+                      key: ValueKey<String>(widget.recordKey(record)),
+                      title: widget.recordTitle(record),
+                      body: widget.recordBody(record),
+                    );
+                  },
                 ),
         ),
       ],

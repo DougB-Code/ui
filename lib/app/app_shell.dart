@@ -27,13 +27,60 @@ enum AppSection {
   final IconData icon;
 }
 
+extension AppSectionRouting on AppSection {
+  String get routePath {
+    return switch (this) {
+      AppSection.summary => '/summary',
+      AppSection.runs => '/runs',
+      AppSection.approvals => '/approvals',
+      AppSection.artifacts => '/artifacts',
+      AppSection.audits => '/audits',
+      AppSection.controlPlane => '/control-plane',
+      AppSection.harnessAgents => '/harness/agents',
+      AppSection.harnessTools => '/harness/tools',
+      AppSection.harnessWorkflows => '/harness/workflows',
+      AppSection.providers => '/providers',
+    };
+  }
+
+  static AppSection fromRouteName(String? routeName) {
+    switch (routeName) {
+      case '/':
+      case '/summary':
+        return AppSection.summary;
+      case '/runs':
+        return AppSection.runs;
+      case '/approvals':
+        return AppSection.approvals;
+      case '/artifacts':
+        return AppSection.artifacts;
+      case '/audits':
+        return AppSection.audits;
+      case '/control-plane':
+        return AppSection.controlPlane;
+      case '/harness/agents':
+        return AppSection.harnessAgents;
+      case '/harness/tools':
+        return AppSection.harnessTools;
+      case '/harness/workflows':
+        return AppSection.harnessWorkflows;
+      case '/providers':
+        return AppSection.providers;
+      default:
+        return AppSection.runs;
+    }
+  }
+}
+
 class BetaShell extends StatefulWidget {
   const BetaShell({
+    super.key,
     required this.controlPlaneBaseUrl,
     required this.controlPlaneApi,
     required this.harnessConfigApi,
     required this.operationsApi,
     required this.providerApi,
+    required this.initialSection,
   });
 
   final String controlPlaneBaseUrl;
@@ -41,17 +88,40 @@ class BetaShell extends StatefulWidget {
   final HarnessConfigApi harnessConfigApi;
   final OperationsApi operationsApi;
   final ProviderCatalogApi providerApi;
+  final AppSection initialSection;
 
   @override
   State<BetaShell> createState() => _BetaShellState();
 }
 
 class _BetaShellState extends State<BetaShell> {
-  AppSection _section = AppSection.runs;
+  late AppSection _section;
   final _deploymentMode = const String.fromEnvironment(
     'CONTROL_PLANE_DEPLOYMENT',
     defaultValue: 'local',
   ).toLowerCase();
+
+  @override
+  void initState() {
+    super.initState();
+    _section = widget.initialSection;
+  }
+
+  @override
+  void didUpdateWidget(covariant BetaShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialSection != oldWidget.initialSection &&
+        widget.initialSection != _section) {
+      _section = widget.initialSection;
+    }
+  }
+
+  void _selectSection(AppSection section) {
+    if (section == _section) {
+      return;
+    }
+    Navigator.of(context).pushReplacementNamed(section.routePath);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +140,6 @@ class _BetaShellState extends State<BetaShell> {
       AppSection.audits => AuditsPage(operationsApi: widget.operationsApi),
       AppSection.controlPlane => ControlPlanePage(
         controlPlaneApi: widget.controlPlaneApi,
-        operationsApi: widget.operationsApi,
       ),
       AppSection.harnessAgents => HarnessAgentsPage(
         harnessConfigApi: widget.harnessConfigApi,
@@ -97,11 +166,7 @@ class _BetaShellState extends State<BetaShell> {
             _Sidebar(
               selected: _section,
               deploymentMode: _deploymentMode,
-              onSelect: (AppSection section) {
-                setState(() {
-                  _section = section;
-                });
-              },
+              onSelect: _selectSection,
             ),
             Expanded(
               child: Padding(

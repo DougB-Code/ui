@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:ui/harness_config/harness_config_api.dart';
+import 'package:ui/harness_config/harness_document_state.dart';
 import 'package:ui/shared/ui.dart';
 
 class HarnessAgentsPage extends StatefulWidget {
   const HarnessAgentsPage({
+    super.key,
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
   });
@@ -15,273 +17,211 @@ class HarnessAgentsPage extends StatefulWidget {
   State<HarnessAgentsPage> createState() => _HarnessAgentsPageState();
 }
 
-class _HarnessAgentsPageState extends State<HarnessAgentsPage> {
-  final TextEditingController _controller = TextEditingController();
-
-  bool _loading = true;
-  bool _busy = false;
-  String? _error;
-  HarnessAgentCatalog? _catalog;
-  HarnessConfigValidationReport? _validation;
+class _HarnessAgentsPageState
+    extends HarnessDocumentPageState<HarnessAgentsPage, HarnessAgentCatalog> {
+  @override
+  String get emptyBody =>
+      'The control plane returned no harness agent document.';
 
   @override
-  void initState() {
-    super.initState();
-    _load();
+  String get emptyTitle => 'No harness agent data';
+
+  @override
+  String get savedMessage => 'Harness agent configuration saved.';
+
+  @override
+  String catalogYaml(HarnessAgentCatalog catalog) => catalog.yaml;
+
+  @override
+  Future<HarnessAgentCatalog> fetchCatalog() {
+    return widget.harnessConfigApi.getAgents();
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Future<HarnessAgentCatalog> saveCatalog(String yaml) {
+    return widget.harnessConfigApi.saveAgents(yaml);
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final catalog = await widget.harnessConfigApi.getAgents();
-      _controller.text = catalog.yaml;
-      setState(() {
-        _catalog = catalog;
-        _validation = null;
-        _loading = false;
-      });
-    } catch (error) {
-      setState(() {
-        _error = error.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _validate() async {
-    setState(() => _busy = true);
-    try {
-      final report = await widget.harnessConfigApi.validateAgents(
-        _controller.text,
-      );
-      setState(() => _validation = report);
-      _showMessage(report.summary);
-    } catch (error) {
-      _showMessage(error.toString());
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
-  Future<void> _save() async {
-    setState(() => _busy = true);
-    try {
-      final catalog = await widget.harnessConfigApi.saveAgents(
-        _controller.text,
-      );
-      _controller.text = catalog.yaml;
-      setState(() {
-        _catalog = catalog;
-        _validation = null;
-      });
-      _showMessage('Harness agent configuration saved.');
-    } catch (error) {
-      _showMessage(error.toString());
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
-  void _showMessage(String message) {
-    showAppMessage(context, message);
+  @override
+  Future<HarnessConfigValidationReport> validateCatalog(String yaml) {
+    return widget.harnessConfigApi.validateAgents(yaml);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.harnessConfigAvailable) {
-      return const InfoPanel(
-        title: 'Harness config unavailable',
-        body:
-            'This deployment mode disables local harness config management routes. Switch to local mode to manage harness agents.',
-      );
-    }
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return ErrorState(message: _error!, onRetry: _load);
-    }
-    final catalog = _catalog;
-    if (catalog == null) {
-      return const EmptyState(
-        title: 'No harness agent data',
-        body: 'The control plane returned no harness agent document.',
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final stacked = constraints.maxWidth < 1200;
-        final summaryPane = PanelCard(
-          title: 'Harness Agents',
-          fill: true,
-          child: ListView(
-            children: [
-              InfoPanel(
-                title: 'Config path',
-                body: blankAsUnknown(catalog.configPath),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
+    return buildDocumentUnavailable(
+      available: widget.harnessConfigAvailable,
+      unavailableTitle: 'Harness config unavailable',
+      unavailableBody:
+          'This deployment mode disables local harness config management routes. Switch to local mode to manage harness agents.',
+      builder: (HarnessAgentCatalog catalog) {
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final stacked = constraints.maxWidth < 1200;
+            final summaryPane = PanelCard(
+              title: 'Harness Agents',
+              fill: true,
+              child: ListView(
                 children: [
-                  MetricCard(
-                    label: 'Lead agent',
-                    value: blankAsUnknown(catalog.leadAgent),
-                    tone: accentColor,
-                    detail: 'Resolved bootstrap lead role.',
+                  InfoPanel(
+                    title: 'Config path',
+                    body: blankAsUnknown(catalog.configPath),
                   ),
-                  MetricCard(
-                    label: 'Agents',
-                    value: '${catalog.agents.length}',
-                    tone: infoColor,
-                    detail: 'Concrete runtime roles in `agent.yaml`.',
-                  ),
-                  MetricCard(
-                    label: 'Templates',
-                    value: '${catalog.roleTemplates.length}',
-                    tone: successColor,
-                    detail: 'Reusable role defaults.',
-                  ),
-                  MetricCard(
-                    label: 'Policies',
-                    value: '${catalog.policyPresets.length}',
-                    tone: warningColor,
-                    detail: 'Named policy preset entries.',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              _CatalogKeyValueSection(
-                title: 'Runtime defaults',
-                rows: <MapEntry<String, String>>[
-                  MapEntry(
-                    'Approval mode',
-                    blankAsUnknown(catalog.approvalMode),
-                  ),
-                  MapEntry(
-                    'Default max steps',
-                    catalog.defaultMaxSteps == 0
-                        ? 'not set'
-                        : '${catalog.defaultMaxSteps}',
-                  ),
-                  MapEntry(
-                    'Recent ledger limit',
-                    catalog.recentLedgerLimit == 0
-                        ? 'not set'
-                        : '${catalog.recentLedgerLimit}',
-                  ),
-                  MapEntry(
-                    'Memory retention days',
-                    catalog.memoryRetentionDays == 0
-                        ? 'not set'
-                        : '${catalog.memoryRetentionDays}',
-                  ),
-                  MapEntry(
-                    'Subagents',
-                    catalog.subagentsEnabled ? 'enabled' : 'disabled',
-                  ),
-                  MapEntry(
-                    'Subagent max steps',
-                    catalog.subagentDefaultMaxSteps == 0
-                        ? 'not set'
-                        : '${catalog.subagentDefaultMaxSteps}',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              TagSection(title: 'Policy presets', tags: catalog.policyPresets),
-              const SizedBox(height: 18),
-              _CatalogListSection(
-                title: 'Role templates',
-                emptyTitle: 'No role templates',
-                emptyBody:
-                    'Role templates will appear here after the harness agent config loads them.',
-                children: catalog.roleTemplates
-                    .map(
-                      (HarnessAgentTemplateSummary template) =>
-                          _ConfigSummaryCard(
-                            title: template.name,
-                            subtitle: _joinNonEmpty(<String>[
-                              template.role,
-                              template.policyPreset,
-                              template.maxSteps == 0
-                                  ? ''
-                                  : '${template.maxSteps} steps',
-                            ]),
-                            tags: template.allowedToolGroups,
-                          ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 18),
-              _CatalogListSection(
-                title: 'Agents',
-                emptyTitle: 'No agents',
-                emptyBody:
-                    'Agent instances will appear here after the harness agent config loads them.',
-                children: catalog.agents
-                    .map(
-                      (HarnessAgentSummary agent) => _ConfigSummaryCard(
-                        title: agent.name,
-                        subtitle: _joinNonEmpty(<String>[
-                          agent.template,
-                          agent.role,
-                          agent.model,
-                          agent.maxSteps == 0 ? '' : '${agent.maxSteps} steps',
-                          agent.policyPreset,
-                        ]),
-                        tags: <String>[
-                          ...agent.toolGroups,
-                          ...agent.allowedTools,
-                        ],
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      MetricCard(
+                        label: 'Lead agent',
+                        value: blankAsUnknown(catalog.leadAgent),
+                        tone: accentColor,
+                        detail: 'Resolved bootstrap lead role.',
                       ),
-                    )
-                    .toList(),
+                      MetricCard(
+                        label: 'Agents',
+                        value: '${catalog.agents.length}',
+                        tone: infoColor,
+                        detail: 'Concrete runtime roles in `agent.yaml`.',
+                      ),
+                      MetricCard(
+                        label: 'Templates',
+                        value: '${catalog.roleTemplates.length}',
+                        tone: successColor,
+                        detail: 'Reusable role defaults.',
+                      ),
+                      MetricCard(
+                        label: 'Policies',
+                        value: '${catalog.policyPresets.length}',
+                        tone: warningColor,
+                        detail: 'Named policy preset entries.',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  _CatalogKeyValueSection(
+                    title: 'Runtime defaults',
+                    rows: <MapEntry<String, String>>[
+                      MapEntry(
+                        'Approval mode',
+                        blankAsUnknown(catalog.approvalMode),
+                      ),
+                      MapEntry(
+                        'Default max steps',
+                        catalog.defaultMaxSteps == 0
+                            ? 'not set'
+                            : '${catalog.defaultMaxSteps}',
+                      ),
+                      MapEntry(
+                        'Recent ledger limit',
+                        catalog.recentLedgerLimit == 0
+                            ? 'not set'
+                            : '${catalog.recentLedgerLimit}',
+                      ),
+                      MapEntry(
+                        'Memory retention days',
+                        catalog.memoryRetentionDays == 0
+                            ? 'not set'
+                            : '${catalog.memoryRetentionDays}',
+                      ),
+                      MapEntry(
+                        'Subagents',
+                        catalog.subagentsEnabled ? 'enabled' : 'disabled',
+                      ),
+                      MapEntry(
+                        'Subagent max steps',
+                        catalog.subagentDefaultMaxSteps == 0
+                            ? 'not set'
+                            : '${catalog.subagentDefaultMaxSteps}',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  TagSection(
+                    title: 'Policy presets',
+                    tags: catalog.policyPresets,
+                  ),
+                  const SizedBox(height: 18),
+                  _CatalogListSection(
+                    title: 'Role templates',
+                    emptyTitle: 'No role templates',
+                    emptyBody:
+                        'Role templates will appear here after the harness agent config loads them.',
+                    children: catalog.roleTemplates
+                        .map(
+                          (HarnessAgentTemplateSummary template) =>
+                              _ConfigSummaryCard(
+                                title: template.name,
+                                subtitle: _joinNonEmpty(<String>[
+                                  template.role,
+                                  template.policyPreset,
+                                  template.maxSteps == 0
+                                      ? ''
+                                      : '${template.maxSteps} steps',
+                                ]),
+                                tags: template.allowedToolGroups,
+                              ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 18),
+                  _CatalogListSection(
+                    title: 'Agents',
+                    emptyTitle: 'No agents',
+                    emptyBody:
+                        'Agent instances will appear here after the harness agent config loads them.',
+                    children: catalog.agents
+                        .map(
+                          (HarnessAgentSummary agent) => _ConfigSummaryCard(
+                            title: agent.name,
+                            subtitle: _joinNonEmpty(<String>[
+                              agent.template,
+                              agent.role,
+                              agent.model,
+                              agent.maxSteps == 0
+                                  ? ''
+                                  : '${agent.maxSteps} steps',
+                              agent.policyPreset,
+                            ]),
+                            tags: <String>[
+                              ...agent.toolGroups,
+                              ...agent.allowedTools,
+                            ],
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
               ),
-            ],
-          ),
-        );
+            );
 
-        final editorPane = _HarnessDocumentEditor(
-          title: 'Agent YAML',
-          controller: _controller,
-          busy: _busy,
-          validation: _validation,
-          onReload: _load,
-          onValidate: _validate,
-          onSave: _save,
-        );
+            final editorPane = _HarnessDocumentEditor(
+              title: 'Agent YAML',
+              controller: controller,
+              busy: busy,
+              validation: validation,
+              onReload: loadDocument,
+              onValidate: validateDocument,
+              onSave: saveDocumentState,
+            );
 
-        if (stacked) {
-          return Column(
-            children: [
-              Expanded(child: summaryPane),
-              const SizedBox(height: 16),
-              Expanded(child: editorPane),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(flex: 11, child: summaryPane),
-            const SizedBox(width: 16),
-            Expanded(flex: 10, child: editorPane),
-          ],
+            if (stacked) {
+              return Column(
+                children: [
+                  Expanded(child: summaryPane),
+                  const SizedBox(height: 16),
+                  Expanded(child: editorPane),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(flex: 11, child: summaryPane),
+                const SizedBox(width: 16),
+                Expanded(flex: 10, child: editorPane),
+              ],
+            );
+          },
         );
       },
     );
@@ -290,6 +230,7 @@ class _HarnessAgentsPageState extends State<HarnessAgentsPage> {
 
 class HarnessToolsPage extends StatefulWidget {
   const HarnessToolsPage({
+    super.key,
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
   });
@@ -301,248 +242,187 @@ class HarnessToolsPage extends StatefulWidget {
   State<HarnessToolsPage> createState() => _HarnessToolsPageState();
 }
 
-class _HarnessToolsPageState extends State<HarnessToolsPage> {
-  final TextEditingController _controller = TextEditingController();
-
-  bool _loading = true;
-  bool _busy = false;
-  String? _error;
-  HarnessToolCatalog? _catalog;
-  HarnessConfigValidationReport? _validation;
+class _HarnessToolsPageState
+    extends HarnessDocumentPageState<HarnessToolsPage, HarnessToolCatalog> {
+  @override
+  String get emptyBody =>
+      'The control plane returned no harness tool document.';
 
   @override
-  void initState() {
-    super.initState();
-    _load();
+  String get emptyTitle => 'No harness tool data';
+
+  @override
+  String get savedMessage => 'Harness tool configuration saved.';
+
+  @override
+  String catalogYaml(HarnessToolCatalog catalog) => catalog.yaml;
+
+  @override
+  Future<HarnessToolCatalog> fetchCatalog() {
+    return widget.harnessConfigApi.getTools();
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Future<HarnessToolCatalog> saveCatalog(String yaml) {
+    return widget.harnessConfigApi.saveTools(yaml);
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final catalog = await widget.harnessConfigApi.getTools();
-      _controller.text = catalog.yaml;
-      setState(() {
-        _catalog = catalog;
-        _validation = null;
-        _loading = false;
-      });
-    } catch (error) {
-      setState(() {
-        _error = error.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _validate() async {
-    setState(() => _busy = true);
-    try {
-      final report = await widget.harnessConfigApi.validateTools(
-        _controller.text,
-      );
-      setState(() => _validation = report);
-      _showMessage(report.summary);
-    } catch (error) {
-      _showMessage(error.toString());
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
-  Future<void> _save() async {
-    setState(() => _busy = true);
-    try {
-      final catalog = await widget.harnessConfigApi.saveTools(_controller.text);
-      _controller.text = catalog.yaml;
-      setState(() {
-        _catalog = catalog;
-        _validation = null;
-      });
-      _showMessage('Harness tool configuration saved.');
-    } catch (error) {
-      _showMessage(error.toString());
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
-  void _showMessage(String message) {
-    showAppMessage(context, message);
+  @override
+  Future<HarnessConfigValidationReport> validateCatalog(String yaml) {
+    return widget.harnessConfigApi.validateTools(yaml);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.harnessConfigAvailable) {
-      return const InfoPanel(
-        title: 'Harness config unavailable',
-        body:
-            'This deployment mode disables local harness config management routes. Switch to local mode to manage harness tools.',
-      );
-    }
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return ErrorState(message: _error!, onRetry: _load);
-    }
-    final catalog = _catalog;
-    if (catalog == null) {
-      return const EmptyState(
-        title: 'No harness tool data',
-        body: 'The control plane returned no harness tool document.',
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final stacked = constraints.maxWidth < 1200;
-        final summaryPane = PanelCard(
-          title: 'Harness Tools',
-          fill: true,
-          child: ListView(
-            children: [
-              InfoPanel(
-                title: 'Config path',
-                body: blankAsUnknown(catalog.configPath),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
+    return buildDocumentUnavailable(
+      available: widget.harnessConfigAvailable,
+      unavailableTitle: 'Harness config unavailable',
+      unavailableBody:
+          'This deployment mode disables local harness config management routes. Switch to local mode to manage harness tools.',
+      builder: (HarnessToolCatalog catalog) {
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final stacked = constraints.maxWidth < 1200;
+            final summaryPane = PanelCard(
+              title: 'Harness Tools',
+              fill: true,
+              child: ListView(
                 children: [
-                  MetricCard(
-                    label: 'Tool groups',
-                    value: '${catalog.toolGroups.length}',
-                    tone: accentColor,
-                    detail: 'Reusable tool bundles.',
+                  InfoPanel(
+                    title: 'Config path',
+                    body: blankAsUnknown(catalog.configPath),
                   ),
-                  MetricCard(
-                    label: 'External tools',
-                    value: '${catalog.externalTools.length}',
-                    tone: infoColor,
-                    detail: 'Executable runtime tools.',
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      MetricCard(
+                        label: 'Tool groups',
+                        value: '${catalog.toolGroups.length}',
+                        tone: accentColor,
+                        detail: 'Reusable tool bundles.',
+                      ),
+                      MetricCard(
+                        label: 'External tools',
+                        value: '${catalog.externalTools.length}',
+                        tone: infoColor,
+                        detail: 'Executable runtime tools.',
+                      ),
+                      MetricCard(
+                        label: 'MCP servers',
+                        value: '${catalog.mcpServers.length}',
+                        tone: successColor,
+                        detail: 'Surfaced MCP processes.',
+                      ),
+                    ],
                   ),
-                  MetricCard(
-                    label: 'MCP servers',
-                    value: '${catalog.mcpServers.length}',
-                    tone: successColor,
-                    detail: 'Surfaced MCP processes.',
+                  const SizedBox(height: 18),
+                  _CatalogListSection(
+                    title: 'Tool groups',
+                    emptyTitle: 'No tool groups',
+                    emptyBody:
+                        'Tool groups will appear here after the harness tool config loads them.',
+                    children: catalog.toolGroups
+                        .map(
+                          (HarnessToolGroupSummary group) => _ConfigSummaryCard(
+                            title: group.name,
+                            subtitle:
+                                '${group.tools.length} tool${group.tools.length == 1 ? '' : 's'}',
+                            tags: group.tools,
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 18),
+                  _CatalogListSection(
+                    title: 'External tools',
+                    emptyTitle: 'No external tools',
+                    emptyBody:
+                        'External tool definitions will appear here after the harness tool config loads them.',
+                    children: catalog.externalTools
+                        .map(
+                          (
+                            HarnessExternalToolSummary tool,
+                          ) => _ConfigSummaryCard(
+                            title: tool.name,
+                            subtitle: _joinNonEmpty(<String>[
+                              tool.toolClass,
+                              tool.location,
+                              tool.command.join(' '),
+                              tool.platformOverrideCount == 0
+                                  ? ''
+                                  : '${tool.platformOverrideCount} platform override${tool.platformOverrideCount == 1 ? '' : 's'}',
+                            ]),
+                            tags: <String>[
+                              tool.enabled ? 'enabled' : 'disabled',
+                              tool.trusted ? 'trusted' : 'untrusted',
+                            ],
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 18),
+                  _CatalogListSection(
+                    title: 'MCP servers',
+                    emptyTitle: 'No MCP servers',
+                    emptyBody:
+                        'MCP server definitions will appear here after the harness tool config loads them.',
+                    children: catalog.mcpServers
+                        .map(
+                          (
+                            HarnessMcpServerSummary server,
+                          ) => _ConfigSummaryCard(
+                            title: server.name,
+                            subtitle: _joinNonEmpty(<String>[
+                              server.lifecycle,
+                              server.transport,
+                              server.url,
+                              server.command.join(' '),
+                              server.toolNamePrefix,
+                              server.platformOverrideCount == 0
+                                  ? ''
+                                  : '${server.platformOverrideCount} platform override${server.platformOverrideCount == 1 ? '' : 's'}',
+                            ]),
+                            tags: <String>[
+                              server.enabled ? 'enabled' : 'disabled',
+                              server.trusted ? 'trusted' : 'untrusted',
+                            ],
+                          ),
+                        )
+                        .toList(),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              _CatalogListSection(
-                title: 'Tool groups',
-                emptyTitle: 'No tool groups',
-                emptyBody:
-                    'Tool groups will appear here after the harness tool config loads them.',
-                children: catalog.toolGroups
-                    .map(
-                      (HarnessToolGroupSummary group) => _ConfigSummaryCard(
-                        title: group.name,
-                        subtitle:
-                            '${group.tools.length} tool${group.tools.length == 1 ? '' : 's'}',
-                        tags: group.tools,
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 18),
-              _CatalogListSection(
-                title: 'External tools',
-                emptyTitle: 'No external tools',
-                emptyBody:
-                    'External tool definitions will appear here after the harness tool config loads them.',
-                children: catalog.externalTools
-                    .map(
-                      (HarnessExternalToolSummary tool) => _ConfigSummaryCard(
-                        title: tool.name,
-                        subtitle: _joinNonEmpty(<String>[
-                          tool.toolClass,
-                          tool.location,
-                          tool.command.join(' '),
-                          tool.platformOverrideCount == 0
-                              ? ''
-                              : '${tool.platformOverrideCount} platform override${tool.platformOverrideCount == 1 ? '' : 's'}',
-                        ]),
-                        tags: <String>[
-                          tool.enabled ? 'enabled' : 'disabled',
-                          tool.trusted ? 'trusted' : 'untrusted',
-                        ],
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 18),
-              _CatalogListSection(
-                title: 'MCP servers',
-                emptyTitle: 'No MCP servers',
-                emptyBody:
-                    'MCP server definitions will appear here after the harness tool config loads them.',
-                children: catalog.mcpServers
-                    .map(
-                      (HarnessMcpServerSummary server) => _ConfigSummaryCard(
-                        title: server.name,
-                        subtitle: _joinNonEmpty(<String>[
-                          server.lifecycle,
-                          server.transport,
-                          server.url,
-                          server.command.join(' '),
-                          server.toolNamePrefix,
-                          server.platformOverrideCount == 0
-                              ? ''
-                              : '${server.platformOverrideCount} platform override${server.platformOverrideCount == 1 ? '' : 's'}',
-                        ]),
-                        tags: <String>[
-                          server.enabled ? 'enabled' : 'disabled',
-                          server.trusted ? 'trusted' : 'untrusted',
-                        ],
-                      ),
-                    )
-                    .toList(),
-              ),
-            ],
-          ),
-        );
+            );
 
-        final editorPane = _HarnessDocumentEditor(
-          title: 'Tool YAML',
-          controller: _controller,
-          busy: _busy,
-          validation: _validation,
-          onReload: _load,
-          onValidate: _validate,
-          onSave: _save,
-        );
+            final editorPane = _HarnessDocumentEditor(
+              title: 'Tool YAML',
+              controller: controller,
+              busy: busy,
+              validation: validation,
+              onReload: loadDocument,
+              onValidate: validateDocument,
+              onSave: saveDocumentState,
+            );
 
-        if (stacked) {
-          return Column(
-            children: [
-              Expanded(child: summaryPane),
-              const SizedBox(height: 16),
-              Expanded(child: editorPane),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(flex: 11, child: summaryPane),
-            const SizedBox(width: 16),
-            Expanded(flex: 10, child: editorPane),
-          ],
+            if (stacked) {
+              return Column(
+                children: [
+                  Expanded(child: summaryPane),
+                  const SizedBox(height: 16),
+                  Expanded(child: editorPane),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(flex: 11, child: summaryPane),
+                const SizedBox(width: 16),
+                Expanded(flex: 10, child: editorPane),
+              ],
+            );
+          },
         );
       },
     );
@@ -886,6 +766,7 @@ String _joinNonEmpty(List<String> values) {
 
 class HarnessWorkflowsPage extends StatefulWidget {
   const HarnessWorkflowsPage({
+    super.key,
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
   });
@@ -897,105 +778,56 @@ class HarnessWorkflowsPage extends StatefulWidget {
   State<HarnessWorkflowsPage> createState() => _HarnessWorkflowsPageState();
 }
 
-class _HarnessWorkflowsPageState extends State<HarnessWorkflowsPage> {
-  final TextEditingController _controller = TextEditingController();
-
-  bool _loading = true;
-  bool _busy = false;
-  String? _error;
-  HarnessWorkflowCatalog? _catalog;
-  HarnessConfigValidationReport? _validation;
+class _HarnessWorkflowsPageState
+    extends
+        HarnessDocumentPageState<HarnessWorkflowsPage, HarnessWorkflowCatalog> {
   String _selectedWorkflowName = '';
 
   @override
-  void initState() {
-    super.initState();
-    _load();
+  String get emptyBody =>
+      'The control plane returned no harness workflow document.';
+
+  @override
+  String get emptyTitle => 'No harness workflow data';
+
+  @override
+  String get savedMessage => 'Harness workflow configuration saved.';
+
+  @override
+  String catalogYaml(HarnessWorkflowCatalog catalog) => catalog.yaml;
+
+  @override
+  Future<HarnessWorkflowCatalog> fetchCatalog() {
+    return widget.harnessConfigApi.getWorkflows();
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Future<HarnessWorkflowCatalog> saveCatalog(String yaml) {
+    return widget.harnessConfigApi.saveWorkflows(yaml);
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final catalog = await widget.harnessConfigApi.getWorkflows();
-      _controller.text = catalog.yaml;
-      final selected =
-          catalog.workflows.any(
-            (HarnessWorkflowSummary workflow) =>
-                workflow.name == _selectedWorkflowName,
-          )
-          ? _selectedWorkflowName
-          : (catalog.workflows.isEmpty ? '' : catalog.workflows.first.name);
-      setState(() {
-        _catalog = catalog;
-        _selectedWorkflowName = selected;
-        _validation = null;
-        _loading = false;
-      });
-    } catch (error) {
-      setState(() {
-        _error = error.toString();
-        _loading = false;
-      });
-    }
+  @override
+  Future<HarnessConfigValidationReport> validateCatalog(String yaml) {
+    return widget.harnessConfigApi.validateWorkflows(yaml);
   }
 
-  Future<void> _validate() async {
-    setState(() => _busy = true);
-    try {
-      final report = await widget.harnessConfigApi.validateWorkflows(
-        _controller.text,
-      );
-      setState(() => _validation = report);
-      _showMessage(report.summary);
-    } catch (error) {
-      _showMessage(error.toString());
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
+  @override
+  void onCatalogLoaded(HarnessWorkflowCatalog loadedCatalog) {
+    _selectedWorkflowName = _resolvedWorkflowSelection(loadedCatalog);
   }
 
-  Future<void> _save() async {
-    setState(() => _busy = true);
-    try {
-      final catalog = await widget.harnessConfigApi.saveWorkflows(
-        _controller.text,
-      );
-      _controller.text = catalog.yaml;
-      final selected =
-          catalog.workflows.any(
-            (HarnessWorkflowSummary workflow) =>
-                workflow.name == _selectedWorkflowName,
-          )
-          ? _selectedWorkflowName
-          : (catalog.workflows.isEmpty ? '' : catalog.workflows.first.name);
-      setState(() {
-        _catalog = catalog;
-        _selectedWorkflowName = selected;
-        _validation = null;
-      });
-      _showMessage('Harness workflow configuration saved.');
-    } catch (error) {
-      _showMessage(error.toString());
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
+  @override
+  void onCatalogSaved(HarnessWorkflowCatalog savedCatalog) {
+    _selectedWorkflowName = _resolvedWorkflowSelection(savedCatalog);
   }
 
-  void _showMessage(String message) {
-    showAppMessage(context, message);
+  String _resolvedWorkflowSelection(HarnessWorkflowCatalog catalog) {
+    return catalog.workflows.any(
+          (HarnessWorkflowSummary workflow) =>
+              workflow.name == _selectedWorkflowName,
+        )
+        ? _selectedWorkflowName
+        : (catalog.workflows.isEmpty ? '' : catalog.workflows.first.name);
   }
 
   HarnessWorkflowSummary? _selectedWorkflow(HarnessWorkflowCatalog catalog) {
@@ -1009,136 +841,123 @@ class _HarnessWorkflowsPageState extends State<HarnessWorkflowsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.harnessConfigAvailable) {
-      return const InfoPanel(
-        title: 'Harness config unavailable',
-        body:
-            'This deployment mode disables local harness config management routes. Switch to local mode to manage harness workflows.',
-      );
-    }
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return ErrorState(message: _error!, onRetry: _load);
-    }
-    final catalog = _catalog;
-    if (catalog == null) {
-      return const EmptyState(
-        title: 'No harness workflow data',
-        body: 'The control plane returned no harness workflow document.',
-      );
-    }
-    final selectedWorkflow = _selectedWorkflow(catalog);
-
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final stacked = constraints.maxWidth < 1280;
-        final summaryPane = PanelCard(
-          title: 'Harness Workflows',
-          fill: true,
-          child: ListView(
-            children: [
-              InfoPanel(
-                title: 'Config path',
-                body: blankAsUnknown(catalog.configPath),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
+    return buildDocumentUnavailable(
+      available: widget.harnessConfigAvailable,
+      unavailableTitle: 'Harness config unavailable',
+      unavailableBody:
+          'This deployment mode disables local harness config management routes. Switch to local mode to manage harness workflows.',
+      builder: (HarnessWorkflowCatalog catalog) {
+        final selectedWorkflow = _selectedWorkflow(catalog);
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final stacked = constraints.maxWidth < 1280;
+            final summaryPane = PanelCard(
+              title: 'Harness Workflows',
+              fill: true,
+              child: ListView(
                 children: [
-                  MetricCard(
-                    label: 'Workflows',
-                    value: '${catalog.workflows.length}',
-                    tone: accentColor,
-                    detail: 'Named runtime workflow definitions.',
+                  InfoPanel(
+                    title: 'Config path',
+                    body: blankAsUnknown(catalog.configPath),
                   ),
-                  MetricCard(
-                    label: 'Nodes',
-                    value:
-                        '${catalog.workflows.fold<int>(0, (int total, HarnessWorkflowSummary workflow) => total + workflow.nodes.length)}',
-                    tone: infoColor,
-                    detail: 'Total nodes across `workflow.yaml`.',
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      MetricCard(
+                        label: 'Workflows',
+                        value: '${catalog.workflows.length}',
+                        tone: accentColor,
+                        detail: 'Named runtime workflow definitions.',
+                      ),
+                      MetricCard(
+                        label: 'Nodes',
+                        value:
+                            '${catalog.workflows.fold<int>(0, (int total, HarnessWorkflowSummary workflow) => total + workflow.nodes.length)}',
+                        tone: infoColor,
+                        detail: 'Total nodes across `workflow.yaml`.',
+                      ),
+                      MetricCard(
+                        label: 'Rule sets',
+                        value:
+                            '${catalog.workflows.fold<int>(0, (int total, HarnessWorkflowSummary workflow) => total + workflow.ruleSets.length)}',
+                        tone: successColor,
+                        detail: 'Reusable policy rule set entries.',
+                      ),
+                    ],
                   ),
-                  MetricCard(
-                    label: 'Rule sets',
-                    value:
-                        '${catalog.workflows.fold<int>(0, (int total, HarnessWorkflowSummary workflow) => total + workflow.ruleSets.length)}',
-                    tone: successColor,
-                    detail: 'Reusable policy rule set entries.',
-                  ),
+                  const SizedBox(height: 18),
+                  SubsectionTitle('Workflow catalog'),
+                  const SizedBox(height: 10),
+                  if (catalog.workflows.isEmpty)
+                    const InfoPanel(
+                      title: 'No workflows',
+                      body:
+                          'Workflow definitions will appear here after the harness workflow config loads them.',
+                    )
+                  else
+                    Column(
+                      children:
+                          catalog.workflows
+                              .map(
+                                (HarnessWorkflowSummary workflow) =>
+                                    _WorkflowListCard(
+                                      workflow: workflow,
+                                      selected:
+                                          workflow.name ==
+                                          (selectedWorkflow?.name ?? ''),
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedWorkflowName = workflow.name;
+                                        });
+                                      },
+                                    ),
+                              )
+                              .expand(
+                                (Widget card) => <Widget>[
+                                  card,
+                                  const SizedBox(height: 10),
+                                ],
+                              )
+                              .toList()
+                            ..removeLast(),
+                    ),
+                  if (selectedWorkflow != null) ...[
+                    const SizedBox(height: 18),
+                    _WorkflowDetailSection(workflow: selectedWorkflow),
+                  ],
                 ],
               ),
-              const SizedBox(height: 18),
-              SubsectionTitle('Workflow catalog'),
-              const SizedBox(height: 10),
-              if (catalog.workflows.isEmpty)
-                const InfoPanel(
-                  title: 'No workflows',
-                  body:
-                      'Workflow definitions will appear here after the harness workflow config loads them.',
-                )
-              else
-                Column(
-                  children:
-                      catalog.workflows
-                          .map(
-                            (HarnessWorkflowSummary workflow) =>
-                                _WorkflowListCard(
-                                  workflow: workflow,
-                                  selected:
-                                      workflow.name ==
-                                      (selectedWorkflow?.name ?? ''),
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedWorkflowName = workflow.name;
-                                    });
-                                  },
-                                ),
-                          )
-                          .expand(
-                            (Widget card) => <Widget>[
-                              card,
-                              const SizedBox(height: 10),
-                            ],
-                          )
-                          .toList()
-                        ..removeLast(),
-                ),
-              if (selectedWorkflow != null) ...[
-                const SizedBox(height: 18),
-                _WorkflowDetailSection(workflow: selectedWorkflow),
+            );
+
+            final editorPane = _HarnessDocumentEditor(
+              title: 'Workflow YAML',
+              controller: controller,
+              busy: busy,
+              validation: validation,
+              onReload: loadDocument,
+              onValidate: validateDocument,
+              onSave: saveDocumentState,
+            );
+
+            if (stacked) {
+              return Column(
+                children: [
+                  Expanded(child: summaryPane),
+                  const SizedBox(height: 16),
+                  Expanded(child: editorPane),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(flex: 11, child: summaryPane),
+                const SizedBox(width: 16),
+                Expanded(flex: 10, child: editorPane),
               ],
-            ],
-          ),
-        );
-
-        final editorPane = _HarnessDocumentEditor(
-          title: 'Workflow YAML',
-          controller: _controller,
-          busy: _busy,
-          validation: _validation,
-          onReload: _load,
-          onValidate: _validate,
-          onSave: _save,
-        );
-
-        if (stacked) {
-          return Column(
-            children: [
-              Expanded(child: summaryPane),
-              const SizedBox(height: 16),
-              Expanded(child: editorPane),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(flex: 11, child: summaryPane),
-            const SizedBox(width: 16),
-            Expanded(flex: 10, child: editorPane),
-          ],
+            );
+          },
         );
       },
     );

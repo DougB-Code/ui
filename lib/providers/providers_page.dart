@@ -6,6 +6,7 @@ import 'package:ui/shared/ui.dart';
 
 class ProvidersPage extends StatefulWidget {
   const ProvidersPage({
+    super.key,
     required this.providerApi,
     required this.providerCatalogAvailable,
   });
@@ -192,8 +193,14 @@ class _ProvidersPageState extends State<ProvidersPage> {
       return;
     }
 
-    final delay = immediate ? Duration.zero : const Duration(milliseconds: 300);
-    _previewDebounce = Timer(delay, _refreshPreview);
+    if (immediate) {
+      _refreshPreview();
+      return;
+    }
+    _previewDebounce = Timer(
+      const Duration(milliseconds: 300),
+      _refreshPreview,
+    );
   }
 
   Future<void> _refreshPreview() async {
@@ -690,25 +697,27 @@ class _ProviderEditorPane extends StatelessWidget {
             ),
           SubsectionTitle('YAML preview'),
           const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: panelAltColor,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: borderColor),
-            ),
-            child: SelectableText(
-              draft.alias.trim().isEmpty
-                  ? 'Set an alias to preview YAML.'
-                  : previewLoading
-                  ? 'Refreshing preview...'
-                  : yamlPreview.trim().isEmpty
-                  ? 'Preview unavailable.'
-                  : yamlPreview,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                color: textPrimaryColor,
-                height: 1.5,
+          SelectionArea(
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: panelAltColor,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: borderColor),
+              ),
+              child: Text(
+                draft.alias.trim().isEmpty
+                    ? 'Set an alias to preview YAML.'
+                    : previewLoading
+                    ? 'Refreshing preview...'
+                    : yamlPreview.trim().isEmpty
+                    ? 'Preview unavailable.'
+                    : yamlPreview,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  color: textPrimaryColor,
+                  height: 1.5,
+                ),
               ),
             ),
           ),

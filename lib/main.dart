@@ -42,13 +42,23 @@ class AgentAwesomeBetaApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: buildAgentAwesomeTheme(),
-      home: BetaShell(
-        controlPlaneBaseUrl: controlPlaneBaseUrl,
-        controlPlaneApi: controlPlaneApi,
-        harnessConfigApi: harnessConfigApi,
-        operationsApi: operationsApi,
-        providerApi: providerApi,
-      ),
+      initialRoute: AppSection.runs.routePath,
+      onGenerateRoute: (RouteSettings settings) {
+        final section = AppSectionRouting.fromRouteName(settings.name);
+        return MaterialPageRoute<void>(
+          settings: RouteSettings(name: section.routePath),
+          builder: (BuildContext context) {
+            return BetaShell(
+              controlPlaneBaseUrl: controlPlaneBaseUrl,
+              controlPlaneApi: controlPlaneApi,
+              harnessConfigApi: harnessConfigApi,
+              operationsApi: operationsApi,
+              providerApi: providerApi,
+              initialSection: section,
+            );
+          },
+        );
+      },
     );
   }
 }
