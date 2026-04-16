@@ -303,8 +303,6 @@ class _BetaShellState extends State<BetaShell> with WidgetsBindingObserver {
                     children: [
                       _HeaderBar(
                         section: _section,
-                        controlPlaneBaseUrl: widget.controlPlaneBaseUrl,
-                        deploymentMode: _deploymentMode,
                         actionController: _headerActionControllers[_section]!,
                       ),
                       const SizedBox(height: 20),
@@ -811,32 +809,10 @@ class _NavButton extends StatelessWidget {
 }
 
 class _HeaderBar extends StatelessWidget {
-  const _HeaderBar({
-    required this.section,
-    required this.controlPlaneBaseUrl,
-    required this.deploymentMode,
-    required this.actionController,
-  });
+  const _HeaderBar({required this.section, required this.actionController});
 
   final AppSection section;
-  final String controlPlaneBaseUrl;
-  final String deploymentMode;
   final ScreenHeaderActionsController actionController;
-
-  String get _deploymentLabel {
-    return deploymentMode == 'cloudflare' ? 'DEPLOYED' : 'LOCAL';
-  }
-
-  String get _hostLabel {
-    final uri = Uri.tryParse(controlPlaneBaseUrl);
-    if (uri == null) {
-      return controlPlaneBaseUrl;
-    }
-    if (uri.host.isEmpty) {
-      return controlPlaneBaseUrl;
-    }
-    return uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -859,13 +835,6 @@ class _HeaderBar extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.6,
                   ),
-                ),
-                _HeaderContextBadge(
-                  deploymentLabel: _deploymentLabel,
-                  hostLabel: _hostLabel,
-                  tone: deploymentMode == 'cloudflare'
-                      ? warningColor
-                      : successColor,
                 ),
               ],
             );
@@ -928,49 +897,6 @@ class _HeaderActionMenu extends StatelessWidget {
           alignment: WrapAlignment.end,
           children: actions,
         ),
-      ),
-    );
-  }
-}
-
-class _HeaderContextBadge extends StatelessWidget {
-  const _HeaderContextBadge({
-    required this.deploymentLabel,
-    required this.hostLabel,
-    required this.tone,
-  });
-
-  final String deploymentLabel;
-  final String hostLabel;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: panelAltColor,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: borderColor.withValues(alpha: 0.8)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: tone, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            '$deploymentLabel ($hostLabel)',
-            style: const TextStyle(
-              color: textMutedColor,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ],
       ),
     );
   }

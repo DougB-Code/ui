@@ -513,36 +513,14 @@ class _ProvidersPageState extends State<ProvidersPage> {
     if (provider.accessVerified) {
       return 'Verified';
     }
-    if (provider.enabled) {
-      return 'Pending';
-    }
-    return 'Never';
+    return 'Unverified';
   }
 
   Color _verificationTone(ProviderConfig provider) {
     if (provider.accessVerified) {
       return successColor;
     }
-    if (provider.enabled) {
-      return warningColor;
-    }
-    return textMutedColor;
-  }
-
-  String _providerSubtitle(ProviderConfig provider) {
-    if (provider.endpoint.trim().isNotEmpty) {
-      return provider.endpoint.trim();
-    }
-    return switch (provider.adapter) {
-      'anthropic' => 'Anthropic provider',
-      'cloudflare' => 'Cloudflare gateway',
-      'google' => 'Google Generative AI',
-      'huggingface' => 'Hugging Face router',
-      'openai' => 'OpenAI endpoint',
-      'openai_compatible' => 'OpenAI-compatible endpoint',
-      'xai' => 'xAI endpoint',
-      _ => 'Provider configuration',
-    };
+    return warningColor;
   }
 
   void _syncHeaderActions() {
@@ -718,7 +696,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
                                 onDeleteProvider: (ProviderConfig provider) {
                                   _deleteProviderAlias(provider.persistedAlias);
                                 },
-                                subtitleForProvider: _providerSubtitle,
                                 statusLabelForProvider: _statusLabel,
                                 statusToneForProvider: _statusTone,
                                 verificationLabelForProvider:
@@ -778,7 +755,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
                               onDeleteProvider: (ProviderConfig provider) {
                                 _deleteProviderAlias(provider.persistedAlias);
                               },
-                              subtitleForProvider: _providerSubtitle,
                               statusLabelForProvider: _statusLabel,
                               statusToneForProvider: _statusTone,
                               verificationLabelForProvider: _verificationLabel,
@@ -853,7 +829,6 @@ class _ProviderCollectionPane extends StatelessWidget {
     required this.onSelectProvider,
     required this.onVerifyProvider,
     required this.onDeleteProvider,
-    required this.subtitleForProvider,
     required this.statusLabelForProvider,
     required this.statusToneForProvider,
     required this.verificationLabelForProvider,
@@ -881,7 +856,6 @@ class _ProviderCollectionPane extends StatelessWidget {
   final ValueChanged<ProviderConfig> onSelectProvider;
   final ValueChanged<ProviderConfig> onVerifyProvider;
   final ValueChanged<ProviderConfig> onDeleteProvider;
-  final String Function(ProviderConfig provider) subtitleForProvider;
   final String Function(ProviderConfig provider) statusLabelForProvider;
   final Color Function(ProviderConfig provider) statusToneForProvider;
   final String Function(ProviderConfig provider) verificationLabelForProvider;
@@ -995,7 +969,6 @@ class _ProviderCollectionPane extends StatelessWidget {
                               provider: provider,
                               selected:
                                   provider.persistedAlias == selectedAlias,
-                              subtitle: subtitleForProvider(provider),
                               statusLabel: statusLabelForProvider(provider),
                               statusTone: statusToneForProvider(provider),
                               verificationLabel: verificationLabelForProvider(
@@ -1185,7 +1158,6 @@ class _ProviderListRow extends StatelessWidget {
   const _ProviderListRow({
     required this.provider,
     required this.selected,
-    required this.subtitle,
     required this.statusLabel,
     required this.statusTone,
     required this.verificationLabel,
@@ -1197,7 +1169,6 @@ class _ProviderListRow extends StatelessWidget {
 
   final ProviderConfig provider;
   final bool selected;
-  final String subtitle;
   final String statusLabel;
   final Color statusTone;
   final String verificationLabel;
@@ -1255,13 +1226,6 @@ class _ProviderListRow extends StatelessWidget {
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: textMutedColor, height: 1.3),
                 ),
               ],
             ),
@@ -1348,16 +1312,6 @@ class _ProviderListRow extends StatelessWidget {
                               color: textPrimaryColor,
                               fontSize: 18,
                               fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            subtitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: textMutedColor,
-                              height: 1.35,
                             ),
                           ),
                         ],
