@@ -106,6 +106,7 @@ const ValueKey<String> _appRailLogoKey = ValueKey<String>('app-rail-logo');
 const ValueKey<String> _appRailExpandIconKey = ValueKey<String>(
   'app-rail-expand-icon',
 );
+const Color _appRailBackgroundColor = Color(0xCC09101C);
 
 class BetaShell extends StatefulWidget {
   const BetaShell({
@@ -132,6 +133,11 @@ class BetaShell extends StatefulWidget {
 class _BetaShellState extends State<BetaShell> with WidgetsBindingObserver {
   late AppSection _section;
   final Map<AppSection, Widget> _contentCache = <AppSection, Widget>{};
+  late final Map<AppSection, ScreenHeaderActionsController>
+  _headerActionControllers = <AppSection, ScreenHeaderActionsController>{
+    for (final AppSection section in AppSection.values)
+      section: ScreenHeaderActionsController(),
+  };
   final _deploymentMode = const String.fromEnvironment(
     'CONTROL_PLANE_DEPLOYMENT',
     defaultValue: 'local',
@@ -149,6 +155,9 @@ class _BetaShellState extends State<BetaShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    for (final controller in _headerActionControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -211,18 +220,26 @@ class _BetaShellState extends State<BetaShell> with WidgetsBindingObserver {
       AppSection.harnessAgents => HarnessAgentsPage(
         harnessConfigApi: widget.harnessConfigApi,
         harnessConfigAvailable: _deploymentMode != 'cloudflare',
+        headerActionsController:
+            _headerActionControllers[AppSection.harnessAgents]!,
       ),
       AppSection.harnessTools => HarnessToolsPage(
         harnessConfigApi: widget.harnessConfigApi,
         harnessConfigAvailable: _deploymentMode != 'cloudflare',
+        headerActionsController:
+            _headerActionControllers[AppSection.harnessTools]!,
       ),
       AppSection.harnessWorkflows => HarnessWorkflowsPage(
         harnessConfigApi: widget.harnessConfigApi,
         harnessConfigAvailable: _deploymentMode != 'cloudflare',
+        headerActionsController:
+            _headerActionControllers[AppSection.harnessWorkflows]!,
       ),
       AppSection.providers => ProvidersPage(
         providerApi: widget.providerApi,
         providerCatalogAvailable: _deploymentMode != 'cloudflare',
+        headerActionsController:
+            _headerActionControllers[AppSection.providers]!,
       ),
     };
   }
@@ -278,7 +295,7 @@ class _BetaShellState extends State<BetaShell> with WidgetsBindingObserver {
             ),
             Expanded(
               child: DecoratedBox(
-                decoration: const BoxDecoration(color: Color(0xA60C121E)),
+                decoration: const BoxDecoration(color: _appRailBackgroundColor),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
                   child: Column(
@@ -288,6 +305,7 @@ class _BetaShellState extends State<BetaShell> with WidgetsBindingObserver {
                         section: _section,
                         controlPlaneBaseUrl: widget.controlPlaneBaseUrl,
                         deploymentMode: _deploymentMode,
+                        actionController: _headerActionControllers[_section]!,
                       ),
                       const SizedBox(height: 20),
                       Expanded(
@@ -358,7 +376,7 @@ class _AppRailState extends State<_AppRail> {
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
         width: widget.expanded ? 304 : 84,
-        color: const Color(0xCC09101C),
+        color: _appRailBackgroundColor,
         padding: EdgeInsets.fromLTRB(
           widget.expanded ? 18 : 12,
           18,
@@ -491,21 +509,17 @@ class _RailNavButton extends StatelessWidget {
     required this.selected,
     this.badge,
     required this.onTap,
-    this.onHoverChanged,
   });
 
   final AppSection section;
   final bool selected;
   final String? badge;
   final ValueChanged<AppSection> onTap;
-  final ValueChanged<bool>? onHoverChanged;
 
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHoverChanged?.call(true),
-      onExit: (_) => onHoverChanged?.call(false),
       child: Tooltip(
         message: badge == null ? section.label : '${section.label} ($badge)',
         child: Material(
@@ -555,22 +569,18 @@ class _RailIconButton extends StatelessWidget {
     required this.icon,
     required this.onTap,
     required this.tooltip,
-    this.onHoverChanged,
     this.fullWidth = false,
   });
 
   final IconData icon;
   final VoidCallback onTap;
   final String tooltip;
-  final ValueChanged<bool>? onHoverChanged;
   final bool fullWidth;
 
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHoverChanged?.call(true),
-      onExit: (_) => onHoverChanged?.call(false),
       child: _RailSurfaceButton(
         onTap: onTap,
         tooltip: tooltip,
@@ -586,20 +596,16 @@ class _FooterNavButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
-    this.onHoverChanged,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final ValueChanged<bool>? onHoverChanged;
 
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHoverChanged?.call(true),
-      onExit: (_) => onHoverChanged?.call(false),
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(14),
@@ -631,7 +637,6 @@ class _FooterNavButton extends StatelessWidget {
 
 class _RailSurfaceButton extends StatelessWidget {
   const _RailSurfaceButton({
-    super.key,
     required this.child,
     required this.onTap,
     required this.tooltip,
@@ -663,7 +668,9 @@ class _RailSurfaceButton extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   color: panelAltColor,
-                  border: Border.all(color: borderColor.withValues(alpha: 0.45)),
+                  border: Border.all(
+                    color: borderColor.withValues(alpha: 0.45),
+                  ),
                 ),
                 child: child,
               ),
@@ -676,11 +683,7 @@ class _RailSurfaceButton extends StatelessWidget {
 }
 
 class _RailLogoBadge extends StatelessWidget {
-  const _RailLogoBadge({
-    super.key,
-    required this.size,
-    this.padded = true,
-  });
+  const _RailLogoBadge({super.key, required this.size, this.padded = true});
 
   final double size;
   final bool padded;
@@ -736,21 +739,17 @@ class _NavButton extends StatelessWidget {
     required this.selected,
     this.badge,
     required this.onTap,
-    this.onHoverChanged,
   });
 
   final AppSection section;
   final bool selected;
   final String? badge;
   final ValueChanged<AppSection> onTap;
-  final ValueChanged<bool>? onHoverChanged;
 
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHoverChanged?.call(true),
-      onExit: (_) => onHoverChanged?.call(false),
       child: Material(
         color: selected ? panelRaisedColor : Colors.transparent,
         borderRadius: BorderRadius.circular(14),
@@ -816,37 +815,166 @@ class _HeaderBar extends StatelessWidget {
     required this.section,
     required this.controlPlaneBaseUrl,
     required this.deploymentMode,
+    required this.actionController,
   });
 
   final AppSection section;
   final String controlPlaneBaseUrl;
   final String deploymentMode;
+  final ScreenHeaderActionsController actionController;
+
+  String get _deploymentLabel {
+    return deploymentMode == 'cloudflare' ? 'DEPLOYED' : 'LOCAL';
+  }
+
+  String get _hostLabel {
+    final uri = Uri.tryParse(controlPlaneBaseUrl);
+    if (uri == null) {
+      return controlPlaneBaseUrl;
+    }
+    if (uri.host.isEmpty) {
+      return controlPlaneBaseUrl;
+    }
+    return uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                section.label,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Connected to $controlPlaneBaseUrl (${deploymentMode.toUpperCase()})',
-                style: const TextStyle(color: textMutedColor),
-              ),
-            ],
+    return ValueListenableBuilder<List<Widget>>(
+      valueListenable: actionController,
+      builder: (BuildContext context, List<Widget> actions, Widget? child) {
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final stacked = constraints.maxWidth < 980;
+            final actionMenu = _HeaderActionMenu(actions: actions);
+            final showContextBadge = section != AppSection.providers;
+
+            final sectionHeader = Wrap(
+              spacing: 14,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  section.label,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontSize: 38,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                  ),
+                ),
+                if (showContextBadge)
+                  _HeaderContextBadge(
+                    deploymentLabel: _deploymentLabel,
+                    hostLabel: _hostLabel,
+                    tone: deploymentMode == 'cloudflare'
+                        ? warningColor
+                        : successColor,
+                  ),
+              ],
+            );
+
+            if (stacked) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  sectionHeader,
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    actionMenu,
+                  ],
+                ],
+              );
+            }
+
+            return Row(
+              children: [
+                Expanded(child: sectionHeader),
+                if (actions.isNotEmpty) actionMenu,
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _HeaderActionMenu extends StatelessWidget {
+  const _HeaderActionMenu({required this.actions});
+
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    if (actions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeOutCubic,
+      child: Align(
+        key: ValueKey<String>(
+          actions
+              .map(
+                (Widget widget) =>
+                    widget.key?.toString() ?? widget.runtimeType.toString(),
+              )
+              .join('|'),
+        ),
+        alignment: Alignment.centerRight,
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          alignment: WrapAlignment.end,
+          children: actions,
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderContextBadge extends StatelessWidget {
+  const _HeaderContextBadge({
+    required this.deploymentLabel,
+    required this.hostLabel,
+    required this.tone,
+  });
+
+  final String deploymentLabel;
+  final String hostLabel;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: panelAltColor,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: borderColor.withValues(alpha: 0.8)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: tone, shape: BoxShape.circle),
           ),
-        ),
-        StatusPill(
-          label: deploymentMode == 'cloudflare' ? 'Deployed mode' : 'Live API',
-          color: deploymentMode == 'cloudflare' ? warningColor : successColor,
-        ),
-      ],
+          const SizedBox(width: 10),
+          Text(
+            '$deploymentLabel ($hostLabel)',
+            style: const TextStyle(
+              color: textMutedColor,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

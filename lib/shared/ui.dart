@@ -14,6 +14,18 @@ const successColor = Color(0xFF26C281);
 const warningColor = Color(0xFFF4B942);
 const dangerColor = Color(0xFFE25C5C);
 
+class ScreenHeaderActionsController extends ValueNotifier<List<Widget>> {
+  ScreenHeaderActionsController() : super(const <Widget>[]);
+
+  void setActions(List<Widget> actions) {
+    value = List<Widget>.unmodifiable(actions);
+  }
+
+  void clear() {
+    value = const <Widget>[];
+  }
+}
+
 ThemeData buildAgentAwesomeTheme() {
   return ThemeData(
     brightness: Brightness.dark,

@@ -8,10 +8,12 @@ class HarnessAgentsPage extends StatefulWidget {
     super.key,
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
+    required this.headerActionsController,
   });
 
   final HarnessConfigApi harnessConfigApi;
   final bool harnessConfigAvailable;
+  final ScreenHeaderActionsController headerActionsController;
 
   @override
   State<HarnessAgentsPage> createState() => _HarnessAgentsPageState();
@@ -19,6 +21,13 @@ class HarnessAgentsPage extends StatefulWidget {
 
 class _HarnessAgentsPageState
     extends HarnessDocumentPageState<HarnessAgentsPage, HarnessAgentCatalog> {
+  @override
+  ScreenHeaderActionsController get headerActionsController =>
+      widget.headerActionsController;
+
+  @override
+  bool get headerActionsEnabled => widget.harnessConfigAvailable;
+
   @override
   String get emptyBody =>
       'The control plane returned no harness agent document.';
@@ -233,10 +242,12 @@ class HarnessToolsPage extends StatefulWidget {
     super.key,
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
+    required this.headerActionsController,
   });
 
   final HarnessConfigApi harnessConfigApi;
   final bool harnessConfigAvailable;
+  final ScreenHeaderActionsController headerActionsController;
 
   @override
   State<HarnessToolsPage> createState() => _HarnessToolsPageState();
@@ -244,6 +255,13 @@ class HarnessToolsPage extends StatefulWidget {
 
 class _HarnessToolsPageState
     extends HarnessDocumentPageState<HarnessToolsPage, HarnessToolCatalog> {
+  @override
+  ScreenHeaderActionsController get headerActionsController =>
+      widget.headerActionsController;
+
+  @override
+  bool get headerActionsEnabled => widget.harnessConfigAvailable;
+
   @override
   String get emptyBody =>
       'The control plane returned no harness tool document.';
@@ -769,10 +787,12 @@ class HarnessWorkflowsPage extends StatefulWidget {
     super.key,
     required this.harnessConfigApi,
     required this.harnessConfigAvailable,
+    required this.headerActionsController,
   });
 
   final HarnessConfigApi harnessConfigApi;
   final bool harnessConfigAvailable;
+  final ScreenHeaderActionsController headerActionsController;
 
   @override
   State<HarnessWorkflowsPage> createState() => _HarnessWorkflowsPageState();
@@ -781,6 +801,13 @@ class HarnessWorkflowsPage extends StatefulWidget {
 class _HarnessWorkflowsPageState
     extends
         HarnessDocumentPageState<HarnessWorkflowsPage, HarnessWorkflowCatalog> {
+  @override
+  ScreenHeaderActionsController get headerActionsController =>
+      widget.headerActionsController;
+
+  @override
+  bool get headerActionsEnabled => widget.harnessConfigAvailable;
+
   String _selectedWorkflowName = '';
 
   @override
