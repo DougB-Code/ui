@@ -847,8 +847,6 @@ class _HeaderBar extends StatelessWidget {
           builder: (BuildContext context, BoxConstraints constraints) {
             final stacked = constraints.maxWidth < 980;
             final actionMenu = _HeaderActionMenu(actions: actions);
-            final showContextBadge = section != AppSection.providers;
-
             final sectionHeader = Wrap(
               spacing: 14,
               runSpacing: 12,
@@ -862,14 +860,13 @@ class _HeaderBar extends StatelessWidget {
                     letterSpacing: -0.6,
                   ),
                 ),
-                if (showContextBadge)
-                  _HeaderContextBadge(
-                    deploymentLabel: _deploymentLabel,
-                    hostLabel: _hostLabel,
-                    tone: deploymentMode == 'cloudflare'
-                        ? warningColor
-                        : successColor,
-                  ),
+                _HeaderContextBadge(
+                  deploymentLabel: _deploymentLabel,
+                  hostLabel: _hostLabel,
+                  tone: deploymentMode == 'cloudflare'
+                      ? warningColor
+                      : successColor,
+                ),
               ],
             );
 
