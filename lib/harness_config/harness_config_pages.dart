@@ -68,7 +68,7 @@ class _HarnessAgentsPageState
           builder: (BuildContext context, BoxConstraints constraints) {
             final stacked = constraints.maxWidth < 1200;
             final summaryPane = PanelCard(
-              title: 'Harness Agents',
+              title: 'Agent catalog overview',
               fill: true,
               child: ListView(
                 children: [
@@ -207,11 +207,7 @@ class _HarnessAgentsPageState
             final editorPane = _HarnessDocumentEditor(
               title: 'Agent YAML',
               controller: controller,
-              busy: busy,
               validation: validation,
-              onReload: loadDocument,
-              onValidate: validateDocument,
-              onSave: saveDocumentState,
             );
 
             if (stacked) {
@@ -302,7 +298,7 @@ class _HarnessToolsPageState
           builder: (BuildContext context, BoxConstraints constraints) {
             final stacked = constraints.maxWidth < 1200;
             final summaryPane = PanelCard(
-              title: 'Harness Tools',
+              title: 'Tool catalog overview',
               fill: true,
               child: ListView(
                 children: [
@@ -417,11 +413,7 @@ class _HarnessToolsPageState
             final editorPane = _HarnessDocumentEditor(
               title: 'Tool YAML',
               controller: controller,
-              busy: busy,
               validation: validation,
-              onReload: loadDocument,
-              onValidate: validateDocument,
-              onSave: saveDocumentState,
             );
 
             if (stacked) {
@@ -451,47 +443,18 @@ class _HarnessDocumentEditor extends StatelessWidget {
   const _HarnessDocumentEditor({
     required this.title,
     required this.controller,
-    required this.busy,
     required this.validation,
-    required this.onReload,
-    required this.onValidate,
-    required this.onSave,
   });
 
   final String title;
   final TextEditingController controller;
-  final bool busy;
   final HarnessConfigValidationReport? validation;
-  final VoidCallback onReload;
-  final VoidCallback onValidate;
-  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
     return PanelCard(
       title: title,
       fill: true,
-      trailing: Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: [
-          OutlinedButton.icon(
-            onPressed: busy ? null : onReload,
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Reload'),
-          ),
-          OutlinedButton.icon(
-            onPressed: busy ? null : onValidate,
-            icon: const Icon(Icons.fact_check_outlined),
-            label: const Text('Validate'),
-          ),
-          FilledButton.icon(
-            onPressed: busy ? null : onSave,
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('Save'),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -879,7 +842,7 @@ class _HarnessWorkflowsPageState
           builder: (BuildContext context, BoxConstraints constraints) {
             final stacked = constraints.maxWidth < 1280;
             final summaryPane = PanelCard(
-              title: 'Harness Workflows',
+              title: 'Workflow catalog overview',
               fill: true,
               child: ListView(
                 children: [
@@ -961,11 +924,7 @@ class _HarnessWorkflowsPageState
             final editorPane = _HarnessDocumentEditor(
               title: 'Workflow YAML',
               controller: controller,
-              busy: busy,
               validation: validation,
-              onReload: loadDocument,
-              onValidate: validateDocument,
-              onSave: saveDocumentState,
             );
 
             if (stacked) {
