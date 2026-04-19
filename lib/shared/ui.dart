@@ -94,6 +94,287 @@ void showAppMessage(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
+class AppFieldBlock extends StatelessWidget {
+  const AppFieldBlock({
+    super.key,
+    required this.label,
+    required this.child,
+    this.spacing = 8,
+  });
+
+  final String label;
+  final Widget child;
+  final double spacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: textPrimaryColor,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        SizedBox(height: spacing),
+        child,
+      ],
+    );
+  }
+}
+
+class AppTextFormField extends StatelessWidget {
+  const AppTextFormField({
+    super.key,
+    required this.label,
+    this.controller,
+    this.initialValue,
+    this.fieldKey,
+    this.onChanged,
+    this.keyboardType,
+    this.minLines,
+    this.maxLines = 1,
+    this.hintText,
+    this.readOnly = false,
+    this.enabled = true,
+    this.obscureText = false,
+    this.style,
+  }) : assert(
+         controller == null || initialValue == null,
+         'Use either controller or initialValue, not both.',
+       );
+
+  final String label;
+  final TextEditingController? controller;
+  final String? initialValue;
+  final Key? fieldKey;
+  final ValueChanged<String>? onChanged;
+  final TextInputType? keyboardType;
+  final int? minLines;
+  final int? maxLines;
+  final String? hintText;
+  final bool readOnly;
+  final bool enabled;
+  final bool obscureText;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    final multiline = (maxLines ?? 1) > 1 || (minLines ?? 1) > 1;
+    return AppFieldBlock(
+      label: label,
+      child: TextFormField(
+        key: fieldKey,
+        controller: controller,
+        initialValue: initialValue,
+        onChanged: onChanged,
+        keyboardType: keyboardType,
+        minLines: minLines,
+        maxLines: maxLines,
+        readOnly: readOnly,
+        enabled: enabled,
+        obscureText: obscureText,
+        style: style,
+        decoration: InputDecoration(
+          hintText: hintText,
+          alignLabelWithHint: multiline,
+        ),
+      ),
+    );
+  }
+}
+
+class AppManagedTextField extends StatefulWidget {
+  const AppManagedTextField({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.maxLines = 1,
+    this.minLines,
+    this.hintText,
+    this.keyboardType,
+  });
+
+  final String label;
+  final String value;
+  final ValueChanged<String> onChanged;
+  final int? maxLines;
+  final int? minLines;
+  final String? hintText;
+  final TextInputType? keyboardType;
+
+  @override
+  State<AppManagedTextField> createState() => _AppManagedTextFieldState();
+}
+
+class _AppManagedTextFieldState extends State<AppManagedTextField> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.value,
+  );
+
+  @override
+  void didUpdateWidget(covariant AppManagedTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.value != _controller.text) {
+      _controller.text = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final multiline = (widget.maxLines ?? 1) > 1 || (widget.minLines ?? 1) > 1;
+    return AppFieldBlock(
+      label: widget.label,
+      child: TextField(
+        controller: _controller,
+        onChanged: widget.onChanged,
+        maxLines: widget.maxLines,
+        minLines: widget.minLines,
+        keyboardType: widget.keyboardType,
+        decoration: InputDecoration(
+          hintText: widget.hintText,
+          alignLabelWithHint: multiline,
+        ),
+      ),
+    );
+  }
+}
+
+class AppManagedNumberField extends StatelessWidget {
+  const AppManagedNumberField({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppManagedTextField(
+      label: label,
+      value: value == 0 ? '' : value.toString(),
+      keyboardType: TextInputType.number,
+      onChanged: (String rawValue) =>
+          onChanged(int.tryParse(rawValue.trim()) ?? 0),
+    );
+  }
+}
+
+class AppDropdownField<T> extends StatelessWidget {
+  const AppDropdownField({
+    super.key,
+    required this.label,
+    required this.options,
+    required this.onChanged,
+    this.value,
+    this.fieldKey,
+    this.fallbackLabel,
+    this.labelBuilder,
+  });
+
+  final String label;
+  final List<T> options;
+  final T? value;
+  final Key? fieldKey;
+  final String? fallbackLabel;
+  final ValueChanged<T?> onChanged;
+  final String Function(T value)? labelBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppFieldBlock(
+      label: label,
+      child: DropdownButtonFormField<T>(
+        key: fieldKey,
+        isExpanded: true,
+        initialValue: options.contains(value) ? value : null,
+        hint: fallbackLabel == null ? null : Text(fallbackLabel!),
+        items: options
+            .map(
+              (T option) => DropdownMenuItem<T>(
+                value: option,
+                child: Text(labelBuilder?.call(option) ?? option.toString()),
+              ),
+            )
+            .toList(),
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+class AppReadOnlyField extends StatelessWidget {
+  const AppReadOnlyField({
+    super.key,
+    required this.label,
+    required this.value,
+    this.actionIcon,
+    this.onAction,
+  });
+
+  final String label;
+  final String value;
+  final IconData? actionIcon;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppFieldBlock(
+      label: label,
+      child: Container(
+        height: 58,
+        decoration: BoxDecoration(
+          color: const Color(0x99212D41),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: textMutedColor),
+                ),
+              ),
+            ),
+            if (actionIcon != null)
+              Container(
+                width: 56,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(color: borderColor.withValues(alpha: 0.85)),
+                  ),
+                ),
+                child: IconButton(
+                  onPressed: onAction,
+                  icon: Icon(actionIcon, color: textMutedColor),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class PanelCard extends StatelessWidget {
   const PanelCard({
     super.key,

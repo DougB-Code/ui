@@ -17,9 +17,9 @@ enum AppSection {
   artifacts('Artifacts', Icons.inventory_2_outlined),
   audits('Audits', Icons.gavel_outlined),
   controlPlane('Control Plane', Icons.hub_outlined),
-  harnessAgents('Harness Agents', Icons.smart_toy_outlined),
-  harnessTools('Harness Tools', Icons.build_outlined),
-  harnessWorkflows('Harness Workflows', Icons.account_tree_outlined),
+  harnessAgents('Agents', Icons.smart_toy_outlined),
+  harnessTools('Tools', Icons.build_outlined),
+  harnessWorkflows('Workflows', Icons.account_tree_outlined),
   providers('Providers', Icons.cloud_outlined);
 
   const AppSection(this.label, this.icon);
@@ -93,9 +93,9 @@ const List<_NavigationGroup> _navigationGroups = <_NavigationGroup>[
   ]),
   _NavigationGroup('Control Plane', <AppSection>[AppSection.controlPlane]),
   _NavigationGroup('Harness Config', <AppSection>[
+    AppSection.harnessWorkflows,
     AppSection.harnessAgents,
     AppSection.harnessTools,
-    AppSection.harnessWorkflows,
     AppSection.providers,
   ]),
 ];

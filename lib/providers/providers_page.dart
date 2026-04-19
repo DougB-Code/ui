@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ui/providers/provider_catalog_api.dart';
+import 'package:ui/shared/side_panel.dart';
 import 'package:ui/shared/ui.dart';
+import 'package:ui/shared/workspace_shell.dart';
 
 enum _ProviderStatusFilter { all, enabled, disabled }
 
@@ -22,8 +24,47 @@ extension on _ProviderStatusFilter {
     };
   }
 
-  String toolbarLabel(int count) {
-    return 'Status: $label ($count)';
+  String get sectionId {
+    return switch (this) {
+      _ProviderStatusFilter.all => 'all-providers',
+      _ProviderStatusFilter.enabled => 'enabled-providers',
+      _ProviderStatusFilter.disabled => 'disabled-providers',
+    };
+  }
+
+  String get panelLabel {
+    return switch (this) {
+      _ProviderStatusFilter.all => 'All',
+      _ProviderStatusFilter.enabled => 'Enabled',
+      _ProviderStatusFilter.disabled => 'Disabled',
+    };
+  }
+
+  IconData get panelIcon {
+    return switch (this) {
+      _ProviderStatusFilter.all => Icons.view_list_rounded,
+      _ProviderStatusFilter.enabled => Icons.check_circle_outline_rounded,
+      _ProviderStatusFilter.disabled => Icons.pause_circle_outline_rounded,
+    };
+  }
+
+  String get emptyTitle {
+    return switch (this) {
+      _ProviderStatusFilter.all => 'No providers configured',
+      _ProviderStatusFilter.enabled => 'No enabled providers',
+      _ProviderStatusFilter.disabled => 'No disabled providers',
+    };
+  }
+
+  String get emptyBody {
+    return switch (this) {
+      _ProviderStatusFilter.all =>
+        'Create a provider to start managing the harness catalog from this workspace.',
+      _ProviderStatusFilter.enabled =>
+        'Enable a provider or adjust the adapter and search filters to find one here.',
+      _ProviderStatusFilter.disabled =>
+        'Disabled providers will appear here once a provider is turned off.',
+    };
   }
 }
 
@@ -89,10 +130,9 @@ class _ProvidersPageState extends State<ProvidersPage> {
   ProviderConfig _draft = ProviderConfig.empty();
   bool _isNew = true;
   Timer? _previewDebounce;
-  final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   String _adapterFilter = '';
-  _ProviderStatusFilter _statusFilter = _ProviderStatusFilter.all;
+  _ProviderStatusFilter _collectionSection = _ProviderStatusFilter.all;
   _ProviderSortMode _sortMode = _ProviderSortMode.name;
   _ProviderDetailTab _detailTab = _ProviderDetailTab.general;
   String _headerActionsSignature = '';
@@ -106,7 +146,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
   @override
   void dispose() {
     _previewDebounce?.cancel();
-    _searchController.dispose();
     widget.headerActionsController.clear();
     super.dispose();
   }
@@ -413,32 +452,22 @@ class _ProvidersPageState extends State<ProvidersPage> {
     return adapters;
   }
 
-  int _countForStatus(_ProviderStatusFilter filter) {
-    return switch (filter) {
-      _ProviderStatusFilter.all => _providers.length,
-      _ProviderStatusFilter.enabled =>
-        _providers.where((ProviderConfig provider) => provider.enabled).length,
-      _ProviderStatusFilter.disabled =>
-        _providers.where((ProviderConfig provider) => !provider.enabled).length,
+  bool _matchesCollectionSection(
+    ProviderConfig provider,
+    _ProviderStatusFilter section,
+  ) {
+    return switch (section) {
+      _ProviderStatusFilter.all => true,
+      _ProviderStatusFilter.enabled => provider.enabled,
+      _ProviderStatusFilter.disabled => !provider.enabled,
     };
   }
 
-  List<ProviderConfig> _filteredProviders() {
-    final query = _searchQuery.trim().toLowerCase();
+  List<ProviderConfig> _providersForSection(_ProviderStatusFilter section) {
     final visible = _providers.where((ProviderConfig provider) {
-      final matchesQuery =
-          query.isEmpty ||
-          provider.alias.toLowerCase().contains(query) ||
-          provider.adapter.toLowerCase().contains(query) ||
-          provider.endpoint.toLowerCase().contains(query);
-      final matchesStatus = switch (_statusFilter) {
-        _ProviderStatusFilter.all => true,
-        _ProviderStatusFilter.enabled => provider.enabled,
-        _ProviderStatusFilter.disabled => !provider.enabled,
-      };
       final matchesAdapter =
           _adapterFilter.isEmpty || provider.adapter == _adapterFilter;
-      return matchesQuery && matchesStatus && matchesAdapter;
+      return matchesAdapter && _matchesCollectionSection(provider, section);
     }).toList();
 
     visible.sort((ProviderConfig left, ProviderConfig right) {
@@ -456,6 +485,28 @@ class _ProvidersPageState extends State<ProvidersPage> {
       };
     });
     return visible;
+  }
+
+  void _handleCollectionSectionChanged(
+    _ProviderStatusFilter section, {
+    required bool selectFirst,
+  }) {
+    setState(() => _collectionSection = section);
+    if (_isNew || !selectFirst) {
+      return;
+    }
+    final visibleProviders = _providersForSection(section);
+    if (visibleProviders.isEmpty) {
+      return;
+    }
+    final currentAlias = _draft.persistedAlias;
+    final containsCurrent = visibleProviders.any(
+      (ProviderConfig provider) => provider.persistedAlias == currentAlias,
+    );
+    if (containsCurrent) {
+      return;
+    }
+    _selectProvider(visibleProviders.first);
   }
 
   int _compareStrings(
@@ -557,12 +608,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
         icon: const Icon(Icons.verified_outlined),
         label: const Text('Verify all'),
       ),
-      FilledButton.icon(
-        key: const ValueKey<String>('providers-header-new-provider'),
-        onPressed: _busy || _loading ? null : _startNewProvider,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('New provider'),
-      ),
     ];
   }
 
@@ -583,220 +628,107 @@ class _ProvidersPageState extends State<ProvidersPage> {
       return ErrorState(message: _error!, onRetry: () => _loadProviders());
     }
 
-    final filteredProviders = _filteredProviders();
+    final providersBySection = <_ProviderStatusFilter, List<ProviderConfig>>{
+      for (final section in _ProviderStatusFilter.values)
+        section: _providersForSection(section),
+    };
 
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final stacked = constraints.maxWidth < 980;
         final compact = constraints.maxWidth < 1320;
 
+        final collectionPane = _ProviderCollectionPane(
+          providersBySection: providersBySection,
+          selectedAlias: !_isNew ? _draft.persistedAlias : null,
+          initialSectionId: _collectionSection.sectionId,
+          searchQuery: _searchQuery,
+          adapterFilter: _adapterFilter,
+          availableAdapters: _availableAdapters,
+          sortMode: _sortMode,
+          busy: _busy,
+          onSearchChanged: (String value) {
+            setState(() => _searchQuery = value);
+          },
+          onAdapterFilterChanged: (String value) {
+            setState(() => _adapterFilter = value);
+          },
+          onSortModeChanged: (_ProviderSortMode value) {
+            setState(() => _sortMode = value);
+          },
+          onSectionChanged: (_ProviderStatusFilter section) {
+            _handleCollectionSectionChanged(section, selectFirst: !stacked);
+          },
+          onSelectProvider: _selectProvider,
+          onVerifyProvider: (ProviderConfig provider) {
+            _verifyProviderAlias(provider.persistedAlias, announceResult: true);
+          },
+          onDeleteProvider: (ProviderConfig provider) {
+            _deleteProviderAlias(provider.persistedAlias);
+          },
+          statusLabelForProvider: _statusLabel,
+          statusToneForProvider: _statusTone,
+          verificationLabelForProvider: _verificationLabel,
+          verificationToneForProvider: _verificationTone,
+          onNewProvider: _startNewProvider,
+        );
+
+        final detailPane = _ProviderDetailPane(
+          draft: _draft,
+          isNew: _isNew,
+          busy: _busy,
+          previewLoading: _previewLoading,
+          previewError: _previewError,
+          previewValidationStatus: _previewValidationStatus,
+          previewValidationSummary: _previewValidationSummary,
+          yamlPreview: _yamlPreview,
+          supportedAdapters: _supportedAdapters,
+          configPath: _configPath,
+          activeTab: _detailTab,
+          onTabChanged: (_ProviderDetailTab value) {
+            setState(() => _detailTab = value);
+          },
+          onChanged: _onDraftChanged,
+          onSave: _saveProvider,
+          onVerify: _verifyProvider,
+          onDelete: _deleteProvider,
+          onBack: stacked
+              ? () {
+                  setState(() => _mobileDetailVisible = false);
+                }
+              : null,
+          onCopyCatalogPath: _copyCatalogPath,
+          onCopyYamlPreview: _copyYamlPreview,
+          statusTone: _statusTone(_draft),
+          statusLabel: _statusLabel(_draft),
+        );
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0x94101929),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: borderColor.withValues(alpha: 0.75),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.20),
-                      blurRadius: 26,
-                      offset: const Offset(0, 12),
-                    ),
-                  ],
+              child: ConfigWorkspaceShell(
+                stacked: stacked,
+                collectionPane: collectionPane,
+                detailPane: detailPane,
+                collectionFlex: compact ? 52 : 50,
+                detailFlex: compact ? 48 : 50,
+                stackedChild: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeOutCubic,
+                  child: _mobileDetailVisible
+                      ? KeyedSubtree(
+                          key: const ValueKey<String>('provider-detail-mobile'),
+                          child: detailPane,
+                        )
+                      : KeyedSubtree(
+                          key: const ValueKey<String>(
+                            'provider-collection-mobile',
+                          ),
+                          child: collectionPane,
+                        ),
                 ),
-                child: stacked
-                    ? AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeOutCubic,
-                        child: _mobileDetailVisible
-                            ? _ProviderDetailPane(
-                                key: const ValueKey<String>(
-                                  'provider-detail-mobile',
-                                ),
-                                draft: _draft,
-                                isNew: _isNew,
-                                busy: _busy,
-                                previewLoading: _previewLoading,
-                                previewError: _previewError,
-                                previewValidationStatus:
-                                    _previewValidationStatus,
-                                previewValidationSummary:
-                                    _previewValidationSummary,
-                                yamlPreview: _yamlPreview,
-                                supportedAdapters: _supportedAdapters,
-                                configPath: _configPath,
-                                activeTab: _detailTab,
-                                onTabChanged: (_ProviderDetailTab value) {
-                                  setState(() => _detailTab = value);
-                                },
-                                onChanged: _onDraftChanged,
-                                onSave: _saveProvider,
-                                onVerify: _verifyProvider,
-                                onDelete: _deleteProvider,
-                                onBack: () {
-                                  setState(() => _mobileDetailVisible = false);
-                                },
-                                onCopyCatalogPath: _copyCatalogPath,
-                                onCopyYamlPreview: _copyYamlPreview,
-                                statusTone: _statusTone(_draft),
-                                statusLabel: _statusLabel(_draft),
-                              )
-                            : _ProviderCollectionPane(
-                                key: const ValueKey<String>(
-                                  'provider-collection-mobile',
-                                ),
-                                providers: filteredProviders,
-                                selectedAlias: !_isNew
-                                    ? _draft.persistedAlias
-                                    : null,
-                                searchController: _searchController,
-                                searchQuery: _searchQuery,
-                                adapterFilter: _adapterFilter,
-                                availableAdapters: _availableAdapters,
-                                totalCount: _providers.length,
-                                enabledCount: _countForStatus(
-                                  _ProviderStatusFilter.enabled,
-                                ),
-                                disabledCount: _countForStatus(
-                                  _ProviderStatusFilter.disabled,
-                                ),
-                                statusFilter: _statusFilter,
-                                sortMode: _sortMode,
-                                busy: _busy,
-                                onSearchChanged: (String value) {
-                                  setState(() => _searchQuery = value);
-                                },
-                                onClearSearch: () {
-                                  _searchController.clear();
-                                  setState(() => _searchQuery = '');
-                                },
-                                onAdapterFilterChanged: (String value) {
-                                  setState(() => _adapterFilter = value);
-                                },
-                                onSortModeChanged: (_ProviderSortMode value) {
-                                  setState(() => _sortMode = value);
-                                },
-                                onStatusFilterChanged:
-                                    (_ProviderStatusFilter value) {
-                                      setState(() => _statusFilter = value);
-                                    },
-                                onSelectProvider: _selectProvider,
-                                onVerifyProvider: (ProviderConfig provider) {
-                                  _verifyProviderAlias(
-                                    provider.persistedAlias,
-                                    announceResult: true,
-                                  );
-                                },
-                                onDeleteProvider: (ProviderConfig provider) {
-                                  _deleteProviderAlias(provider.persistedAlias);
-                                },
-                                statusLabelForProvider: _statusLabel,
-                                statusToneForProvider: _statusTone,
-                                verificationLabelForProvider:
-                                    _verificationLabel,
-                                verificationToneForProvider: _verificationTone,
-                                onNewProvider: _startNewProvider,
-                              ),
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            flex: compact ? 52 : 50,
-                            child: _ProviderCollectionPane(
-                              providers: filteredProviders,
-                              selectedAlias: !_isNew
-                                  ? _draft.persistedAlias
-                                  : null,
-                              searchController: _searchController,
-                              searchQuery: _searchQuery,
-                              adapterFilter: _adapterFilter,
-                              availableAdapters: _availableAdapters,
-                              totalCount: _providers.length,
-                              enabledCount: _countForStatus(
-                                _ProviderStatusFilter.enabled,
-                              ),
-                              disabledCount: _countForStatus(
-                                _ProviderStatusFilter.disabled,
-                              ),
-                              statusFilter: _statusFilter,
-                              sortMode: _sortMode,
-                              busy: _busy,
-                              onSearchChanged: (String value) {
-                                setState(() => _searchQuery = value);
-                              },
-                              onClearSearch: () {
-                                _searchController.clear();
-                                setState(() => _searchQuery = '');
-                              },
-                              onAdapterFilterChanged: (String value) {
-                                setState(() => _adapterFilter = value);
-                              },
-                              onSortModeChanged: (_ProviderSortMode value) {
-                                setState(() => _sortMode = value);
-                              },
-                              onStatusFilterChanged:
-                                  (_ProviderStatusFilter value) {
-                                    setState(() => _statusFilter = value);
-                                  },
-                              onSelectProvider: _selectProvider,
-                              onVerifyProvider: (ProviderConfig provider) {
-                                _verifyProviderAlias(
-                                  provider.persistedAlias,
-                                  announceResult: true,
-                                );
-                              },
-                              onDeleteProvider: (ProviderConfig provider) {
-                                _deleteProviderAlias(provider.persistedAlias);
-                              },
-                              statusLabelForProvider: _statusLabel,
-                              statusToneForProvider: _statusTone,
-                              verificationLabelForProvider: _verificationLabel,
-                              verificationToneForProvider: _verificationTone,
-                              onNewProvider: _startNewProvider,
-                            ),
-                          ),
-                          Container(
-                            width: 1,
-                            color: borderColor.withValues(alpha: 0.85),
-                          ),
-                          Expanded(
-                            flex: compact ? 48 : 50,
-                            child: _ProviderDetailPane(
-                              draft: _draft,
-                              isNew: _isNew,
-                              busy: _busy,
-                              previewLoading: _previewLoading,
-                              previewError: _previewError,
-                              previewValidationStatus: _previewValidationStatus,
-                              previewValidationSummary:
-                                  _previewValidationSummary,
-                              yamlPreview: _yamlPreview,
-                              supportedAdapters: _supportedAdapters,
-                              configPath: _configPath,
-                              activeTab: _detailTab,
-                              onTabChanged: (_ProviderDetailTab value) {
-                                setState(() => _detailTab = value);
-                              },
-                              onChanged: _onDraftChanged,
-                              onSave: _saveProvider,
-                              onVerify: _verifyProvider,
-                              onDelete: _deleteProvider,
-                              onBack: null,
-                              onCopyCatalogPath: _copyCatalogPath,
-                              onCopyYamlPreview: _copyYamlPreview,
-                              statusTone: _statusTone(_draft),
-                              statusLabel: _statusLabel(_draft),
-                            ),
-                          ),
-                        ],
-                      ),
               ),
             ),
           ],
@@ -808,24 +740,18 @@ class _ProvidersPageState extends State<ProvidersPage> {
 
 class _ProviderCollectionPane extends StatelessWidget {
   const _ProviderCollectionPane({
-    super.key,
-    required this.providers,
+    required this.providersBySection,
     required this.selectedAlias,
-    required this.searchController,
+    required this.initialSectionId,
     required this.searchQuery,
     required this.adapterFilter,
     required this.availableAdapters,
-    required this.totalCount,
-    required this.enabledCount,
-    required this.disabledCount,
-    required this.statusFilter,
     required this.sortMode,
     required this.busy,
     required this.onSearchChanged,
-    required this.onClearSearch,
     required this.onAdapterFilterChanged,
     required this.onSortModeChanged,
-    required this.onStatusFilterChanged,
+    required this.onSectionChanged,
     required this.onSelectProvider,
     required this.onVerifyProvider,
     required this.onDeleteProvider,
@@ -836,23 +762,18 @@ class _ProviderCollectionPane extends StatelessWidget {
     required this.onNewProvider,
   });
 
-  final List<ProviderConfig> providers;
+  final Map<_ProviderStatusFilter, List<ProviderConfig>> providersBySection;
   final String? selectedAlias;
-  final TextEditingController searchController;
+  final String? initialSectionId;
   final String searchQuery;
   final String adapterFilter;
   final List<String> availableAdapters;
-  final int totalCount;
-  final int enabledCount;
-  final int disabledCount;
-  final _ProviderStatusFilter statusFilter;
   final _ProviderSortMode sortMode;
   final bool busy;
   final ValueChanged<String> onSearchChanged;
-  final VoidCallback onClearSearch;
   final ValueChanged<String> onAdapterFilterChanged;
   final ValueChanged<_ProviderSortMode> onSortModeChanged;
-  final ValueChanged<_ProviderStatusFilter> onStatusFilterChanged;
+  final ValueChanged<_ProviderStatusFilter> onSectionChanged;
   final ValueChanged<ProviderConfig> onSelectProvider;
   final ValueChanged<ProviderConfig> onVerifyProvider;
   final ValueChanged<ProviderConfig> onDeleteProvider;
@@ -862,158 +783,175 @@ class _ProviderCollectionPane extends StatelessWidget {
   final Color Function(ProviderConfig provider) verificationToneForProvider;
   final VoidCallback onNewProvider;
 
+  Widget _buildNewProviderButton() {
+    return FilledButton.icon(
+      onPressed: busy ? null : onNewProvider,
+      icon: const Icon(Icons.add_rounded),
+      label: const Text('New provider'),
+    );
+  }
+
+  String _subtitleForProvider(ProviderConfig provider) {
+    return provider.endpoint.trim().isEmpty
+        ? 'No endpoint configured'
+        : provider.endpoint;
+  }
+
+  List<Widget> _footerForProvider(ProviderConfig provider) {
+    return <Widget>[
+      _AdapterBadge(adapter: provider.adapter, compact: true),
+      _StateBadge(
+        label: statusLabelForProvider(provider),
+        color: statusToneForProvider(provider),
+        compact: true,
+      ),
+      if (provider.isDefault)
+        const _StateBadge(label: 'Default', color: infoColor, compact: true),
+      _VerificationMeta(
+        label: verificationLabelForProvider(provider),
+        color: verificationToneForProvider(provider),
+        compact: true,
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hasSearch = searchQuery.trim().isNotEmpty;
-    final hasFilter = adapterFilter.trim().isNotEmpty;
-    final hasStatusFilter = statusFilter != _ProviderStatusFilter.all;
-
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints paneConstraints) {
-        final compactList = paneConstraints.maxWidth < 860;
-
-        final searchField = TextField(
-          controller: searchController,
-          onChanged: onSearchChanged,
-          decoration: InputDecoration(
-            hintText: 'Search providers...',
-            prefixIcon: const Icon(Icons.search_rounded),
-            suffixIcon: hasSearch
-                ? IconButton(
-                    onPressed: onClearSearch,
-                    icon: const Icon(Icons.close_rounded),
-                  )
-                : null,
-          ),
-        );
-
-        final toolbarButtons = Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            _PopupToolbarButton<String>(
-              value: adapterFilter,
-              label: hasFilter ? adapterFilter : 'Adapter',
-              icon: Icons.tune_rounded,
-              tooltip: 'Filter by adapter',
-              items: <String>['', ...availableAdapters],
-              itemLabel: (String value) {
-                return value.isEmpty ? 'All adapters' : value;
-              },
-              onSelected: onAdapterFilterChanged,
-            ),
-            _PopupToolbarButton<_ProviderSortMode>(
-              value: sortMode,
-              label: sortMode.label,
-              icon: Icons.swap_vert_rounded,
-              tooltip: 'Sort providers',
-              items: _ProviderSortMode.values,
-              itemLabel: (_ProviderSortMode value) => value.label,
-              onSelected: onSortModeChanged,
-            ),
-            _PopupToolbarButton<_ProviderStatusFilter>(
-              value: statusFilter,
-              label: statusFilter.toolbarLabel(switch (statusFilter) {
-                _ProviderStatusFilter.all => totalCount,
-                _ProviderStatusFilter.enabled => enabledCount,
-                _ProviderStatusFilter.disabled => disabledCount,
-              }),
-              icon: Icons.filter_alt_outlined,
-              tooltip: 'Filter by provider status',
-              items: _ProviderStatusFilter.values,
-              itemLabel: (_ProviderStatusFilter value) {
-                final count = switch (value) {
-                  _ProviderStatusFilter.all => totalCount,
-                  _ProviderStatusFilter.enabled => enabledCount,
-                  _ProviderStatusFilter.disabled => disabledCount,
-                };
-                return '${value.label} ($count)';
-              },
-              onSelected: onStatusFilterChanged,
-            ),
-          ],
-        );
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              searchField,
-              const SizedBox(height: 12),
-              Align(alignment: Alignment.centerLeft, child: toolbarButtons),
-              const SizedBox(height: 18),
-              if (!compactList) ...[
-                const _ProviderListHeader(),
-                const SizedBox(height: 10),
-              ],
-              Expanded(
-                child: providers.isEmpty
-                    ? EmptyState(
-                        title: hasSearch || hasFilter || hasStatusFilter
-                            ? 'No matching providers'
-                            : 'No providers configured',
-                        body: hasSearch || hasFilter || hasStatusFilter
-                            ? 'Try a different search term or clear one of the collection filters.'
-                            : 'Create a provider to start managing the harness catalog from this workspace.',
-                      )
-                    : Scrollbar(
-                        thumbVisibility: providers.length > 4,
-                        child: ListView.separated(
-                          itemCount: providers.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (BuildContext context, int index) {
-                            final provider = providers[index];
-                            return _ProviderListRow(
-                              provider: provider,
-                              selected:
-                                  provider.persistedAlias == selectedAlias,
-                              statusLabel: statusLabelForProvider(provider),
-                              statusTone: statusToneForProvider(provider),
-                              verificationLabel: verificationLabelForProvider(
-                                provider,
-                              ),
-                              verificationTone: verificationToneForProvider(
-                                provider,
-                              ),
-                              compact: compactList,
-                              onTap: () => onSelectProvider(provider),
-                              onActionSelected: (_ProviderRowAction action) {
-                                switch (action) {
-                                  case _ProviderRowAction.verify:
-                                    onVerifyProvider(provider);
-                                    return;
-                                  case _ProviderRowAction.delete:
-                                    onDeleteProvider(provider);
-                                    return;
-                                }
-                              },
-                            );
-                          },
-                        ),
-                      ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Text(
-                    '${providers.length} provider${providers.length == 1 ? '' : 's'}',
-                    style: const TextStyle(color: textSubtleColor),
-                  ),
-                  const Spacer(),
-                  if (providers.isEmpty)
-                    FilledButton.icon(
-                      onPressed: busy ? null : onNewProvider,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Create provider'),
-                    ),
-                ],
-              ),
-            ],
+    return AppDenseSidePanel<ProviderConfig>(
+      initialSectionId: initialSectionId,
+      initialSearchQuery: searchQuery,
+      onSearchChanged: onSearchChanged,
+      selectedEntryId: selectedAlias,
+      entryId: (ProviderConfig provider) => provider.persistedAlias,
+      onSelectEntry: onSelectProvider,
+      searchHintText: 'Search providers...',
+      emptyTitle: 'No provider panels',
+      emptyBody: 'Provider sections will appear here once the catalog loads.',
+      onSectionChanged: (String sectionId) {
+        onSectionChanged(
+          _ProviderStatusFilter.values.firstWhere(
+            (_ProviderStatusFilter section) => section.sectionId == sectionId,
           ),
         );
       },
+      sections: _ProviderStatusFilter.values
+          .map((_ProviderStatusFilter section) {
+            final providers =
+                providersBySection[section] ?? const <ProviderConfig>[];
+            return AppDenseSidePanelSection<ProviderConfig>(
+              id: section.sectionId,
+              label: section.panelLabel,
+              icon: section.panelIcon,
+              entries: providers,
+              quickActionsBuilder: (BuildContext context, String searchQuery) {
+                return _buildNewProviderButton();
+              },
+              searchFields: (ProviderConfig provider) => <String>[
+                provider.alias,
+                provider.adapter,
+                provider.endpoint,
+                provider.apiKeyEnv,
+                statusLabelForProvider(provider),
+                verificationLabelForProvider(provider),
+                if (provider.isDefault) 'default',
+                ...provider.models.map(
+                  (ProviderModelConfig model) => model.name,
+                ),
+              ],
+              emptyTitle: section.emptyTitle,
+              emptyBody: section.emptyBody,
+              headerBuilder:
+                  (
+                    BuildContext context,
+                    List<ProviderConfig> entries,
+                    List<ProviderConfig> filteredEntries,
+                    String searchQuery,
+                  ) {
+                    return _ProviderSectionToolbar(
+                      adapterFilter: adapterFilter,
+                      availableAdapters: availableAdapters,
+                      sortMode: sortMode,
+                      onAdapterFilterChanged: onAdapterFilterChanged,
+                      onSortModeChanged: onSortModeChanged,
+                    );
+                  },
+              rowBuilder:
+                  (
+                    BuildContext context,
+                    ProviderConfig provider,
+                    bool selected,
+                    VoidCallback onTap,
+                  ) {
+                    return AppDenseSidePanelRow(
+                      title: provider.alias,
+                      subtitle: _subtitleForProvider(provider),
+                      selected: selected,
+                      onTap: onTap,
+                      trailing: _ActionMenuButton(
+                        onSelected: (_ProviderRowAction action) {
+                          switch (action) {
+                            case _ProviderRowAction.verify:
+                              onVerifyProvider(provider);
+                              return;
+                            case _ProviderRowAction.delete:
+                              onDeleteProvider(provider);
+                              return;
+                          }
+                        },
+                      ),
+                      footer: _footerForProvider(provider),
+                    );
+                  },
+            );
+          })
+          .toList(growable: false),
+    );
+  }
+}
+
+class _ProviderSectionToolbar extends StatelessWidget {
+  const _ProviderSectionToolbar({
+    required this.adapterFilter,
+    required this.availableAdapters,
+    required this.sortMode,
+    required this.onAdapterFilterChanged,
+    required this.onSortModeChanged,
+  });
+
+  final String adapterFilter;
+  final List<String> availableAdapters;
+  final _ProviderSortMode sortMode;
+  final ValueChanged<String> onAdapterFilterChanged;
+  final ValueChanged<_ProviderSortMode> onSortModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasAdapterFilter = adapterFilter.trim().isNotEmpty;
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _PopupToolbarButton<String>(
+          value: adapterFilter,
+          label: hasAdapterFilter ? adapterFilter : 'Adapter',
+          icon: Icons.tune_rounded,
+          tooltip: 'Filter by adapter',
+          items: <String>['', ...availableAdapters],
+          itemLabel: (String value) {
+            return value.isEmpty ? 'All adapters' : value;
+          },
+          onSelected: onAdapterFilterChanged,
+        ),
+        _PopupToolbarButton<_ProviderSortMode>(
+          value: sortMode,
+          label: sortMode.label,
+          icon: Icons.swap_vert_rounded,
+          tooltip: 'Sort providers',
+          items: _ProviderSortMode.values,
+          itemLabel: (_ProviderSortMode value) => value.label,
+          onSelected: onSortModeChanged,
+        ),
+      ],
     );
   }
 }
@@ -1039,341 +977,14 @@ class _PopupToolbarButton<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () async {
-            final button = context.findRenderObject() as RenderBox?;
-            final overlay =
-                Overlay.of(context).context.findRenderObject() as RenderBox?;
-            if (button == null || overlay == null) {
-              return;
-            }
-            final buttonRect = Rect.fromPoints(
-              button.localToGlobal(Offset.zero, ancestor: overlay),
-              button.localToGlobal(
-                button.size.bottomRight(Offset.zero),
-                ancestor: overlay,
-              ),
-            );
-            final selected = await showMenu<T>(
-              context: context,
-              color: const Color(0xFF111B29),
-              position: RelativeRect.fromRect(
-                buttonRect,
-                Offset.zero & overlay.size,
-              ),
-              items: items.map((T item) {
-                final selectedItem = item == value;
-                return PopupMenuItem<T>(
-                  value: item,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        selectedItem
-                            ? Icons.check_rounded
-                            : Icons.circle_outlined,
-                        size: 16,
-                        color: selectedItem ? infoColor : textSubtleColor,
-                      ),
-                      const SizedBox(width: 10),
-                      Flexible(child: Text(itemLabel(item))),
-                    ],
-                  ),
-                );
-              }).toList(),
-            );
-            if (selected != null) {
-              onSelected(selected);
-            }
-          },
-          child: Container(
-            height: 52,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              color: const Color(0x80172231),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: borderColor.withValues(alpha: 0.85)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 18, color: textMutedColor),
-                const SizedBox(width: 10),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: textPrimaryColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: textMutedColor,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ProviderListHeader extends StatelessWidget {
-  const _ProviderListHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: DefaultTextStyle(
-        style: const TextStyle(
-          color: textSubtleColor,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-        child: Row(
-          children: const [
-            SizedBox(width: 28),
-            Expanded(flex: 32, child: Text('Provider')),
-            Expanded(flex: 16, child: Text('Adapter')),
-            Expanded(flex: 14, child: Text('Status')),
-            Expanded(flex: 12, child: Text('Default')),
-            Expanded(flex: 16, child: Text('Last verified')),
-            SizedBox(width: 28),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ProviderListRow extends StatelessWidget {
-  const _ProviderListRow({
-    required this.provider,
-    required this.selected,
-    required this.statusLabel,
-    required this.statusTone,
-    required this.verificationLabel,
-    required this.verificationTone,
-    required this.compact,
-    required this.onTap,
-    required this.onActionSelected,
-  });
-
-  final ProviderConfig provider;
-  final bool selected;
-  final String statusLabel;
-  final Color statusTone;
-  final String verificationLabel;
-  final Color verificationTone;
-  final bool compact;
-  final VoidCallback onTap;
-  final ValueChanged<_ProviderRowAction> onActionSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      decoration: BoxDecoration(
-        color: selected ? const Color(0xE3213045) : const Color(0xB4182231),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: selected ? infoColor.withValues(alpha: 0.75) : borderColor,
-        ),
-        boxShadow: [
-          if (selected)
-            BoxShadow(
-              color: infoColor.withValues(alpha: 0.16),
-              blurRadius: 24,
-              spreadRadius: 1,
-            ),
-        ],
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: compact ? _buildCompactRow() : _buildStructuredRow(),
-      ),
-    );
-  }
-
-  Widget _buildStructuredRow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      child: Row(
-        children: [
-          _SelectionIndicator(selected: selected),
-          const SizedBox(width: 14),
-          Expanded(
-            flex: 32,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  provider.alias,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: textPrimaryColor,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 15,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _AdapterBadge(adapter: provider.adapter, compact: true),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 13,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _StateBadge(
-                label: statusLabel,
-                color: statusTone,
-                compact: true,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 12,
-            child: provider.isDefault
-                ? const Align(
-                    alignment: Alignment.centerLeft,
-                    child: _StateBadge(
-                      label: 'Default',
-                      color: infoColor,
-                      compact: true,
-                    ),
-                  )
-                : const Text('—', style: TextStyle(color: textSubtleColor)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 18,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _VerificationMeta(
-                label: verificationLabel,
-                color: verificationTone,
-                compact: true,
-              ),
-            ),
-          ),
-          _ActionMenuButton(onSelected: onActionSelected),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCompactRow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: _SelectionIndicator(selected: selected),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            provider.alias,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: textPrimaryColor,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _ActionMenuButton(onSelected: onActionSelected),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _AdapterBadge(adapter: provider.adapter, compact: true),
-                    _StateBadge(
-                      label: statusLabel,
-                      color: statusTone,
-                      compact: true,
-                    ),
-                    if (provider.isDefault)
-                      const _StateBadge(
-                        label: 'Default',
-                        color: infoColor,
-                        compact: true,
-                      ),
-                    _VerificationMeta(
-                      label: verificationLabel,
-                      color: verificationTone,
-                      compact: true,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SelectionIndicator extends StatelessWidget {
-  const _SelectionIndicator({required this.selected});
-
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 16,
-      height: 16,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: selected ? infoColor : textSubtleColor.withValues(alpha: 0.8),
-          width: selected ? 4 : 1.4,
-        ),
-        color: selected
-            ? infoColor.withValues(alpha: 0.22)
-            : Colors.transparent,
-      ),
+    return ConfigWorkspacePopupButton<T>(
+      value: value,
+      label: label,
+      icon: icon,
+      tooltip: tooltip,
+      items: items,
+      itemLabel: itemLabel,
+      onSelected: onSelected,
     );
   }
 }
@@ -1535,7 +1146,6 @@ class _ActionMenuButton extends StatelessWidget {
 
 class _ProviderDetailPane extends StatelessWidget {
   const _ProviderDetailPane({
-    super.key,
     required this.draft,
     required this.isNew,
     required this.busy,
@@ -1609,24 +1219,6 @@ class _ProviderDetailPane extends StatelessWidget {
               LayoutBuilder(
                 builder: (BuildContext context, BoxConstraints constraints) {
                   final stacked = constraints.maxWidth < 760;
-                  final headerBadges = Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _StateBadge(
-                        label: isNew ? 'Draft' : statusLabel,
-                        color: isNew ? infoColor : statusTone,
-                      ),
-                      if (!isNew && draft.isDefault)
-                        const _StateBadge(label: 'Default', color: infoColor),
-                      if (!isNew && draft.accessVerified)
-                        const _StateBadge(
-                          label: 'Verified',
-                          color: successColor,
-                        ),
-                    ],
-                  );
-
                   final actionRow = Wrap(
                     spacing: 10,
                     runSpacing: 10,
@@ -1683,7 +1275,6 @@ class _ProviderDetailPane extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      headerBadges,
                     ],
                   );
 
@@ -1741,103 +1332,78 @@ class _ProviderDetailPane extends StatelessWidget {
             return Column(
               children: [
                 if (stacked) ...[
-                  _TextFieldBlock(
+                  AppTextFormField(
                     label: 'Name',
-                    child: TextFormField(
-                      initialValue: draft.alias,
-                      key: ValueKey<String>(
-                        'provider-general-name-${draft.persistedAlias}-$isNew',
-                      ),
-                      onChanged: (String value) {
-                        draft.alias = value;
-                        onChanged();
-                      },
+                    initialValue: draft.alias,
+                    fieldKey: ValueKey<String>(
+                      'provider-general-name-${draft.persistedAlias}-$isNew',
                     ),
+                    onChanged: (String value) {
+                      draft.alias = value;
+                      onChanged();
+                    },
                   ),
                   const SizedBox(height: 16),
-                  _TextFieldBlock(
+                  AppDropdownField<String>(
                     label: 'Adapter',
-                    child: DropdownButtonFormField<String>(
-                      initialValue: supportedAdapters.contains(draft.adapter)
-                          ? draft.adapter
-                          : null,
-                      key: ValueKey<String>(
-                        'provider-general-adapter-${draft.persistedAlias}-$isNew',
-                      ),
-                      items: supportedAdapters
-                          .map(
-                            (String adapter) => DropdownMenuItem<String>(
-                              value: adapter,
-                              child: Text(adapter),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (String? value) {
-                        draft.adapter = value ?? '';
-                        onChanged();
-                      },
+                    value: supportedAdapters.contains(draft.adapter)
+                        ? draft.adapter
+                        : null,
+                    fieldKey: ValueKey<String>(
+                      'provider-general-adapter-${draft.persistedAlias}-$isNew',
                     ),
+                    options: supportedAdapters,
+                    onChanged: (String? value) {
+                      draft.adapter = value ?? '';
+                      onChanged();
+                    },
                   ),
                 ] else
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: _TextFieldBlock(
+                        child: AppTextFormField(
                           label: 'Name',
-                          child: TextFormField(
-                            initialValue: draft.alias,
-                            key: ValueKey<String>(
-                              'provider-general-name-${draft.persistedAlias}-$isNew',
-                            ),
-                            onChanged: (String value) {
-                              draft.alias = value;
-                              onChanged();
-                            },
+                          initialValue: draft.alias,
+                          fieldKey: ValueKey<String>(
+                            'provider-general-name-${draft.persistedAlias}-$isNew',
                           ),
+                          onChanged: (String value) {
+                            draft.alias = value;
+                            onChanged();
+                          },
                         ),
                       ),
                       const SizedBox(width: 18),
                       Expanded(
-                        child: _TextFieldBlock(
+                        child: AppDropdownField<String>(
                           label: 'Adapter',
-                          child: DropdownButtonFormField<String>(
-                            initialValue:
-                                supportedAdapters.contains(draft.adapter)
-                                ? draft.adapter
-                                : null,
-                            key: ValueKey<String>(
-                              'provider-general-adapter-${draft.persistedAlias}-$isNew',
-                            ),
-                            items: supportedAdapters
-                                .map(
-                                  (String adapter) => DropdownMenuItem<String>(
-                                    value: adapter,
-                                    child: Text(adapter),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (String? value) {
-                              draft.adapter = value ?? '';
-                              onChanged();
-                            },
+                          value: supportedAdapters.contains(draft.adapter)
+                              ? draft.adapter
+                              : null,
+                          fieldKey: ValueKey<String>(
+                            'provider-general-adapter-${draft.persistedAlias}-$isNew',
                           ),
+                          options: supportedAdapters,
+                          onChanged: (String? value) {
+                            draft.adapter = value ?? '';
+                            onChanged();
+                          },
                         ),
                       ),
                     ],
                   ),
                 const SizedBox(height: 16),
-                _TextFieldBlock(
+                AppReadOnlyField(
                   label: 'Catalog path',
-                  child: _ReadOnlyField(
-                    value: configPath.trim().isEmpty
-                        ? 'Catalog path unavailable.'
-                        : configPath,
-                    actionIcon: Icons.copy_all_rounded,
-                    onAction: configPath.trim().isEmpty
-                        ? null
-                        : onCopyCatalogPath,
-                  ),
+                  value: configPath.trim().isEmpty
+                      ? 'Catalog path unavailable.'
+                      : configPath,
+                  actionIcon: Icons.copy_all_rounded,
+                  onAction: configPath.trim().isEmpty
+                      ? null
+                      : onCopyCatalogPath,
                 ),
               ],
             );
@@ -1887,49 +1453,43 @@ class _ProviderDetailPane extends StatelessWidget {
         title: 'Connection',
         child: Column(
           children: [
-            _TextFieldBlock(
+            AppTextFormField(
               label: 'Base URL',
-              child: TextFormField(
-                initialValue: draft.endpoint,
-                key: ValueKey<String>(
-                  'provider-connection-url-${draft.persistedAlias}-$isNew',
-                ),
-                onChanged: (String value) {
-                  draft.endpoint = value;
-                  onChanged();
-                },
+              initialValue: draft.endpoint,
+              fieldKey: ValueKey<String>(
+                'provider-connection-url-${draft.persistedAlias}-$isNew',
               ),
+              onChanged: (String value) {
+                draft.endpoint = value;
+                onChanged();
+              },
             ),
             const SizedBox(height: 16),
-            _TextFieldBlock(
+            AppTextFormField(
               label: 'API key env var',
-              child: TextFormField(
-                initialValue: draft.apiKeyEnv,
-                key: ValueKey<String>(
-                  'provider-connection-key-${draft.persistedAlias}-$isNew',
-                ),
-                onChanged: (String value) {
-                  draft.apiKeyEnv = value;
-                  onChanged();
-                },
+              initialValue: draft.apiKeyEnv,
+              fieldKey: ValueKey<String>(
+                'provider-connection-key-${draft.persistedAlias}-$isNew',
               ),
+              onChanged: (String value) {
+                draft.apiKeyEnv = value;
+                onChanged();
+              },
             ),
             const SizedBox(height: 16),
-            _TextFieldBlock(
+            AppTextFormField(
               label: 'Timeout seconds',
-              child: TextFormField(
-                initialValue: draft.timeoutSecs == 0
-                    ? ''
-                    : '${draft.timeoutSecs}',
-                key: ValueKey<String>(
-                  'provider-connection-timeout-${draft.persistedAlias}-$isNew',
-                ),
-                keyboardType: TextInputType.number,
-                onChanged: (String value) {
-                  draft.timeoutSecs = int.tryParse(value.trim()) ?? 0;
-                  onChanged();
-                },
+              initialValue: draft.timeoutSecs == 0
+                  ? ''
+                  : '${draft.timeoutSecs}',
+              fieldKey: ValueKey<String>(
+                'provider-connection-timeout-${draft.persistedAlias}-$isNew',
               ),
+              keyboardType: TextInputType.number,
+              onChanged: (String value) {
+                draft.timeoutSecs = int.tryParse(value.trim()) ?? 0;
+                onChanged();
+              },
             ),
             const SizedBox(height: 18),
             _FeatureToggleCard(
@@ -2093,51 +1653,11 @@ class _ProviderDetailTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: BoxDecoration(
-        color: const Color(0x48101825),
-        border: Border(
-          top: BorderSide(color: borderColor.withValues(alpha: 0.9)),
-          bottom: BorderSide(color: borderColor.withValues(alpha: 0.9)),
-        ),
-      ),
-      child: Wrap(
-        spacing: 22,
-        children: _ProviderDetailTab.values.map((_ProviderDetailTab tab) {
-          final selected = tab == activeTab;
-          return InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => onTabChanged(tab),
-            child: Padding(
-              padding: const EdgeInsets.only(top: 16, bottom: 14),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    tab.label,
-                    style: TextStyle(
-                      color: selected ? textPrimaryColor : textMutedColor,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    width: 58,
-                    height: 2,
-                    decoration: BoxDecoration(
-                      color: selected ? infoColor : Colors.transparent,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
+    return ConfigWorkspaceTabBar<_ProviderDetailTab>(
+      items: _ProviderDetailTab.values,
+      value: activeTab,
+      labelBuilder: (_ProviderDetailTab tab) => tab.label,
+      onChanged: onTabChanged,
     );
   }
 }
@@ -2155,110 +1675,10 @@ class _DetailSectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0x7D182130),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: borderColor.withValues(alpha: 0.85)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: textPrimaryColor,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              trailing ?? const SizedBox.shrink(),
-            ],
-          ),
-          const SizedBox(height: 16),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-class _TextFieldBlock extends StatelessWidget {
-  const _TextFieldBlock({required this.label, required this.child});
-
-  final String label;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: textPrimaryColor,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 8),
-        child,
-      ],
-    );
-  }
-}
-
-class _ReadOnlyField extends StatelessWidget {
-  const _ReadOnlyField({required this.value, this.actionIcon, this.onAction});
-
-  final String value;
-  final IconData? actionIcon;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 58,
-      decoration: BoxDecoration(
-        color: const Color(0x99212D41),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: textMutedColor),
-              ),
-            ),
-          ),
-          if (actionIcon != null)
-            Container(
-              width: 56,
-              height: double.infinity,
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(color: borderColor.withValues(alpha: 0.85)),
-                ),
-              ),
-              child: IconButton(
-                onPressed: onAction,
-                icon: Icon(actionIcon, color: textMutedColor),
-              ),
-            ),
-        ],
-      ),
+    return ConfigWorkspaceSectionCard(
+      title: title,
+      trailing: trailing,
+      child: child,
     );
   }
 }
@@ -2386,12 +1806,12 @@ class _ModelCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: TextFormField(
+                child: AppTextFormField(
+                  label: 'Model alias',
                   initialValue: model.name,
-                  key: ValueKey<String>(
+                  fieldKey: ValueKey<String>(
                     'provider-model-$draftAlias-$isNew-$index-${model.name}',
                   ),
-                  decoration: const InputDecoration(labelText: 'Model alias'),
                   onChanged: (String value) {
                     model.name = value;
                     onChanged();

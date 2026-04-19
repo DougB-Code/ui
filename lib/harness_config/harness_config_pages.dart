@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:ui/harness_config/harness_config_api.dart';
 import 'package:ui/harness_config/harness_document_state.dart';
+import 'package:ui/harness_config/harness_tools_workspace.dart';
+import 'package:ui/harness_config/harness_workflows_workspace.dart';
+import 'package:ui/shared/side_panel.dart';
 import 'package:ui/shared/ui.dart';
+import 'package:ui/shared/workspace_shell.dart';
 
 class HarnessAgentsPage extends StatefulWidget {
   const HarnessAgentsPage({
@@ -64,172 +68,707 @@ class _HarnessAgentsPageState
       unavailableBody:
           'This deployment mode disables local harness config management routes. Switch to local mode to manage harness agents.',
       builder: (HarnessAgentCatalog catalog) {
-        return LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
-            final stacked = constraints.maxWidth < 1200;
-            final summaryPane = PanelCard(
-              title: 'Agent catalog overview',
-              fill: true,
-              child: ListView(
-                children: [
-                  InfoPanel(
-                    title: 'Config path',
-                    body: blankAsUnknown(catalog.configPath),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      MetricCard(
-                        label: 'Lead agent',
-                        value: blankAsUnknown(catalog.leadAgent),
-                        tone: accentColor,
-                        detail: 'Resolved bootstrap lead role.',
-                      ),
-                      MetricCard(
-                        label: 'Agents',
-                        value: '${catalog.agents.length}',
-                        tone: infoColor,
-                        detail: 'Concrete runtime roles in `agent.yaml`.',
-                      ),
-                      MetricCard(
-                        label: 'Templates',
-                        value: '${catalog.roleTemplates.length}',
-                        tone: successColor,
-                        detail: 'Reusable role defaults.',
-                      ),
-                      MetricCard(
-                        label: 'Policies',
-                        value: '${catalog.policyPresets.length}',
-                        tone: warningColor,
-                        detail: 'Named policy preset entries.',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  _CatalogKeyValueSection(
-                    title: 'Runtime defaults',
-                    rows: <MapEntry<String, String>>[
-                      MapEntry(
-                        'Approval mode',
-                        blankAsUnknown(catalog.approvalMode),
-                      ),
-                      MapEntry(
-                        'Default max steps',
-                        catalog.defaultMaxSteps == 0
-                            ? 'not set'
-                            : '${catalog.defaultMaxSteps}',
-                      ),
-                      MapEntry(
-                        'Recent ledger limit',
-                        catalog.recentLedgerLimit == 0
-                            ? 'not set'
-                            : '${catalog.recentLedgerLimit}',
-                      ),
-                      MapEntry(
-                        'Memory retention days',
-                        catalog.memoryRetentionDays == 0
-                            ? 'not set'
-                            : '${catalog.memoryRetentionDays}',
-                      ),
-                      MapEntry(
-                        'Subagents',
-                        catalog.subagentsEnabled ? 'enabled' : 'disabled',
-                      ),
-                      MapEntry(
-                        'Subagent max steps',
-                        catalog.subagentDefaultMaxSteps == 0
-                            ? 'not set'
-                            : '${catalog.subagentDefaultMaxSteps}',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  TagSection(
-                    title: 'Policy presets',
-                    tags: catalog.policyPresets,
-                  ),
-                  const SizedBox(height: 18),
-                  _CatalogListSection(
-                    title: 'Role templates',
-                    emptyTitle: 'No role templates',
-                    emptyBody:
-                        'Role templates will appear here after the harness agent config loads them.',
-                    children: catalog.roleTemplates
-                        .map(
-                          (HarnessAgentTemplateSummary template) =>
-                              _ConfigSummaryCard(
-                                title: template.name,
-                                subtitle: _joinNonEmpty(<String>[
-                                  template.role,
-                                  template.policyPreset,
-                                  template.maxSteps == 0
-                                      ? ''
-                                      : '${template.maxSteps} steps',
-                                ]),
-                                tags: template.allowedToolGroups,
-                              ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: 18),
-                  _CatalogListSection(
-                    title: 'Agents',
-                    emptyTitle: 'No agents',
-                    emptyBody:
-                        'Agent instances will appear here after the harness agent config loads them.',
-                    children: catalog.agents
-                        .map(
-                          (HarnessAgentSummary agent) => _ConfigSummaryCard(
-                            title: agent.name,
-                            subtitle: _joinNonEmpty(<String>[
-                              agent.template,
-                              agent.role,
-                              agent.model,
-                              agent.maxSteps == 0
-                                  ? ''
-                                  : '${agent.maxSteps} steps',
-                              agent.policyPreset,
-                            ]),
-                            tags: <String>[
-                              ...agent.toolGroups,
-                              ...agent.allowedTools,
-                            ],
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-              ),
-            );
-
-            final editorPane = _HarnessDocumentEditor(
-              title: 'Agent YAML',
-              controller: controller,
-              validation: validation,
-            );
-
-            if (stacked) {
-              return Column(
-                children: [
-                  Expanded(child: summaryPane),
-                  const SizedBox(height: 16),
-                  Expanded(child: editorPane),
-                ],
-              );
-            }
-            return Row(
-              children: [
-                Expanded(flex: 11, child: summaryPane),
-                const SizedBox(width: 16),
-                Expanded(flex: 10, child: editorPane),
-              ],
-            );
-          },
+        return HarnessAgentsWorkspace(
+          catalog: catalog,
+          controller: controller,
+          validation: validation,
         );
       },
     );
+  }
+}
+
+enum _AgentWorkspaceEntryKind { catalog, template, agent }
+
+enum _AgentDetailTab { overview, advanced }
+
+class _AgentWorkspaceEntry {
+  const _AgentWorkspaceEntry({
+    required this.id,
+    required this.kind,
+    required this.name,
+    required this.subtitle,
+    required this.badges,
+    this.sourceIndex,
+  });
+
+  final String id;
+  final _AgentWorkspaceEntryKind kind;
+  final String name;
+  final String subtitle;
+  final List<String> badges;
+  final int? sourceIndex;
+}
+
+class HarnessAgentsWorkspace extends StatefulWidget {
+  const HarnessAgentsWorkspace({
+    super.key,
+    required this.catalog,
+    required this.controller,
+    required this.validation,
+  });
+
+  final HarnessAgentCatalog catalog;
+  final TextEditingController controller;
+  final HarnessConfigValidationReport? validation;
+
+  @override
+  State<HarnessAgentsWorkspace> createState() => _HarnessAgentsWorkspaceState();
+}
+
+class _HarnessAgentsWorkspaceState extends State<HarnessAgentsWorkspace> {
+  String? _selectedEntryId;
+  _AgentDetailTab _detailTab = _AgentDetailTab.overview;
+
+  List<_AgentWorkspaceEntry> get _entries => <_AgentWorkspaceEntry>[
+    _AgentWorkspaceEntry(
+      id: 'catalog',
+      kind: _AgentWorkspaceEntryKind.catalog,
+      name: 'Agent catalog',
+      subtitle: _joinNonEmpty(<String>[
+        blankAsUnknown(widget.catalog.leadAgent),
+        '${widget.catalog.agents.length} agents',
+        '${widget.catalog.roleTemplates.length} templates',
+      ]),
+      badges: const <String>[],
+    ),
+    for (int index = 0; index < widget.catalog.roleTemplates.length; index++)
+      _AgentWorkspaceEntry(
+        id: 'template:$index',
+        kind: _AgentWorkspaceEntryKind.template,
+        name: widget.catalog.roleTemplates[index].name,
+        subtitle: _joinNonEmpty(<String>[
+          widget.catalog.roleTemplates[index].role,
+          widget.catalog.roleTemplates[index].policyPreset,
+          widget.catalog.roleTemplates[index].maxSteps == 0
+              ? ''
+              : '${widget.catalog.roleTemplates[index].maxSteps} steps',
+        ]),
+        badges: widget.catalog.roleTemplates[index].allowedToolGroups,
+        sourceIndex: index,
+      ),
+    for (int index = 0; index < widget.catalog.agents.length; index++)
+      _AgentWorkspaceEntry(
+        id: 'agent:$index',
+        kind: _AgentWorkspaceEntryKind.agent,
+        name: widget.catalog.agents[index].name,
+        subtitle: _joinNonEmpty(<String>[
+          widget.catalog.agents[index].template,
+          widget.catalog.agents[index].role,
+          widget.catalog.agents[index].model,
+        ]),
+        badges: <String>[
+          if (widget.catalog.agents[index].policyPreset.isNotEmpty)
+            widget.catalog.agents[index].policyPreset,
+          if (widget.catalog.agents[index].maxSteps != 0)
+            '${widget.catalog.agents[index].maxSteps} steps',
+        ],
+        sourceIndex: index,
+      ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _ensureSelection();
+  }
+
+  @override
+  void didUpdateWidget(covariant HarnessAgentsWorkspace oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.catalog.yaml != widget.catalog.yaml ||
+        oldWidget.catalog.configPath != widget.catalog.configPath ||
+        oldWidget.catalog.agents.length != widget.catalog.agents.length ||
+        oldWidget.catalog.roleTemplates.length !=
+            widget.catalog.roleTemplates.length) {
+      _ensureSelection();
+    }
+  }
+
+  void _ensureSelection() {
+    if (_selectedEntryId != null &&
+        _entries.any(
+          (_AgentWorkspaceEntry entry) => entry.id == _selectedEntryId,
+        )) {
+      return;
+    }
+    _selectedEntryId = _entries.isEmpty ? null : _entries.first.id;
+  }
+
+  void _selectFirstEntryForKind(_AgentWorkspaceEntryKind kind) {
+    final nextEntry = _entries
+        .where((_AgentWorkspaceEntry entry) => entry.kind == kind)
+        .firstOrNull;
+    if (nextEntry == null || nextEntry.id == _selectedEntryId) {
+      return;
+    }
+    setState(() {
+      _selectedEntryId = nextEntry.id;
+      _detailTab = _AgentDetailTab.overview;
+    });
+  }
+
+  _AgentWorkspaceEntry? get _selectedEntry {
+    final selectedId = _selectedEntryId;
+    if (selectedId == null) {
+      return null;
+    }
+    for (final entry in _entries) {
+      if (entry.id == selectedId) {
+        return entry;
+      }
+    }
+    return _entries.isEmpty ? null : _entries.first;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedEntry = _selectedEntry;
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final stacked = constraints.maxWidth < 1240;
+        final collectionPane = _AgentCollectionPane(
+          entries: _entries,
+          selectedEntryId: _selectedEntryId,
+          initialSectionId: selectedEntry?.kind.sectionId,
+          onSectionChanged: (_AgentWorkspaceEntryKind kind) {
+            _selectFirstEntryForKind(kind);
+          },
+          onSelectEntry: (_AgentWorkspaceEntry entry) {
+            setState(() {
+              _selectedEntryId = entry.id;
+              _detailTab = _AgentDetailTab.overview;
+            });
+          },
+        );
+        final detailPane = _AgentDetailPane(
+          catalog: widget.catalog,
+          selectedEntry: selectedEntry,
+          activeTab: _detailTab,
+          controller: widget.controller,
+          validation: widget.validation,
+          onTabChanged: (_AgentDetailTab tab) {
+            setState(() => _detailTab = tab);
+          },
+        );
+
+        return ConfigWorkspaceShell(
+          stacked: stacked,
+          collectionPane: collectionPane,
+          detailPane: detailPane,
+          collectionFlex: 10,
+          detailFlex: 11,
+        );
+      },
+    );
+  }
+}
+
+class _AgentCollectionPane extends StatelessWidget {
+  const _AgentCollectionPane({
+    required this.entries,
+    required this.selectedEntryId,
+    required this.initialSectionId,
+    required this.onSectionChanged,
+    required this.onSelectEntry,
+  });
+
+  final List<_AgentWorkspaceEntry> entries;
+  final String? selectedEntryId;
+  final String? initialSectionId;
+  final ValueChanged<_AgentWorkspaceEntryKind> onSectionChanged;
+  final ValueChanged<_AgentWorkspaceEntry> onSelectEntry;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppDenseSidePanel<_AgentWorkspaceEntry>(
+      selectedEntryId: selectedEntryId,
+      entryId: (_AgentWorkspaceEntry entry) => entry.id,
+      onSelectEntry: onSelectEntry,
+      initialSectionId: initialSectionId,
+      searchHintText: 'Filter catalog, templates, and agents...',
+      emptyTitle: 'No agent panels',
+      emptyBody: 'Agent catalog sections will appear here once data is loaded.',
+      onSectionChanged: (String sectionId) {
+        onSectionChanged(
+          _AgentWorkspaceEntryKind.values.firstWhere(
+            (_AgentWorkspaceEntryKind kind) => kind.sectionId == sectionId,
+          ),
+        );
+      },
+      sections: _AgentWorkspaceEntryKind.values
+          .map((_AgentWorkspaceEntryKind kind) {
+            return AppDenseSidePanelSection<_AgentWorkspaceEntry>(
+              id: kind.sectionId,
+              label: kind.panelLabel,
+              icon: kind.panelIcon,
+              entries: entries
+                  .where((_AgentWorkspaceEntry entry) => entry.kind == kind)
+                  .toList(growable: false),
+              searchFields: (_AgentWorkspaceEntry entry) => <String>[
+                entry.name,
+                entry.subtitle,
+                ...entry.badges,
+                entry.kind.label,
+              ],
+              emptyTitle: 'No matching ${kind.emptyLabel}',
+              emptyBody:
+                  'Try a different search term to find ${kind.emptySearchDescription}.',
+              rowBuilder:
+                  (
+                    BuildContext context,
+                    _AgentWorkspaceEntry entry,
+                    bool selected,
+                    VoidCallback onTap,
+                  ) {
+                    return AppDenseSidePanelRow(
+                      title: entry.name,
+                      subtitle: entry.subtitle,
+                      selected: selected,
+                      onTap: onTap,
+                      trailing: StatusPill(
+                        label: entry.kind.label,
+                        color: entry.kind.tone,
+                      ),
+                      footer: entry.badges
+                          .take(4)
+                          .map(
+                            (String value) =>
+                                StatusPill(label: value, color: infoColor),
+                          )
+                          .toList(growable: false),
+                    );
+                  },
+            );
+          })
+          .toList(growable: false),
+    );
+  }
+}
+
+class _AgentDetailPane extends StatelessWidget {
+  const _AgentDetailPane({
+    required this.catalog,
+    required this.selectedEntry,
+    required this.activeTab,
+    required this.controller,
+    required this.validation,
+    required this.onTabChanged,
+  });
+
+  final HarnessAgentCatalog catalog;
+  final _AgentWorkspaceEntry? selectedEntry;
+  final _AgentDetailTab activeTab;
+  final TextEditingController controller;
+  final HarnessConfigValidationReport? validation;
+  final ValueChanged<_AgentDetailTab> onTabChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = selectedEntry;
+    if (entry == null) {
+      return const Center(
+        child: EmptyState(
+          title: 'No agent selected',
+          body:
+              'Pick the catalog, a role template, or an agent to inspect it here.',
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.name,
+                      style: const TextStyle(
+                        color: textPrimaryColor,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (entry.kind == _AgentWorkspaceEntryKind.catalog &&
+                        entry.subtitle.trim().isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        entry.subtitle,
+                        style: const TextStyle(
+                          color: textMutedColor,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        _AgentDetailTabs(activeTab: activeTab, onTabChanged: onTabChanged),
+        Expanded(
+          child: switch (activeTab) {
+            _AgentDetailTab.overview => _AgentOverviewTab(
+              catalog: catalog,
+              entry: entry,
+            ),
+            _AgentDetailTab.advanced => _HarnessDocumentEditor(
+              title: 'Agent YAML',
+              controller: controller,
+              validation: validation,
+            ),
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _AgentDetailTabs extends StatelessWidget {
+  const _AgentDetailTabs({required this.activeTab, required this.onTabChanged});
+
+  final _AgentDetailTab activeTab;
+  final ValueChanged<_AgentDetailTab> onTabChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConfigWorkspaceTabBar<_AgentDetailTab>(
+      items: _AgentDetailTab.values,
+      value: activeTab,
+      labelBuilder: (_AgentDetailTab tab) => tab.label,
+      onChanged: onTabChanged,
+    );
+  }
+}
+
+class _AgentOverviewTab extends StatelessWidget {
+  const _AgentOverviewTab({required this.catalog, required this.entry});
+
+  final HarnessAgentCatalog catalog;
+  final _AgentWorkspaceEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+      children: switch (entry.kind) {
+        _AgentWorkspaceEntryKind.catalog => _buildCatalogOverview(),
+        _AgentWorkspaceEntryKind.template => _buildTemplateOverview(),
+        _AgentWorkspaceEntryKind.agent => _buildAgentOverview(),
+      },
+    );
+  }
+
+  List<Widget> _buildCatalogOverview() {
+    return <Widget>[
+      InfoPanel(title: 'Config path', body: blankAsUnknown(catalog.configPath)),
+      const SizedBox(height: 14),
+      Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          MetricCard(
+            label: 'Lead agent',
+            value: blankAsUnknown(catalog.leadAgent),
+            tone: accentColor,
+            detail: 'Resolved bootstrap lead role.',
+          ),
+          MetricCard(
+            label: 'Agents',
+            value: '${catalog.agents.length}',
+            tone: infoColor,
+            detail: 'Concrete runtime roles in `agent.yaml`.',
+          ),
+          MetricCard(
+            label: 'Templates',
+            value: '${catalog.roleTemplates.length}',
+            tone: successColor,
+            detail: 'Reusable role defaults.',
+          ),
+          MetricCard(
+            label: 'Policies',
+            value: '${catalog.policyPresets.length}',
+            tone: warningColor,
+            detail: 'Named policy preset entries.',
+          ),
+        ],
+      ),
+      const SizedBox(height: 18),
+      _CatalogKeyValueSection(
+        title: 'Runtime defaults',
+        rows: <MapEntry<String, String>>[
+          MapEntry('Approval mode', blankAsUnknown(catalog.approvalMode)),
+          MapEntry(
+            'Default max steps',
+            catalog.defaultMaxSteps == 0
+                ? 'not set'
+                : '${catalog.defaultMaxSteps}',
+          ),
+          MapEntry(
+            'Recent ledger limit',
+            catalog.recentLedgerLimit == 0
+                ? 'not set'
+                : '${catalog.recentLedgerLimit}',
+          ),
+          MapEntry(
+            'Memory retention days',
+            catalog.memoryRetentionDays == 0
+                ? 'not set'
+                : '${catalog.memoryRetentionDays}',
+          ),
+          MapEntry(
+            'Subagents',
+            catalog.subagentsEnabled ? 'enabled' : 'disabled',
+          ),
+          MapEntry(
+            'Subagent max steps',
+            catalog.subagentDefaultMaxSteps == 0
+                ? 'not set'
+                : '${catalog.subagentDefaultMaxSteps}',
+          ),
+        ],
+      ),
+      const SizedBox(height: 18),
+      TagSection(title: 'Policy presets', tags: catalog.policyPresets),
+      const SizedBox(height: 18),
+      _CatalogListSection(
+        title: 'Role templates',
+        emptyTitle: 'No role templates',
+        emptyBody:
+            'Role templates will appear here after the harness agent config loads them.',
+        children: catalog.roleTemplates
+            .map(
+              (HarnessAgentTemplateSummary template) => _ConfigSummaryCard(
+                title: template.name,
+                subtitle: _joinNonEmpty(<String>[
+                  template.role,
+                  template.policyPreset,
+                  template.maxSteps == 0 ? '' : '${template.maxSteps} steps',
+                ]),
+                tags: template.allowedToolGroups,
+              ),
+            )
+            .toList(),
+      ),
+      const SizedBox(height: 18),
+      _CatalogListSection(
+        title: 'Agents',
+        emptyTitle: 'No agents',
+        emptyBody:
+            'Agent instances will appear here after the harness agent config loads them.',
+        children: catalog.agents
+            .map(
+              (HarnessAgentSummary agent) => _ConfigSummaryCard(
+                title: agent.name,
+                subtitle: _joinNonEmpty(<String>[
+                  agent.template,
+                  agent.role,
+                  agent.model,
+                  agent.maxSteps == 0 ? '' : '${agent.maxSteps} steps',
+                  agent.policyPreset,
+                ]),
+                tags: <String>[...agent.toolGroups, ...agent.allowedTools],
+              ),
+            )
+            .toList(),
+      ),
+    ];
+  }
+
+  List<Widget> _buildTemplateOverview() {
+    final template = catalog.roleTemplates[entry.sourceIndex ?? 0];
+    return <Widget>[
+      _AgentSectionCard(
+        title: 'Role template',
+        child: _AgentPropertyList(
+          rows: <MapEntry<String, String>>[
+            MapEntry('Name', blankAsUnknown(template.name)),
+            MapEntry('Role', blankAsUnknown(template.role)),
+            MapEntry('Policy preset', blankAsUnknown(template.policyPreset)),
+            MapEntry(
+              'Max steps',
+              template.maxSteps == 0 ? 'not set' : '${template.maxSteps}',
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 18),
+      template.allowedToolGroups.isEmpty
+          ? const InfoPanel(
+              title: 'No tool groups',
+              body: 'This template does not currently allow any tool groups.',
+            )
+          : TagSection(
+              title: 'Allowed tool groups',
+              tags: template.allowedToolGroups,
+            ),
+    ];
+  }
+
+  List<Widget> _buildAgentOverview() {
+    final agent = catalog.agents[entry.sourceIndex ?? 0];
+    return <Widget>[
+      _AgentSectionCard(
+        title: 'Agent settings',
+        child: _AgentPropertyList(
+          rows: <MapEntry<String, String>>[
+            MapEntry('Name', blankAsUnknown(agent.name)),
+            MapEntry('Template', blankAsUnknown(agent.template)),
+            MapEntry('Role', blankAsUnknown(agent.role)),
+            MapEntry('Model', blankAsUnknown(agent.model)),
+            MapEntry(
+              'Max steps',
+              agent.maxSteps == 0 ? 'not set' : '${agent.maxSteps}',
+            ),
+            MapEntry('Policy preset', blankAsUnknown(agent.policyPreset)),
+          ],
+        ),
+      ),
+      const SizedBox(height: 18),
+      agent.toolGroups.isEmpty
+          ? const InfoPanel(
+              title: 'No tool groups',
+              body: 'This agent does not reference any tool groups yet.',
+            )
+          : TagSection(title: 'Tool groups', tags: agent.toolGroups),
+      const SizedBox(height: 18),
+      agent.allowedTools.isEmpty
+          ? const InfoPanel(
+              title: 'No explicit tools',
+              body:
+                  'This agent does not currently declare any additional allowed tools.',
+            )
+          : TagSection(title: 'Allowed tools', tags: agent.allowedTools),
+    ];
+  }
+}
+
+class _AgentSectionCard extends StatelessWidget {
+  const _AgentSectionCard({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConfigWorkspaceSectionCard(title: title, child: child);
+  }
+}
+
+class _AgentPropertyList extends StatelessWidget {
+  const _AgentPropertyList({required this.rows});
+
+  final List<MapEntry<String, String>> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: panelAltColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        children: rows
+            .map(
+              (MapEntry<String, String> row) => ListTile(
+                dense: true,
+                title: Text(
+                  row.key,
+                  style: const TextStyle(color: textMutedColor),
+                ),
+                trailing: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 280),
+                  child: Text(
+                    row.value,
+                    style: const TextStyle(
+                      color: textPrimaryColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.right,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+}
+
+extension on _AgentWorkspaceEntryKind {
+  String get sectionId {
+    return switch (this) {
+      _AgentWorkspaceEntryKind.catalog => 'catalog',
+      _AgentWorkspaceEntryKind.template => 'role-templates',
+      _AgentWorkspaceEntryKind.agent => 'agents',
+    };
+  }
+
+  String get panelLabel {
+    return switch (this) {
+      _AgentWorkspaceEntryKind.catalog => 'Catalog',
+      _AgentWorkspaceEntryKind.template => 'Templates',
+      _AgentWorkspaceEntryKind.agent => 'Agents',
+    };
+  }
+
+  IconData get panelIcon {
+    return switch (this) {
+      _AgentWorkspaceEntryKind.catalog => Icons.inventory_2_outlined,
+      _AgentWorkspaceEntryKind.template => Icons.auto_awesome_mosaic_outlined,
+      _AgentWorkspaceEntryKind.agent => Icons.smart_toy_outlined,
+    };
+  }
+
+  String get emptyLabel {
+    return switch (this) {
+      _AgentWorkspaceEntryKind.catalog => 'catalog entries',
+      _AgentWorkspaceEntryKind.template => 'templates',
+      _AgentWorkspaceEntryKind.agent => 'agents',
+    };
+  }
+
+  String get emptySearchDescription {
+    return switch (this) {
+      _AgentWorkspaceEntryKind.catalog => 'catalog settings',
+      _AgentWorkspaceEntryKind.template => 'role templates',
+      _AgentWorkspaceEntryKind.agent => 'agents',
+    };
+  }
+
+  String get label {
+    return switch (this) {
+      _AgentWorkspaceEntryKind.catalog => 'Catalog',
+      _AgentWorkspaceEntryKind.template => 'Template',
+      _AgentWorkspaceEntryKind.agent => 'Agent',
+    };
+  }
+
+  Color get tone {
+    return switch (this) {
+      _AgentWorkspaceEntryKind.catalog => accentColor,
+      _AgentWorkspaceEntryKind.template => successColor,
+      _AgentWorkspaceEntryKind.agent => infoColor,
+    };
+  }
+}
+
+extension on _AgentDetailTab {
+  String get label {
+    return switch (this) {
+      _AgentDetailTab.overview => 'Overview',
+      _AgentDetailTab.advanced => 'Advanced',
+    };
   }
 }
 
@@ -251,6 +790,8 @@ class HarnessToolsPage extends StatefulWidget {
 
 class _HarnessToolsPageState
     extends HarnessDocumentPageState<HarnessToolsPage, HarnessToolCatalog> {
+  HarnessToolCatalog? draftCatalog;
+
   @override
   ScreenHeaderActionsController get headerActionsController =>
       widget.headerActionsController;
@@ -272,6 +813,16 @@ class _HarnessToolsPageState
   String catalogYaml(HarnessToolCatalog catalog) => catalog.yaml;
 
   @override
+  void onCatalogLoaded(HarnessToolCatalog loadedCatalog) {
+    draftCatalog = loadedCatalog;
+  }
+
+  @override
+  void onCatalogSaved(HarnessToolCatalog savedCatalog) {
+    draftCatalog = savedCatalog;
+  }
+
+  @override
   Future<HarnessToolCatalog> fetchCatalog() {
     return widget.harnessConfigApi.getTools();
   }
@@ -286,6 +837,73 @@ class _HarnessToolsPageState
     return widget.harnessConfigApi.validateTools(yaml);
   }
 
+  void _updateDraft(HarnessToolCatalog value) {
+    setState(() {
+      draftCatalog = value;
+    });
+  }
+
+  @override
+  Future<void> validateDocument() async {
+    final current = draftCatalog;
+    if (current == null) {
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      final report = await widget.harnessConfigApi.validateToolsCatalog(
+        current,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => validation = report);
+      showAppMessage(context, report.summary);
+    } catch (validationError) {
+      if (!mounted) {
+        return;
+      }
+      showAppMessage(context, validationError.toString());
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
+    }
+  }
+
+  @override
+  Future<void> saveDocumentState() async {
+    final current = draftCatalog;
+    if (current == null) {
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      final savedCatalog = await widget.harnessConfigApi.saveToolsCatalog(
+        current,
+      );
+      if (!mounted) {
+        return;
+      }
+      controller.text = catalogYaml(savedCatalog);
+      onCatalogSaved(savedCatalog);
+      setState(() {
+        catalog = savedCatalog;
+        validation = null;
+      });
+      showAppMessage(context, savedMessage);
+    } catch (saveError) {
+      if (!mounted) {
+        return;
+      }
+      showAppMessage(context, saveError.toString());
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return buildDocumentUnavailable(
@@ -294,145 +912,12 @@ class _HarnessToolsPageState
       unavailableBody:
           'This deployment mode disables local harness config management routes. Switch to local mode to manage harness tools.',
       builder: (HarnessToolCatalog catalog) {
-        return LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
-            final stacked = constraints.maxWidth < 1200;
-            final summaryPane = PanelCard(
-              title: 'Tool catalog overview',
-              fill: true,
-              child: ListView(
-                children: [
-                  InfoPanel(
-                    title: 'Config path',
-                    body: blankAsUnknown(catalog.configPath),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      MetricCard(
-                        label: 'Tool groups',
-                        value: '${catalog.toolGroups.length}',
-                        tone: accentColor,
-                        detail: 'Reusable tool bundles.',
-                      ),
-                      MetricCard(
-                        label: 'External tools',
-                        value: '${catalog.externalTools.length}',
-                        tone: infoColor,
-                        detail: 'Executable runtime tools.',
-                      ),
-                      MetricCard(
-                        label: 'MCP servers',
-                        value: '${catalog.mcpServers.length}',
-                        tone: successColor,
-                        detail: 'Surfaced MCP processes.',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  _CatalogListSection(
-                    title: 'Tool groups',
-                    emptyTitle: 'No tool groups',
-                    emptyBody:
-                        'Tool groups will appear here after the harness tool config loads them.',
-                    children: catalog.toolGroups
-                        .map(
-                          (HarnessToolGroupSummary group) => _ConfigSummaryCard(
-                            title: group.name,
-                            subtitle:
-                                '${group.tools.length} tool${group.tools.length == 1 ? '' : 's'}',
-                            tags: group.tools,
-                          ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: 18),
-                  _CatalogListSection(
-                    title: 'External tools',
-                    emptyTitle: 'No external tools',
-                    emptyBody:
-                        'External tool definitions will appear here after the harness tool config loads them.',
-                    children: catalog.externalTools
-                        .map(
-                          (
-                            HarnessExternalToolSummary tool,
-                          ) => _ConfigSummaryCard(
-                            title: tool.name,
-                            subtitle: _joinNonEmpty(<String>[
-                              tool.toolClass,
-                              tool.location,
-                              tool.command.join(' '),
-                              tool.platformOverrideCount == 0
-                                  ? ''
-                                  : '${tool.platformOverrideCount} platform override${tool.platformOverrideCount == 1 ? '' : 's'}',
-                            ]),
-                            tags: <String>[
-                              tool.enabled ? 'enabled' : 'disabled',
-                              tool.trusted ? 'trusted' : 'untrusted',
-                            ],
-                          ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: 18),
-                  _CatalogListSection(
-                    title: 'MCP servers',
-                    emptyTitle: 'No MCP servers',
-                    emptyBody:
-                        'MCP server definitions will appear here after the harness tool config loads them.',
-                    children: catalog.mcpServers
-                        .map(
-                          (
-                            HarnessMcpServerSummary server,
-                          ) => _ConfigSummaryCard(
-                            title: server.name,
-                            subtitle: _joinNonEmpty(<String>[
-                              server.lifecycle,
-                              server.transport,
-                              server.url,
-                              server.command.join(' '),
-                              server.toolNamePrefix,
-                              server.platformOverrideCount == 0
-                                  ? ''
-                                  : '${server.platformOverrideCount} platform override${server.platformOverrideCount == 1 ? '' : 's'}',
-                            ]),
-                            tags: <String>[
-                              server.enabled ? 'enabled' : 'disabled',
-                              server.trusted ? 'trusted' : 'untrusted',
-                            ],
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-              ),
-            );
-
-            final editorPane = _HarnessDocumentEditor(
-              title: 'Tool YAML',
-              controller: controller,
-              validation: validation,
-            );
-
-            if (stacked) {
-              return Column(
-                children: [
-                  Expanded(child: summaryPane),
-                  const SizedBox(height: 16),
-                  Expanded(child: editorPane),
-                ],
-              );
-            }
-            return Row(
-              children: [
-                Expanded(flex: 11, child: summaryPane),
-                const SizedBox(width: 16),
-                Expanded(flex: 10, child: editorPane),
-              ],
-            );
-          },
+        final currentDraft = draftCatalog ?? catalog;
+        return HarnessToolsWorkspace(
+          catalog: currentDraft,
+          documentYaml: controller.text,
+          validation: validation,
+          onCatalogChanged: _updateDraft,
         );
       },
     );
@@ -771,8 +1256,6 @@ class _HarnessWorkflowsPageState
   @override
   bool get headerActionsEnabled => widget.harnessConfigAvailable;
 
-  String _selectedWorkflowName = '';
-
   @override
   String get emptyBody =>
       'The control plane returned no harness workflow document.';
@@ -802,34 +1285,6 @@ class _HarnessWorkflowsPageState
   }
 
   @override
-  void onCatalogLoaded(HarnessWorkflowCatalog loadedCatalog) {
-    _selectedWorkflowName = _resolvedWorkflowSelection(loadedCatalog);
-  }
-
-  @override
-  void onCatalogSaved(HarnessWorkflowCatalog savedCatalog) {
-    _selectedWorkflowName = _resolvedWorkflowSelection(savedCatalog);
-  }
-
-  String _resolvedWorkflowSelection(HarnessWorkflowCatalog catalog) {
-    return catalog.workflows.any(
-          (HarnessWorkflowSummary workflow) =>
-              workflow.name == _selectedWorkflowName,
-        )
-        ? _selectedWorkflowName
-        : (catalog.workflows.isEmpty ? '' : catalog.workflows.first.name);
-  }
-
-  HarnessWorkflowSummary? _selectedWorkflow(HarnessWorkflowCatalog catalog) {
-    for (final workflow in catalog.workflows) {
-      if (workflow.name == _selectedWorkflowName) {
-        return workflow;
-      }
-    }
-    return catalog.workflows.isEmpty ? null : catalog.workflows.first;
-  }
-
-  @override
   Widget build(BuildContext context) {
     return buildDocumentUnavailable(
       available: widget.harnessConfigAvailable,
@@ -837,592 +1292,12 @@ class _HarnessWorkflowsPageState
       unavailableBody:
           'This deployment mode disables local harness config management routes. Switch to local mode to manage harness workflows.',
       builder: (HarnessWorkflowCatalog catalog) {
-        final selectedWorkflow = _selectedWorkflow(catalog);
-        return LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
-            final stacked = constraints.maxWidth < 1280;
-            final summaryPane = PanelCard(
-              title: 'Workflow catalog overview',
-              fill: true,
-              child: ListView(
-                children: [
-                  InfoPanel(
-                    title: 'Config path',
-                    body: blankAsUnknown(catalog.configPath),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      MetricCard(
-                        label: 'Workflows',
-                        value: '${catalog.workflows.length}',
-                        tone: accentColor,
-                        detail: 'Named runtime workflow definitions.',
-                      ),
-                      MetricCard(
-                        label: 'Nodes',
-                        value:
-                            '${catalog.workflows.fold<int>(0, (int total, HarnessWorkflowSummary workflow) => total + workflow.nodes.length)}',
-                        tone: infoColor,
-                        detail: 'Total nodes across `workflow.yaml`.',
-                      ),
-                      MetricCard(
-                        label: 'Rule sets',
-                        value:
-                            '${catalog.workflows.fold<int>(0, (int total, HarnessWorkflowSummary workflow) => total + workflow.ruleSets.length)}',
-                        tone: successColor,
-                        detail: 'Reusable policy rule set entries.',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  SubsectionTitle('Workflow catalog'),
-                  const SizedBox(height: 10),
-                  if (catalog.workflows.isEmpty)
-                    const InfoPanel(
-                      title: 'No workflows',
-                      body:
-                          'Workflow definitions will appear here after the harness workflow config loads them.',
-                    )
-                  else
-                    Column(
-                      children:
-                          catalog.workflows
-                              .map(
-                                (HarnessWorkflowSummary workflow) =>
-                                    _WorkflowListCard(
-                                      workflow: workflow,
-                                      selected:
-                                          workflow.name ==
-                                          (selectedWorkflow?.name ?? ''),
-                                      onTap: () {
-                                        setState(() {
-                                          _selectedWorkflowName = workflow.name;
-                                        });
-                                      },
-                                    ),
-                              )
-                              .expand(
-                                (Widget card) => <Widget>[
-                                  card,
-                                  const SizedBox(height: 10),
-                                ],
-                              )
-                              .toList()
-                            ..removeLast(),
-                    ),
-                  if (selectedWorkflow != null) ...[
-                    const SizedBox(height: 18),
-                    _WorkflowDetailSection(workflow: selectedWorkflow),
-                  ],
-                ],
-              ),
-            );
-
-            final editorPane = _HarnessDocumentEditor(
-              title: 'Workflow YAML',
-              controller: controller,
-              validation: validation,
-            );
-
-            if (stacked) {
-              return Column(
-                children: [
-                  Expanded(child: summaryPane),
-                  const SizedBox(height: 16),
-                  Expanded(child: editorPane),
-                ],
-              );
-            }
-            return Row(
-              children: [
-                Expanded(flex: 11, child: summaryPane),
-                const SizedBox(width: 16),
-                Expanded(flex: 10, child: editorPane),
-              ],
-            );
-          },
+        return HarnessWorkflowsWorkspace(
+          catalog: catalog,
+          controller: controller,
+          validation: validation,
         );
       },
-    );
-  }
-}
-
-class _WorkflowListCard extends StatelessWidget {
-  const _WorkflowListCard({
-    required this.workflow,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final HarnessWorkflowSummary workflow;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: selected ? panelRaisedColor : panelAltColor,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? accentColor : borderColor),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    workflow.name,
-                    style: const TextStyle(
-                      color: textPrimaryColor,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (selected)
-                  const Icon(Icons.check_circle, color: accentColor, size: 18),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              _joinNonEmpty(<String>[
-                workflow.startNode.isEmpty ? '' : 'start ${workflow.startNode}',
-                '${workflow.nodes.length} nodes',
-                workflow.ruleSets.isEmpty
-                    ? ''
-                    : '${workflow.ruleSets.length} rule set${workflow.ruleSets.length == 1 ? '' : 's'}',
-                workflow.maxTotalTransitions == 0
-                    ? ''
-                    : '${workflow.maxTotalTransitions} transitions',
-              ]),
-              style: const TextStyle(color: textMutedColor),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _WorkflowDetailSection extends StatelessWidget {
-  const _WorkflowDetailSection({required this.workflow});
-
-  final HarnessWorkflowSummary workflow;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SubsectionTitle('Workflow detail'),
-        const SizedBox(height: 10),
-        _CatalogKeyValueSection(
-          title: workflow.name,
-          rows: <MapEntry<String, String>>[
-            MapEntry('Start node', blankAsUnknown(workflow.startNode)),
-            MapEntry(
-              'Max visits per node',
-              workflow.maxVisitsPerNode == 0
-                  ? 'not set'
-                  : '${workflow.maxVisitsPerNode}',
-            ),
-            MapEntry(
-              'Max total transitions',
-              workflow.maxTotalTransitions == 0
-                  ? 'not set'
-                  : '${workflow.maxTotalTransitions}',
-            ),
-            MapEntry(
-              'Duplicate result cap',
-              workflow.duplicateResultCap == 0
-                  ? 'not set'
-                  : '${workflow.duplicateResultCap}',
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        if (workflow.ruleSets.isNotEmpty) ...[
-          _CatalogListSection(
-            title: 'Rule sets',
-            emptyTitle: 'No rule sets',
-            emptyBody: 'This workflow does not declare reusable rule sets.',
-            children: workflow.ruleSets
-                .map(
-                  (HarnessWorkflowRuleSetSummary ruleSet) => _ConfigSummaryCard(
-                    title: ruleSet.name,
-                    subtitle: _joinNonEmpty(<String>[
-                      ruleSet.sourceKind,
-                      ruleSet.basePath,
-                      ruleSet.patternCount == 0
-                          ? ''
-                          : '${ruleSet.patternCount} patterns',
-                      ruleSet.embeddedRuleCount == 0
-                          ? ''
-                          : '${ruleSet.embeddedRuleCount} embedded rules',
-                      ruleSet.knowledgeBaseName,
-                      ruleSet.knowledgeBaseVersion,
-                    ]),
-                    tags: <String>[
-                      if (ruleSet.sourceKind.isNotEmpty) ruleSet.sourceKind,
-                    ],
-                  ),
-                )
-                .toList(),
-          ),
-          const SizedBox(height: 18),
-        ],
-        SubsectionTitle('Transition graph'),
-        const SizedBox(height: 10),
-        _WorkflowTransitionGraph(workflow: workflow),
-        const SizedBox(height: 18),
-        _CatalogListSection(
-          title: 'Nodes',
-          emptyTitle: 'No nodes',
-          emptyBody: 'This workflow does not declare any nodes.',
-          children: workflow.nodes
-              .map(
-                (HarnessWorkflowNodeSummary node) =>
-                    _WorkflowNodeDetailCard(workflow: workflow, node: node),
-              )
-              .toList(),
-        ),
-      ],
-    );
-  }
-}
-
-class _WorkflowTransitionGraph extends StatelessWidget {
-  const _WorkflowTransitionGraph({required this.workflow});
-
-  final HarnessWorkflowSummary workflow;
-
-  @override
-  Widget build(BuildContext context) {
-    if (workflow.nodes.isEmpty) {
-      return const InfoPanel(
-        title: 'No graph',
-        body: 'Workflow graph data will appear after nodes are configured.',
-      );
-    }
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: panelAltColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor),
-      ),
-      child: Column(
-        children: workflow.nodes
-            .map(
-              (HarnessWorkflowNodeSummary node) => Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: panelColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: node.id == workflow.startNode
-                        ? accentColor
-                        : borderColor,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            node.id,
-                            style: const TextStyle(
-                              color: textPrimaryColor,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        StatusPill(
-                          label: node.kind.isEmpty ? 'node' : node.kind,
-                          color: node.kind == 'gate'
-                              ? warningColor
-                              : node.kind == 'finish'
-                              ? successColor
-                              : infoColor,
-                        ),
-                        if (node.id == workflow.startNode) ...[
-                          const SizedBox(width: 8),
-                          const StatusPill(label: 'start', color: accentColor),
-                        ],
-                      ],
-                    ),
-                    if (node.uses.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        node.uses,
-                        style: const TextStyle(color: textMutedColor),
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    if (node.transitions.targets().isEmpty)
-                      const Text(
-                        'No outgoing transitions.',
-                        style: TextStyle(color: textSubtleColor),
-                      )
-                    else
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: node.transitions
-                            .targets()
-                            .map(
-                              (MapEntry<String, String> target) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: panelRaisedColor,
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(color: borderColor),
-                                ),
-                                child: Text(
-                                  '${target.key} -> ${target.value}',
-                                  style: const TextStyle(
-                                    color: textPrimaryColor,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                  ],
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-}
-
-class _WorkflowNodeDetailCard extends StatelessWidget {
-  const _WorkflowNodeDetailCard({required this.workflow, required this.node});
-
-  final HarnessWorkflowSummary workflow;
-  final HarnessWorkflowNodeSummary node;
-
-  @override
-  Widget build(BuildContext context) {
-    final subtitle = _joinNonEmpty(<String>[
-      node.kind,
-      node.uses,
-      node.maxVisits == 0 ? '' : '${node.maxVisits} max visits',
-      node.maxFailures == 0 ? '' : '${node.maxFailures} max failures',
-      node.implementation ? 'implementation' : '',
-      node.producesGateDecision ? 'gate decision' : '',
-      node.promptInstructionCount == 0
-          ? ''
-          : '${node.promptInstructionCount} prompt instructions',
-      node.policyGateEnabled ? 'policy gate' : '',
-    ]);
-    final tags = <String>[
-      if (node.id == workflow.startNode) 'start',
-      ...node.withKeys.map((String key) => 'with:$key'),
-      ...node.requiresGates.map((String gate) => 'requires:$gate'),
-      ...node.includeNodeResults.map((String ref) => 'include:$ref'),
-      ...node.requiredToolCalls.map((String tool) => 'tool:$tool'),
-      ...node.policyGateFactBindings.map((String binding) => 'fact:$binding'),
-      ...node.policyGateRouteHints.map((String hint) => 'route:$hint'),
-    ];
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: panelAltColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            node.id,
-            style: const TextStyle(
-              color: textPrimaryColor,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (subtitle.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(subtitle, style: const TextStyle(color: textMutedColor)),
-          ],
-          if (tags.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: tags
-                  .map(
-                    (String value) =>
-                        StatusPill(label: value, color: infoColor),
-                  )
-                  .toList(),
-            ),
-          ],
-          const SizedBox(height: 12),
-          _WorkflowNodeFieldSet(
-            title: 'Transitions',
-            values: node.transitions
-                .targets()
-                .map(
-                  (MapEntry<String, String> target) =>
-                      '${target.key} -> ${target.value}',
-                )
-                .toList(),
-          ),
-          if (node.requiredInputKeys.isNotEmpty ||
-              node.optionalInputKeys.isNotEmpty ||
-              node.requiredDataKeys.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _WorkflowNodeFieldSet(
-              title: 'Contracts',
-              values: <String>[
-                ...node.requiredInputKeys.map(
-                  (String key) => 'input required:$key',
-                ),
-                ...node.optionalInputKeys.map(
-                  (String key) => 'input optional:$key',
-                ),
-                ...node.requiredDataKeys.map(
-                  (String key) => 'output required:$key',
-                ),
-              ],
-            ),
-          ],
-          if (node.inputMappings.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _WorkflowNodeFieldSet(
-              title: 'Input mappings',
-              values: node.inputMappings
-                  .map(
-                    (HarnessWorkflowInputMapSummary mapping) =>
-                        _joinNonEmpty(<String>[
-                          mapping.fromNode,
-                          mapping.outputKey.isEmpty
-                              ? ''
-                              : 'output ${mapping.outputKey}',
-                          mapping.inputKey.isEmpty
-                              ? ''
-                              : 'input ${mapping.inputKey}',
-                          mapping.required ? 'required' : '',
-                          mapping.overwrite ? 'overwrite' : '',
-                        ]),
-                  )
-                  .toList(),
-            ),
-          ],
-          if (node.gatePassStatuses.isNotEmpty ||
-              node.gateFailStatuses.isNotEmpty ||
-              node.gatePassExitCodes.isNotEmpty ||
-              node.gateFailExitCodes.isNotEmpty ||
-              node.treatRetryableAsFail) ...[
-            const SizedBox(height: 12),
-            _WorkflowNodeFieldSet(
-              title: 'Gate policy',
-              values: <String>[
-                if (node.gatePassStatuses.isNotEmpty)
-                  'pass statuses: ${node.gatePassStatuses.join(', ')}',
-                if (node.gateFailStatuses.isNotEmpty)
-                  'fail statuses: ${node.gateFailStatuses.join(', ')}',
-                if (node.gatePassExitCodes.isNotEmpty)
-                  'pass exit codes: ${node.gatePassExitCodes.join(', ')}',
-                if (node.gateFailExitCodes.isNotEmpty)
-                  'fail exit codes: ${node.gateFailExitCodes.join(', ')}',
-                if (node.treatRetryableAsFail) 'retryable => fail',
-              ],
-            ),
-          ],
-          if (node.policyGateEnabled ||
-              node.policyGateRuleSet.isNotEmpty ||
-              node.policyGateOnEvalError.isNotEmpty ||
-              node.policyGateMergeFindings.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _WorkflowNodeFieldSet(
-              title: 'Policy gate',
-              values: <String>[
-                if (node.policyGateEnabled) 'enabled',
-                if (node.policyGateRuleSet.isNotEmpty)
-                  'rule set: ${node.policyGateRuleSet}',
-                if (node.policyGateOnEvalError.isNotEmpty)
-                  'on evaluation error: ${node.policyGateOnEvalError}',
-                if (node.policyGateMergeFindings.isNotEmpty)
-                  'merge findings: ${node.policyGateMergeFindings}',
-                if (node.policyGateOverrideStatus) 'override gate status',
-              ],
-            ),
-          ],
-          if (node.requiredChangedFiles.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _WorkflowNodeFieldSet(
-              title: 'Completion contract',
-              values: node.requiredChangedFiles
-                  .map((String pattern) => 'changed file: $pattern')
-                  .toList(),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _WorkflowNodeFieldSet extends StatelessWidget {
-  const _WorkflowNodeFieldSet({required this.title, required this.values});
-
-  final String title;
-  final List<String> values;
-
-  @override
-  Widget build(BuildContext context) {
-    final filtered = values
-        .map((String value) => value.trim())
-        .where((String value) => value.isNotEmpty)
-        .toList();
-    if (filtered.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: textPrimaryColor,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: filtered
-              .map(
-                (String value) => StatusPill(label: value, color: warningColor),
-              )
-              .toList(),
-        ),
-      ],
     );
   }
 }

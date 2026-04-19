@@ -267,16 +267,16 @@ class ControlPlaneTenantDetailCard extends StatelessWidget {
                 'Run history days: ${tenant!.runHistoryDays}\nArtifact days: ${tenant!.artifactDays}\nAudit log days: ${tenant!.auditLogDays}',
           ),
           const SizedBox(height: 12),
-          TextFormField(
+          AppTextFormField(
+            label: 'Disable actor ID',
             controller: actorController,
-            decoration: const InputDecoration(labelText: 'Disable actor ID'),
           ),
           const SizedBox(height: 10),
-          TextFormField(
+          AppTextFormField(
+            label: 'Disable reason',
             controller: reasonController,
             minLines: 2,
             maxLines: 3,
-            decoration: const InputDecoration(labelText: 'Disable reason'),
           ),
           if (actionError != null) ...<Widget>[
             const SizedBox(height: 10),
@@ -355,16 +355,16 @@ class ControlPlaneAgentDetailCard extends StatelessWidget {
             tags: agent!.integrationBindings,
           ),
           const SizedBox(height: 12),
-          TextFormField(
+          AppTextFormField(
+            label: 'Disable actor ID',
             controller: actorController,
-            decoration: const InputDecoration(labelText: 'Disable actor ID'),
           ),
           const SizedBox(height: 10),
-          TextFormField(
+          AppTextFormField(
+            label: 'Disable reason',
             controller: reasonController,
             minLines: 2,
             maxLines: 3,
-            decoration: const InputDecoration(labelText: 'Disable reason'),
           ),
           if (actionError != null) ...<Widget>[
             const SizedBox(height: 10),
@@ -462,36 +462,30 @@ class ControlPlaneInstallationDetailCard extends StatelessWidget {
                 'Linked routes: ${detail?.routeHealth.linkedRouteCount ?? 0}\nUnhealthy routes: ${detail?.routeHealth.unhealthyRouteCount ?? 0}\nMapped agent: ${blankAsUnknown(detail?.mappedAgent?.agentId ?? installation.mappedDefaultAgentId)}\nMapped agent onboarding: ${blankAsUnknown(detail?.routeHealth.mappedAgentOnboarding ?? '')}',
           ),
           const SizedBox(height: 12),
-          TextFormField(
+          AppTextFormField(
+            label: 'Actor ID',
             controller: actorController,
-            decoration: const InputDecoration(labelText: 'Actor ID'),
           ),
           const SizedBox(height: 10),
-          TextFormField(
+          AppTextFormField(
+            label: 'Allowed channel IDs (comma separated)',
             controller: channelsController,
             minLines: 2,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Allowed channel IDs (comma separated)',
-            ),
           ),
           const SizedBox(height: 10),
-          TextFormField(
+          AppTextFormField(
+            label: 'Allowed external user IDs (comma separated)',
             controller: usersController,
             minLines: 2,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Allowed external user IDs (comma separated)',
-            ),
           ),
           const SizedBox(height: 10),
-          TextFormField(
+          AppTextFormField(
+            label: 'Allowed agent IDs (comma separated)',
             controller: agentsController,
             minLines: 2,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Allowed agent IDs (comma separated)',
-            ),
           ),
           if (actionError != null) ...<Widget>[
             const SizedBox(height: 10),

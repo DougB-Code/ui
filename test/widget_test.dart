@@ -43,11 +43,10 @@ void main() {
     expect(find.text('Artifacts'), findsWidgets);
     expect(find.text('Audits'), findsWidgets);
     expect(find.text('Control Plane'), findsWidgets);
-    expect(find.text('Harness Agents'), findsWidgets);
-    expect(find.text('Harness Tools'), findsWidgets);
-    expect(find.text('Harness Workflows'), findsWidgets);
+    expect(find.text('Agents'), findsWidgets);
+    expect(find.text('Tools'), findsWidgets);
+    expect(find.text('Workflows'), findsWidgets);
     expect(find.text('Providers'), findsWidgets);
-    expect(find.text('Live API'), findsOneWidget);
     expect(find.text('Agent Awesome'), findsNothing);
     expect(find.text('Beta operator console'), findsNothing);
     expect(find.byKey(_appRailLogoKey), findsOneWidget);
@@ -61,24 +60,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('openai-prod'), findsWidgets);
-    expect(find.text('Provider editor'), findsOneWidget);
 
-    await tester.tap(find.text('Harness Agents').first);
+    await tester.tap(find.text('Agents').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Agent YAML'), findsOneWidget);
+    expect(find.text('Agent catalog'), findsWidgets);
     expect(find.text('lead'), findsWidgets);
 
-    await tester.tap(find.text('Harness Tools').first);
+    await tester.tap(find.text('Tools').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Tool YAML'), findsOneWidget);
-    expect(find.text('workspace_read_tools'), findsWidgets);
+    expect(find.text('github'), findsWidgets);
 
-    await tester.tap(find.text('Harness Workflows').first);
+    await tester.tap(find.text('Workflows').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Workflow YAML'), findsOneWidget);
     expect(find.text('chat_turn'), findsWidgets);
 
     await tester.tap(find.text('Runs').first);
@@ -189,7 +185,9 @@ void main() {
       expect(providerApi.lastPreviewAlias, 'openai-prod');
 
       await tester.enterText(
-        find.byKey(const ValueKey<String>('provider-alias-openai-prod-false')),
+        find.byKey(
+          const ValueKey<String>('provider-general-name-openai-prod-false'),
+        ),
         'renamed-prod',
       );
       await tester.pump(const Duration(milliseconds: 350));
@@ -285,25 +283,49 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
       externalTools: <HarnessExternalToolSummary>[
         HarnessExternalToolSummary(
           name: 'patch',
-          enabled: true,
-          trusted: true,
-          toolClass: 'write',
-          location: 'filesystem',
+          inputSchema: <String, dynamic>{
+            'type': 'object',
+            'properties': <String, dynamic>{
+              'patch': <String, dynamic>{'type': 'string'},
+            },
+          },
+          filesystem: 'write',
+          network: false,
+          idempotent: false,
+          timeoutSeconds: 60,
           command: <String>['patch'],
-          platformOverrideCount: 0,
+          args: <String>['apply'],
+          workingDir: '',
+          env: <String, String>{},
+          inheritEnv: false,
+          stdinMode: '',
+          tempFiles: <HarnessExternalToolTempFile>[],
+          outputFormat: 'text',
+          platforms: <String, HarnessExternalToolPlatformSummary>{},
         ),
       ],
       mcpServers: <HarnessMcpServerSummary>[
         HarnessMcpServerSummary(
           name: 'github',
-          enabled: true,
-          trusted: true,
           lifecycle: 'persistent',
           transport: 'stdio',
           url: '',
+          healthcheckUrl: '',
           command: <String>['github-mcp'],
+          args: <String>[],
+          workingDir: '',
+          env: <String, String>{},
+          inheritEnv: false,
+          timeoutSeconds: 30,
+          startupTimeoutSeconds: 30,
+          shutdownTimeoutSeconds: 15,
           toolNamePrefix: 'github',
-          platformOverrideCount: 0,
+          includeTools: <String>[],
+          excludeTools: <String>[],
+          filesystem: '',
+          network: true,
+          idempotent: false,
+          platforms: <String, HarnessMcpServerPlatformSummary>{},
         ),
       ],
     );
@@ -338,6 +360,13 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
       externalTools: catalog.externalTools,
       mcpServers: catalog.mcpServers,
     );
+  }
+
+  @override
+  Future<HarnessToolCatalog> saveToolsCatalog(
+    HarnessToolCatalog catalog,
+  ) async {
+    return catalog;
   }
 
   @override
@@ -460,9 +489,7 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
       leadAgent: 'lead',
       workflowCount: 0,
       externalToolCount: 0,
-      enabledExternalToolCount: 0,
       mcpServerCount: 0,
-      enabledMcpServerCount: 0,
       toolPlatform: '',
       availableExternalTools: <String>[],
       unavailableExternalTools: <String>[],
@@ -491,9 +518,7 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
       leadAgent: '',
       workflowCount: 0,
       externalToolCount: 1,
-      enabledExternalToolCount: 1,
       mcpServerCount: 1,
-      enabledMcpServerCount: 1,
       toolPlatform: 'linux',
       availableExternalTools: <String>['patch'],
       unavailableExternalTools: <String>[],
@@ -522,9 +547,7 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
       leadAgent: 'lead',
       workflowCount: 1,
       externalToolCount: 0,
-      enabledExternalToolCount: 0,
       mcpServerCount: 0,
-      enabledMcpServerCount: 0,
       toolPlatform: '',
       availableExternalTools: <String>[],
       unavailableExternalTools: <String>[],
@@ -533,6 +556,13 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
       unavailableMcpServers: <String>[],
       mcpServerErrors: <String, String>{},
     );
+  }
+
+  @override
+  Future<HarnessConfigValidationReport> validateToolsCatalog(
+    HarnessToolCatalog catalog,
+  ) {
+    return validateTools(catalog.yaml);
   }
 }
 

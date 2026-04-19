@@ -3,7 +3,7 @@ import 'package:ui/operations/operations_api.dart';
 import 'package:ui/shared/ui.dart';
 
 class SummaryPage extends StatefulWidget {
-  const SummaryPage({required this.operationsApi});
+  const SummaryPage({super.key, required this.operationsApi});
 
   final OperationsApi operationsApi;
 
@@ -215,7 +215,7 @@ class _SummaryPageState extends State<SummaryPage> {
 }
 
 class ApprovalsPage extends StatefulWidget {
-  const ApprovalsPage({required this.operationsApi});
+  const ApprovalsPage({super.key, required this.operationsApi});
 
   final OperationsApi operationsApi;
 
@@ -379,16 +379,16 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                 children: [
                   SizedBox(
                     width: 180,
-                    child: TextFormField(
+                    child: AppTextFormField(
+                      label: 'Tenant',
                       controller: _tenantController,
-                      decoration: const InputDecoration(labelText: 'Tenant'),
                     ),
                   ),
                   SizedBox(
                     width: 180,
-                    child: TextFormField(
+                    child: AppTextFormField(
+                      label: 'Agent',
                       controller: _agentController,
-                      decoration: const InputDecoration(labelText: 'Agent'),
                     ),
                   ),
                   FilledButton(
@@ -528,7 +528,11 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
 }
 
 class RunsPage extends StatefulWidget {
-  const RunsPage({required this.operationsApi, required this.initialRunId});
+  const RunsPage({
+    super.key,
+    required this.operationsApi,
+    required this.initialRunId,
+  });
 
   final OperationsApi operationsApi;
   final String? initialRunId;
@@ -869,107 +873,68 @@ class _RunListPane extends StatelessWidget {
             children: [
               SizedBox(
                 width: 160,
-                child: TextFormField(
-                  key: ValueKey<String>('tenant-$tenantFilter'),
+                child: AppTextFormField(
+                  label: 'Tenant',
+                  fieldKey: ValueKey<String>('tenant-$tenantFilter'),
                   initialValue: tenantFilter,
                   onChanged: onTenantFilterChanged,
-                  decoration: const InputDecoration(labelText: 'Tenant'),
                 ),
               ),
               SizedBox(
                 width: 160,
-                child: TextFormField(
-                  key: ValueKey<String>('agent-$agentFilter'),
+                child: AppTextFormField(
+                  label: 'Agent',
+                  fieldKey: ValueKey<String>('agent-$agentFilter'),
                   initialValue: agentFilter,
                   onChanged: onAgentFilterChanged,
-                  decoration: const InputDecoration(labelText: 'Agent'),
                 ),
               ),
               SizedBox(
                 width: 160,
-                child: TextFormField(
-                  key: ValueKey<String>('actor-$actorFilter'),
+                child: AppTextFormField(
+                  label: 'Actor',
+                  fieldKey: ValueKey<String>('actor-$actorFilter'),
                   initialValue: actorFilter,
                   onChanged: onActorFilterChanged,
-                  decoration: const InputDecoration(labelText: 'Actor'),
                 ),
               ),
               SizedBox(
                 width: 160,
-                child: DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  initialValue: statusFilter.isEmpty ? '' : statusFilter,
-                  items: const <DropdownMenuItem<String>>[
-                    DropdownMenuItem<String>(
-                      value: '',
-                      child: Text('All statuses'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'queued',
-                      child: Text('queued'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'running',
-                      child: Text('running'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'waiting_approval',
-                      child: Text('waiting_approval'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'waiting_user',
-                      child: Text('waiting_user'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'blocked',
-                      child: Text('blocked'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'completed',
-                      child: Text('completed'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'failed',
-                      child: Text('failed'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'cancelled',
-                      child: Text('cancelled'),
-                    ),
+                child: AppDropdownField<String>(
+                  label: 'Status',
+                  value: statusFilter.isEmpty ? '' : statusFilter,
+                  options: const <String>[
+                    '',
+                    'queued',
+                    'running',
+                    'waiting_approval',
+                    'waiting_user',
+                    'blocked',
+                    'completed',
+                    'failed',
+                    'cancelled',
                   ],
+                  labelBuilder: (String value) =>
+                      value.isEmpty ? 'All statuses' : value,
                   onChanged: (String? value) =>
                       onStatusFilterChanged(value ?? ''),
-                  decoration: const InputDecoration(labelText: 'Status'),
                 ),
               ),
               SizedBox(
                 width: 170,
-                child: DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  initialValue: invocationFilter.isEmpty
-                      ? ''
-                      : invocationFilter,
-                  items: const <DropdownMenuItem<String>>[
-                    DropdownMenuItem<String>(
-                      value: '',
-                      child: Text('All modes'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'direct_task',
-                      child: Text('direct_task'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'conversation_turn',
-                      child: Text('conversation_turn'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'trigger',
-                      child: Text('trigger'),
-                    ),
+                child: AppDropdownField<String>(
+                  label: 'Invocation',
+                  value: invocationFilter.isEmpty ? '' : invocationFilter,
+                  options: const <String>[
+                    '',
+                    'direct_task',
+                    'conversation_turn',
+                    'trigger',
                   ],
+                  labelBuilder: (String value) =>
+                      value.isEmpty ? 'All modes' : value,
                   onChanged: (String? value) =>
                       onInvocationFilterChanged(value ?? ''),
-                  decoration: const InputDecoration(labelText: 'Invocation'),
                 ),
               ),
             ],
@@ -1152,8 +1117,6 @@ class _RunDetailPane extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
-              const SizedBox(width: 10),
-              StatusPill(label: run!.status, color: statusColor(run!.status)),
             ],
           ),
           const SizedBox(height: 14),
@@ -1344,16 +1307,6 @@ class _HarnessExecutionStatePanel extends StatelessWidget {
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                   ),
-                ),
-              ),
-              StatusPill(
-                label: session?.status.isNotEmpty == true
-                    ? session!.status
-                    : state!.runStatus,
-                color: statusColor(
-                  session?.status.isNotEmpty == true
-                      ? _normalizedHarnessStatus(session!.status)
-                      : state!.runStatus,
                 ),
               ),
             ],
@@ -1711,16 +1664,16 @@ class _TenantRunFilteredRecordsPageState<T>
             children: [
               SizedBox(
                 width: 260,
-                child: TextFormField(
+                child: AppTextFormField(
+                  label: 'Tenant ID',
                   controller: _tenantController,
-                  decoration: const InputDecoration(labelText: 'Tenant ID'),
                 ),
               ),
               SizedBox(
                 width: 260,
-                child: TextFormField(
+                child: AppTextFormField(
+                  label: 'Run ID',
                   controller: _runController,
-                  decoration: const InputDecoration(labelText: 'Run ID'),
                 ),
               ),
               FilledButton.icon(
@@ -1810,14 +1763,6 @@ class _ApprovalPanel extends StatelessWidget {
                   ),
                 ),
               ),
-              StatusPill(
-                label: approval!.decision,
-                color: approval!.decision == 'approved'
-                    ? successColor
-                    : approval!.decision == 'rejected'
-                    ? dangerColor
-                    : warningColor,
-              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -1827,16 +1772,16 @@ class _ApprovalPanel extends StatelessWidget {
           ),
           if (approval!.decision == 'pending') ...<Widget>[
             const SizedBox(height: 12),
-            TextFormField(
+            AppTextFormField(
+              label: 'Approver ID',
               controller: approverController,
-              decoration: const InputDecoration(labelText: 'Approver ID'),
             ),
             const SizedBox(height: 10),
-            TextFormField(
+            AppTextFormField(
+              label: 'Resolution note',
               controller: approvalReasonController,
               minLines: 2,
               maxLines: 3,
-              decoration: const InputDecoration(labelText: 'Resolution note'),
             ),
             if (approvalError != null) ...<Widget>[
               const SizedBox(height: 10),

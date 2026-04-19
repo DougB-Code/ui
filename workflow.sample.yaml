@@ -10,7 +10,7 @@ workflows:
     nodes:
       - id: "reply"
         kind: "task"
-        uses: "chat_responder"
+        runs: "chat_responder"
         prompt:
           instructions:
             - "Reply directly to the user's message in a natural conversational tone."
@@ -36,8 +36,8 @@ workflows:
     duplicate_result_cap: 1
     nodes:
       - id: "review_request"
-        kind: "gate"
-        uses: "reviewer"
+        kind: "check"
+        runs: "reviewer"
         prompt:
           instructions:
             - "Review the task for clarity, scope safety, and handoff readiness."
@@ -47,8 +47,8 @@ workflows:
           task: "Review the governed task request and decide whether it is safe to proceed."
           expected_output: "Structured result with gate_status, summary, findings, and required_remediation when blocked."
         output_contract:
-          produces_gate_decision: true
-        gate_policy:
+          produces_check_decision: true
+        check_policy:
           pass_statuses: ["pass", "passed", "success", "ok"]
           fail_statuses: ["fail", "failed", "failure", "blocked", "needs_clarification"]
         transitions:
@@ -69,7 +69,7 @@ workflows:
     nodes:
       - id: "plan_change"
         kind: "task"
-        uses: "reviewer"
+        runs: "reviewer"
         prompt:
           instructions:
             - "Produce a concise implementation plan before any write step runs."
@@ -85,7 +85,7 @@ workflows:
 
       - id: "implement_change"
         kind: "task"
-        uses: "implementer"
+        runs: "implementer"
         include_node_results: ["plan_change"]
         prompt:
           instructions:
@@ -101,8 +101,8 @@ workflows:
           failure: "finish"
 
       - id: "validate_change"
-        kind: "gate"
-        uses: "reviewer"
+        kind: "check"
+        runs: "reviewer"
         include_node_results: ["plan_change", "implement_change"]
         prompt:
           instructions:
@@ -112,8 +112,8 @@ workflows:
           task: "Review the implemented change and decide whether it is ready for handoff."
           expected_output: "Structured result with gate_status, summary, findings, and required_remediation when failing."
         output_contract:
-          produces_gate_decision: true
-        gate_policy:
+          produces_check_decision: true
+        check_policy:
           pass_statuses: ["pass", "passed", "success", "ok"]
           fail_statuses: ["fail", "failed", "failure", "blocked"]
         transitions:
@@ -133,8 +133,8 @@ workflows:
     duplicate_result_cap: 1
     nodes:
       - id: "validate_outputs"
-        kind: "gate"
-        uses: "reviewer"
+        kind: "check"
+        runs: "reviewer"
         prompt:
           instructions:
             - "Confirm the run has produced enough evidence, artifacts, and summary detail for handoff."
@@ -143,8 +143,8 @@ workflows:
           task: "Validate that the task output is ready for operator handoff."
           expected_output: "Structured result with gate_status, summary, artifact_manifest, and any required remediation."
         output_contract:
-          produces_gate_decision: true
-        gate_policy:
+          produces_check_decision: true
+        check_policy:
           pass_statuses: ["pass", "passed", "success", "ok"]
           fail_statuses: ["fail", "failed", "failure", "blocked"]
         transitions:
@@ -154,7 +154,7 @@ workflows:
 
       - id: "package_handoff"
         kind: "task"
-        uses: "lead"
+        runs: "lead"
         include_node_results: ["validate_outputs"]
         prompt:
           instructions:

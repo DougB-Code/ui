@@ -1,6 +1,20 @@
 import 'package:http/http.dart' as http;
 import 'package:ui/shared/admin_http_client.dart';
 
+List<String> _stringList(dynamic value) {
+  return (value as List<dynamic>? ?? const <dynamic>[])
+      .map((dynamic item) => item.toString().trim())
+      .where((String item) => item.isNotEmpty)
+      .toList();
+}
+
+Map<String, String> _stringMap(dynamic value) {
+  return (value as Map<String, dynamic>? ?? const <String, dynamic>{}).map(
+    (String key, dynamic entry) =>
+        MapEntry<String, String>(key.trim(), entry.toString().trim()),
+  )..removeWhere((String key, String entry) => key.isEmpty || entry.isEmpty);
+}
+
 class HarnessAgentTemplateSummary {
   HarnessAgentTemplateSummary({
     required this.name,
@@ -146,82 +160,379 @@ class HarnessToolGroupSummary {
 
   final String name;
   final List<String> tools;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{'name': name, 'tools': tools};
+  }
+}
+
+class HarnessExternalToolTempFile {
+  HarnessExternalToolTempFile({
+    required this.name,
+    required this.inputKey,
+    required this.format,
+    required this.suffix,
+    required this.required,
+  });
+
+  factory HarnessExternalToolTempFile.fromJson(Map<String, dynamic> json) {
+    return HarnessExternalToolTempFile(
+      name: (json['name'] as String? ?? '').trim(),
+      inputKey: (json['input_key'] as String? ?? '').trim(),
+      format: (json['format'] as String? ?? '').trim(),
+      suffix: (json['suffix'] as String? ?? '').trim(),
+      required: json['required'] as bool? ?? false,
+    );
+  }
+
+  final String name;
+  final String inputKey;
+  final String format;
+  final String suffix;
+  final bool required;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'name': name,
+      'input_key': inputKey,
+      'format': format,
+      'suffix': suffix,
+      'required': required,
+    };
+  }
+}
+
+class HarnessExternalToolPlatformSummary {
+  HarnessExternalToolPlatformSummary({
+    required this.timeoutSeconds,
+    required this.command,
+    required this.args,
+    required this.workingDir,
+    required this.env,
+    required this.stdinMode,
+    required this.tempFiles,
+    required this.outputFormat,
+  });
+
+  factory HarnessExternalToolPlatformSummary.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return HarnessExternalToolPlatformSummary(
+      timeoutSeconds: json['timeout_seconds'] as int? ?? 0,
+      command: _stringList(json['command']),
+      args: _stringList(json['args']),
+      workingDir: (json['working_dir'] as String? ?? '').trim(),
+      env: _stringMap(json['env']),
+      stdinMode: (json['stdin_mode'] as String? ?? '').trim(),
+      tempFiles: (json['temp_files'] as List<dynamic>? ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(HarnessExternalToolTempFile.fromJson)
+          .toList(),
+      outputFormat: (json['output_format'] as String? ?? '').trim(),
+    );
+  }
+
+  final int timeoutSeconds;
+  final List<String> command;
+  final List<String> args;
+  final String workingDir;
+  final Map<String, String> env;
+  final String stdinMode;
+  final List<HarnessExternalToolTempFile> tempFiles;
+  final String outputFormat;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      if (timeoutSeconds != 0) 'timeout_seconds': timeoutSeconds,
+      if (command.isNotEmpty) 'command': command,
+      if (args.isNotEmpty) 'args': args,
+      if (workingDir.isNotEmpty) 'working_dir': workingDir,
+      if (env.isNotEmpty) 'env': env,
+      if (stdinMode.isNotEmpty) 'stdin_mode': stdinMode,
+      if (tempFiles.isNotEmpty)
+        'temp_files': tempFiles
+            .map((HarnessExternalToolTempFile value) => value.toJson())
+            .toList(),
+      if (outputFormat.isNotEmpty) 'output_format': outputFormat,
+    };
+  }
 }
 
 class HarnessExternalToolSummary {
   HarnessExternalToolSummary({
     required this.name,
-    required this.enabled,
-    required this.trusted,
-    required this.toolClass,
-    required this.location,
+    required this.inputSchema,
+    required this.filesystem,
+    required this.network,
+    required this.idempotent,
+    required this.timeoutSeconds,
     required this.command,
-    required this.platformOverrideCount,
+    required this.args,
+    required this.workingDir,
+    required this.env,
+    required this.inheritEnv,
+    required this.stdinMode,
+    required this.tempFiles,
+    required this.outputFormat,
+    required this.platforms,
   });
 
   factory HarnessExternalToolSummary.fromJson(Map<String, dynamic> json) {
     return HarnessExternalToolSummary(
       name: (json['name'] as String? ?? '').trim(),
-      enabled: json['enabled'] as bool? ?? false,
-      trusted: json['trusted'] as bool? ?? false,
-      toolClass: (json['class'] as String? ?? '').trim(),
-      location: (json['location'] as String? ?? '').trim(),
-      command: (json['command'] as List<dynamic>? ?? const <dynamic>[])
-          .map((dynamic value) => value.toString().trim())
-          .where((String value) => value.isNotEmpty)
+      inputSchema:
+          (json['input_schema'] as Map<String, dynamic>? ?? <String, dynamic>{})
+              .map(
+                (String key, dynamic value) =>
+                    MapEntry<String, dynamic>(key.trim(), value),
+              ),
+      filesystem: (json['filesystem'] as String? ?? '').trim(),
+      network: json['network'] as bool? ?? false,
+      idempotent: json['idempotent'] as bool? ?? false,
+      timeoutSeconds: json['timeout_seconds'] as int? ?? 0,
+      command: _stringList(json['command']),
+      args: _stringList(json['args']),
+      workingDir: (json['working_dir'] as String? ?? '').trim(),
+      env: _stringMap(json['env']),
+      inheritEnv: json['inherit_env'] as bool? ?? false,
+      stdinMode: (json['stdin_mode'] as String? ?? '').trim(),
+      tempFiles: (json['temp_files'] as List<dynamic>? ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(HarnessExternalToolTempFile.fromJson)
           .toList(),
-      platformOverrideCount: json['platform_override_count'] as int? ?? 0,
+      outputFormat: (json['output_format'] as String? ?? '').trim(),
+      platforms:
+          (json['platforms'] as Map<String, dynamic>? ?? <String, dynamic>{})
+              .map(
+                (String key, dynamic value) => MapEntry(
+                  key.trim(),
+                  HarnessExternalToolPlatformSummary.fromJson(
+                    value as Map<String, dynamic>? ?? <String, dynamic>{},
+                  ),
+                ),
+              ),
     );
   }
 
   final String name;
-  final bool enabled;
-  final bool trusted;
-  final String toolClass;
-  final String location;
+  final Map<String, dynamic> inputSchema;
+  final String filesystem;
+  final bool network;
+  final bool idempotent;
+  final int timeoutSeconds;
   final List<String> command;
-  final int platformOverrideCount;
+  final List<String> args;
+  final String workingDir;
+  final Map<String, String> env;
+  final bool inheritEnv;
+  final String stdinMode;
+  final List<HarnessExternalToolTempFile> tempFiles;
+  final String outputFormat;
+  final Map<String, HarnessExternalToolPlatformSummary> platforms;
+
+  int get platformOverrideCount => platforms.length;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'name': name,
+      if (inputSchema.isNotEmpty) 'input_schema': inputSchema,
+      if (filesystem.isNotEmpty) 'filesystem': filesystem,
+      if (network) 'network': network,
+      if (idempotent) 'idempotent': idempotent,
+      if (timeoutSeconds != 0) 'timeout_seconds': timeoutSeconds,
+      if (command.isNotEmpty) 'command': command,
+      if (args.isNotEmpty) 'args': args,
+      if (workingDir.isNotEmpty) 'working_dir': workingDir,
+      if (env.isNotEmpty) 'env': env,
+      if (inheritEnv) 'inherit_env': inheritEnv,
+      if (stdinMode.isNotEmpty) 'stdin_mode': stdinMode,
+      if (tempFiles.isNotEmpty)
+        'temp_files': tempFiles
+            .map((HarnessExternalToolTempFile value) => value.toJson())
+            .toList(),
+      if (outputFormat.isNotEmpty) 'output_format': outputFormat,
+      if (platforms.isNotEmpty)
+        'platforms': platforms.map(
+          (String key, HarnessExternalToolPlatformSummary value) =>
+              MapEntry<String, dynamic>(key, value.toJson()),
+        ),
+    };
+  }
+}
+
+class HarnessMcpServerPlatformSummary {
+  HarnessMcpServerPlatformSummary({
+    required this.lifecycle,
+    required this.transport,
+    required this.url,
+    required this.healthcheckUrl,
+    required this.command,
+    required this.args,
+    required this.workingDir,
+    required this.env,
+    required this.timeoutSeconds,
+    required this.startupTimeoutSeconds,
+    required this.shutdownTimeoutSeconds,
+  });
+
+  factory HarnessMcpServerPlatformSummary.fromJson(Map<String, dynamic> json) {
+    return HarnessMcpServerPlatformSummary(
+      lifecycle: (json['lifecycle'] as String? ?? '').trim(),
+      transport: (json['transport'] as String? ?? '').trim(),
+      url: (json['url'] as String? ?? '').trim(),
+      healthcheckUrl: (json['healthcheck_url'] as String? ?? '').trim(),
+      command: _stringList(json['command']),
+      args: _stringList(json['args']),
+      workingDir: (json['working_dir'] as String? ?? '').trim(),
+      env: _stringMap(json['env']),
+      timeoutSeconds: json['timeout_seconds'] as int? ?? 0,
+      startupTimeoutSeconds: json['startup_timeout_seconds'] as int? ?? 0,
+      shutdownTimeoutSeconds: json['shutdown_timeout_seconds'] as int? ?? 0,
+    );
+  }
+
+  final String lifecycle;
+  final String transport;
+  final String url;
+  final String healthcheckUrl;
+  final List<String> command;
+  final List<String> args;
+  final String workingDir;
+  final Map<String, String> env;
+  final int timeoutSeconds;
+  final int startupTimeoutSeconds;
+  final int shutdownTimeoutSeconds;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      if (lifecycle.isNotEmpty) 'lifecycle': lifecycle,
+      if (transport.isNotEmpty) 'transport': transport,
+      if (url.isNotEmpty) 'url': url,
+      if (healthcheckUrl.isNotEmpty) 'healthcheck_url': healthcheckUrl,
+      if (command.isNotEmpty) 'command': command,
+      if (args.isNotEmpty) 'args': args,
+      if (workingDir.isNotEmpty) 'working_dir': workingDir,
+      if (env.isNotEmpty) 'env': env,
+      if (timeoutSeconds != 0) 'timeout_seconds': timeoutSeconds,
+      if (startupTimeoutSeconds != 0)
+        'startup_timeout_seconds': startupTimeoutSeconds,
+      if (shutdownTimeoutSeconds != 0)
+        'shutdown_timeout_seconds': shutdownTimeoutSeconds,
+    };
+  }
 }
 
 class HarnessMcpServerSummary {
   HarnessMcpServerSummary({
     required this.name,
-    required this.enabled,
-    required this.trusted,
     required this.lifecycle,
     required this.transport,
     required this.url,
+    required this.healthcheckUrl,
     required this.command,
+    required this.args,
+    required this.workingDir,
+    required this.env,
+    required this.inheritEnv,
+    required this.timeoutSeconds,
+    required this.startupTimeoutSeconds,
+    required this.shutdownTimeoutSeconds,
     required this.toolNamePrefix,
-    required this.platformOverrideCount,
+    required this.includeTools,
+    required this.excludeTools,
+    required this.filesystem,
+    required this.network,
+    required this.idempotent,
+    required this.platforms,
   });
 
   factory HarnessMcpServerSummary.fromJson(Map<String, dynamic> json) {
     return HarnessMcpServerSummary(
       name: (json['name'] as String? ?? '').trim(),
-      enabled: json['enabled'] as bool? ?? false,
-      trusted: json['trusted'] as bool? ?? false,
       lifecycle: (json['lifecycle'] as String? ?? '').trim(),
       transport: (json['transport'] as String? ?? '').trim(),
       url: (json['url'] as String? ?? '').trim(),
-      command: (json['command'] as List<dynamic>? ?? const <dynamic>[])
-          .map((dynamic value) => value.toString().trim())
-          .where((String value) => value.isNotEmpty)
-          .toList(),
+      healthcheckUrl: (json['healthcheck_url'] as String? ?? '').trim(),
+      command: _stringList(json['command']),
+      args: _stringList(json['args']),
+      workingDir: (json['working_dir'] as String? ?? '').trim(),
+      env: _stringMap(json['env']),
+      inheritEnv: json['inherit_env'] as bool? ?? false,
+      timeoutSeconds: json['timeout_seconds'] as int? ?? 0,
+      startupTimeoutSeconds: json['startup_timeout_seconds'] as int? ?? 0,
+      shutdownTimeoutSeconds: json['shutdown_timeout_seconds'] as int? ?? 0,
       toolNamePrefix: (json['tool_name_prefix'] as String? ?? '').trim(),
-      platformOverrideCount: json['platform_override_count'] as int? ?? 0,
+      includeTools: _stringList(json['include_tools']),
+      excludeTools: _stringList(json['exclude_tools']),
+      filesystem: (json['filesystem'] as String? ?? '').trim(),
+      network: json['network'] as bool? ?? false,
+      idempotent: json['idempotent'] as bool? ?? false,
+      platforms:
+          (json['platforms'] as Map<String, dynamic>? ?? <String, dynamic>{})
+              .map(
+                (String key, dynamic value) => MapEntry(
+                  key.trim(),
+                  HarnessMcpServerPlatformSummary.fromJson(
+                    value as Map<String, dynamic>? ?? <String, dynamic>{},
+                  ),
+                ),
+              ),
     );
   }
 
   final String name;
-  final bool enabled;
-  final bool trusted;
   final String lifecycle;
   final String transport;
   final String url;
+  final String healthcheckUrl;
   final List<String> command;
+  final List<String> args;
+  final String workingDir;
+  final Map<String, String> env;
+  final bool inheritEnv;
+  final int timeoutSeconds;
+  final int startupTimeoutSeconds;
+  final int shutdownTimeoutSeconds;
   final String toolNamePrefix;
-  final int platformOverrideCount;
+  final List<String> includeTools;
+  final List<String> excludeTools;
+  final String filesystem;
+  final bool network;
+  final bool idempotent;
+  final Map<String, HarnessMcpServerPlatformSummary> platforms;
+
+  int get platformOverrideCount => platforms.length;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'name': name,
+      if (lifecycle.isNotEmpty) 'lifecycle': lifecycle,
+      if (transport.isNotEmpty) 'transport': transport,
+      if (url.isNotEmpty) 'url': url,
+      if (healthcheckUrl.isNotEmpty) 'healthcheck_url': healthcheckUrl,
+      if (command.isNotEmpty) 'command': command,
+      if (args.isNotEmpty) 'args': args,
+      if (workingDir.isNotEmpty) 'working_dir': workingDir,
+      if (env.isNotEmpty) 'env': env,
+      if (inheritEnv) 'inherit_env': inheritEnv,
+      if (timeoutSeconds != 0) 'timeout_seconds': timeoutSeconds,
+      if (startupTimeoutSeconds != 0)
+        'startup_timeout_seconds': startupTimeoutSeconds,
+      if (shutdownTimeoutSeconds != 0)
+        'shutdown_timeout_seconds': shutdownTimeoutSeconds,
+      if (toolNamePrefix.isNotEmpty) 'tool_name_prefix': toolNamePrefix,
+      if (includeTools.isNotEmpty) 'include_tools': includeTools,
+      if (excludeTools.isNotEmpty) 'exclude_tools': excludeTools,
+      if (filesystem.isNotEmpty) 'filesystem': filesystem,
+      if (network) 'network': network,
+      if (idempotent) 'idempotent': idempotent,
+      if (platforms.isNotEmpty)
+        'platforms': platforms.map(
+          (String key, HarnessMcpServerPlatformSummary value) =>
+              MapEntry<String, dynamic>(key, value.toJson()),
+        ),
+    };
+  }
 }
 
 class HarnessToolCatalog {
@@ -258,6 +569,21 @@ class HarnessToolCatalog {
   final List<HarnessToolGroupSummary> toolGroups;
   final List<HarnessExternalToolSummary> externalTools;
   final List<HarnessMcpServerSummary> mcpServers;
+
+  Map<String, dynamic> toJson({bool includeYaml = false}) {
+    return <String, dynamic>{
+      if (includeYaml && yaml.isNotEmpty) 'yaml': yaml,
+      'tool_groups': toolGroups
+          .map((HarnessToolGroupSummary value) => value.toJson())
+          .toList(),
+      'external_tools': externalTools
+          .map((HarnessExternalToolSummary value) => value.toJson())
+          .toList(),
+      'mcp_servers': mcpServers
+          .map((HarnessMcpServerSummary value) => value.toJson())
+          .toList(),
+    };
+  }
 }
 
 class HarnessWorkflowRuleSetSummary {
@@ -384,10 +710,11 @@ class HarnessWorkflowNodeSummary {
   });
 
   factory HarnessWorkflowNodeSummary.fromJson(Map<String, dynamic> json) {
+    final kind = (json['kind'] as String? ?? '').trim();
     return HarnessWorkflowNodeSummary(
       id: (json['id'] as String? ?? '').trim(),
-      kind: (json['kind'] as String? ?? '').trim(),
-      uses: (json['uses'] as String? ?? '').trim(),
+      kind: kind == 'gate' ? 'check' : kind,
+      uses: ((json['runs'] ?? json['uses']) as String? ?? '').trim(),
       withKeys: (json['with_keys'] as List<dynamic>? ?? const <dynamic>[])
           .map((dynamic value) => value.toString().trim())
           .where((String value) => value.isNotEmpty)
@@ -407,7 +734,10 @@ class HarnessWorkflowNodeSummary {
               .map((dynamic value) => value.toString().trim())
               .where((String value) => value.isNotEmpty)
               .toList(),
-      producesGateDecision: json['produces_gate_decision'] as bool? ?? false,
+      producesGateDecision:
+          (json['produces_check_decision'] as bool?) ??
+          (json['produces_gate_decision'] as bool?) ??
+          false,
       transitions: HarnessWorkflowTransitionsSummary.fromJson(
         (json['transitions'] as Map<String, dynamic>? ?? <String, dynamic>{}),
       ),
@@ -415,7 +745,9 @@ class HarnessWorkflowNodeSummary {
       maxFailures: json['max_failures'] as int? ?? 0,
       implementation: json['implementation'] as bool? ?? false,
       requiresGates:
-          (json['requires_gates'] as List<dynamic>? ?? const <dynamic>[])
+          ((json['requires_checks'] ?? json['requires_gates'])
+                      as List<dynamic>? ??
+                  const <dynamic>[])
               .map((dynamic value) => value.toString().trim())
               .where((String value) => value.isNotEmpty)
               .toList(),
@@ -431,44 +763,70 @@ class HarnessWorkflowNodeSummary {
               .toList(),
       promptInstructionCount: json['prompt_instruction_count'] as int? ?? 0,
       gatePassStatuses:
-          (json['gate_pass_statuses'] as List<dynamic>? ?? const <dynamic>[])
+          ((json['check_pass_statuses'] ?? json['gate_pass_statuses'])
+                      as List<dynamic>? ??
+                  const <dynamic>[])
               .map((dynamic value) => value.toString().trim())
               .where((String value) => value.isNotEmpty)
               .toList(),
       gateFailStatuses:
-          (json['gate_fail_statuses'] as List<dynamic>? ?? const <dynamic>[])
+          ((json['check_fail_statuses'] ?? json['gate_fail_statuses'])
+                      as List<dynamic>? ??
+                  const <dynamic>[])
               .map((dynamic value) => value.toString().trim())
               .where((String value) => value.isNotEmpty)
               .toList(),
       gatePassExitCodes:
-          (json['gate_pass_exit_codes'] as List<dynamic>? ?? const <dynamic>[])
+          ((json['check_pass_exit_codes'] ?? json['gate_pass_exit_codes'])
+                      as List<dynamic>? ??
+                  const <dynamic>[])
               .map((dynamic value) => (value as num).toInt())
               .toList(),
       gateFailExitCodes:
-          (json['gate_fail_exit_codes'] as List<dynamic>? ?? const <dynamic>[])
+          ((json['check_fail_exit_codes'] ?? json['gate_fail_exit_codes'])
+                      as List<dynamic>? ??
+                  const <dynamic>[])
               .map((dynamic value) => (value as num).toInt())
               .toList(),
       treatRetryableAsFail: json['treat_retryable_as_fail'] as bool? ?? false,
-      policyGateEnabled: json['policy_gate_enabled'] as bool? ?? false,
-      policyGateRuleSet: (json['policy_gate_rule_set'] as String? ?? '').trim(),
+      policyGateEnabled:
+          (json['rules_enabled'] as bool?) ??
+          (json['policy_gate_enabled'] as bool?) ??
+          false,
+      policyGateRuleSet:
+          ((json['rules_rule_set'] ?? json['policy_gate_rule_set'])
+                      as String? ??
+                  '')
+              .trim(),
       policyGateFactBindings:
-          (json['policy_gate_fact_bindings'] as List<dynamic>? ??
+          ((json['rules_fact_bindings'] ?? json['policy_gate_fact_bindings'])
+                      as List<dynamic>? ??
                   const <dynamic>[])
               .map((dynamic value) => value.toString().trim())
               .where((String value) => value.isNotEmpty)
               .toList(),
       policyGateRouteHints:
-          (json['policy_gate_route_hints'] as List<dynamic>? ??
+          ((json['rules_route_hints'] ?? json['policy_gate_route_hints'])
+                      as List<dynamic>? ??
                   const <dynamic>[])
               .map((dynamic value) => value.toString().trim())
               .where((String value) => value.isNotEmpty)
               .toList(),
       policyGateOnEvalError:
-          (json['policy_gate_on_evaluation_error'] as String? ?? '').trim(),
+          ((json['rules_on_evaluation_error'] ??
+                          json['policy_gate_on_evaluation_error'])
+                      as String? ??
+                  '')
+              .trim(),
       policyGateMergeFindings:
-          (json['policy_gate_merge_findings'] as String? ?? '').trim(),
+          ((json['rules_merge_findings'] ?? json['policy_gate_merge_findings'])
+                      as String? ??
+                  '')
+              .trim(),
       policyGateOverrideStatus:
-          json['policy_gate_override_gate_status'] as bool? ?? false,
+          (json['rules_override_check_status'] as bool?) ??
+          (json['policy_gate_override_gate_status'] as bool?) ??
+          false,
       requiredChangedFiles:
           (json['required_changed_files'] as List<dynamic>? ??
                   const <dynamic>[])
@@ -593,9 +951,7 @@ class HarnessConfigValidationReport {
     required this.leadAgent,
     required this.workflowCount,
     required this.externalToolCount,
-    required this.enabledExternalToolCount,
     required this.mcpServerCount,
-    required this.enabledMcpServerCount,
     required this.toolPlatform,
     required this.availableExternalTools,
     required this.unavailableExternalTools,
@@ -636,10 +992,7 @@ class HarnessConfigValidationReport {
       leadAgent: (json['lead_agent'] as String? ?? '').trim(),
       workflowCount: json['workflow_count'] as int? ?? 0,
       externalToolCount: json['external_tool_count'] as int? ?? 0,
-      enabledExternalToolCount:
-          json['enabled_external_tool_count'] as int? ?? 0,
       mcpServerCount: json['mcp_server_count'] as int? ?? 0,
-      enabledMcpServerCount: json['enabled_mcp_server_count'] as int? ?? 0,
       toolPlatform: (json['tool_platform'] as String? ?? '').trim(),
       availableExternalTools:
           (json['available_external_tools'] as List<dynamic>? ??
@@ -696,9 +1049,7 @@ class HarnessConfigValidationReport {
   final String leadAgent;
   final int workflowCount;
   final int externalToolCount;
-  final int enabledExternalToolCount;
   final int mcpServerCount;
-  final int enabledMcpServerCount;
   final String toolPlatform;
   final List<String> availableExternalTools;
   final List<String> unavailableExternalTools;
@@ -720,6 +1071,12 @@ abstract class HarnessConfigApi {
   Future<HarnessConfigValidationReport> validateTools(String yaml);
 
   Future<HarnessToolCatalog> saveTools(String yaml);
+
+  Future<HarnessConfigValidationReport> validateToolsCatalog(
+    HarnessToolCatalog catalog,
+  );
+
+  Future<HarnessToolCatalog> saveToolsCatalog(HarnessToolCatalog catalog);
 
   Future<HarnessWorkflowCatalog> getWorkflows();
 
@@ -792,6 +1149,19 @@ class HttpHarnessConfigApi implements HarnessConfigApi {
   }
 
   @override
+  Future<HarnessToolCatalog> saveToolsCatalog(
+    HarnessToolCatalog catalog,
+  ) async {
+    final response = await _http.put(
+      '/v1/admin/harness/tools',
+      body: catalog.toJson(),
+    );
+    return HarnessToolCatalog.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
+    );
+  }
+
+  @override
   Future<HarnessWorkflowCatalog> getWorkflows() async {
     final response = await _http.get('/v1/admin/harness/workflows');
     return HarnessWorkflowCatalog.fromJson(
@@ -826,6 +1196,19 @@ class HttpHarnessConfigApi implements HarnessConfigApi {
     final response = await _http.post(
       '/v1/admin/harness/tools/validate',
       body: <String, dynamic>{'yaml': yaml},
+    );
+    return HarnessConfigValidationReport.fromJson(
+      await _http.decodeJsonMap(response, HarnessConfigApiException.new),
+    );
+  }
+
+  @override
+  Future<HarnessConfigValidationReport> validateToolsCatalog(
+    HarnessToolCatalog catalog,
+  ) async {
+    final response = await _http.post(
+      '/v1/admin/harness/tools/validate',
+      body: catalog.toJson(),
     );
     return HarnessConfigValidationReport.fromJson(
       await _http.decodeJsonMap(response, HarnessConfigApiException.new),
