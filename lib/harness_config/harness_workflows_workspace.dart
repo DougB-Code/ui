@@ -3,18 +3,22 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:ui/harness_config/harness_config_api.dart';
+import 'package:ui/shared/side_panel.dart';
 import 'package:ui/shared/ui.dart';
+import 'package:ui/shared/workspace_shell.dart';
 
 class HarnessWorkflowsWorkspace extends StatefulWidget {
   const HarnessWorkflowsWorkspace({
     super.key,
     required this.catalog,
     required this.controller,
+    required this.runTargetOptions,
     required this.validation,
   });
 
   final HarnessWorkflowCatalog catalog;
   final TextEditingController controller;
+  final List<String> runTargetOptions;
   final HarnessConfigValidationReport? validation;
 
   @override
@@ -22,20 +26,125 @@ class HarnessWorkflowsWorkspace extends StatefulWidget {
       _HarnessWorkflowsWorkspaceState();
 }
 
+enum _WorkflowCollectionSection { all }
+
+extension on _WorkflowCollectionSection {
+  String get sectionId {
+    return switch (this) {
+      _WorkflowCollectionSection.all => 'workflow-all',
+    };
+  }
+
+  String get panelLabel {
+    return switch (this) {
+      _WorkflowCollectionSection.all => 'Workflows',
+    };
+  }
+
+  IconData get panelIcon {
+    return switch (this) {
+      _WorkflowCollectionSection.all => Icons.account_tree_outlined,
+    };
+  }
+
+  String get emptyTitle {
+    return switch (this) {
+      _WorkflowCollectionSection.all => 'No matching workflows',
+    };
+  }
+
+  String get emptyBody {
+    return switch (this) {
+      _WorkflowCollectionSection.all =>
+        'Try a different search term to find a workflow board in the catalog.',
+    };
+  }
+}
+
+enum _WorkflowInspectorPanel { overview, limits, rules, source }
+
+extension on _WorkflowInspectorPanel {
+  String get sectionId {
+    return switch (this) {
+      _WorkflowInspectorPanel.overview => 'workflow-inspector-overview',
+      _WorkflowInspectorPanel.limits => 'workflow-inspector-limits',
+      _WorkflowInspectorPanel.rules => 'workflow-inspector-rules',
+      _WorkflowInspectorPanel.source => 'workflow-inspector-source',
+    };
+  }
+
+  String get label {
+    return switch (this) {
+      _WorkflowInspectorPanel.overview => 'Overview',
+      _WorkflowInspectorPanel.limits => 'Limits',
+      _WorkflowInspectorPanel.rules => 'Rules',
+      _WorkflowInspectorPanel.source => 'Source',
+    };
+  }
+
+  IconData get icon {
+    return switch (this) {
+      _WorkflowInspectorPanel.overview => Icons.dashboard_customize_outlined,
+      _WorkflowInspectorPanel.limits => Icons.speed_rounded,
+      _WorkflowInspectorPanel.rules => Icons.rule_folder_outlined,
+      _WorkflowInspectorPanel.source => Icons.code_rounded,
+    };
+  }
+}
+
+enum _NodeInspectorPanel { basics, behavior, routing, data, checks, completion }
+
+extension on _NodeInspectorPanel {
+  String get sectionId {
+    return switch (this) {
+      _NodeInspectorPanel.basics => 'node-inspector-basics',
+      _NodeInspectorPanel.behavior => 'node-inspector-behavior',
+      _NodeInspectorPanel.routing => 'node-inspector-routing',
+      _NodeInspectorPanel.data => 'node-inspector-data',
+      _NodeInspectorPanel.checks => 'node-inspector-checks',
+      _NodeInspectorPanel.completion => 'node-inspector-completion',
+    };
+  }
+
+  String get label {
+    return switch (this) {
+      _NodeInspectorPanel.basics => 'General',
+      _NodeInspectorPanel.behavior => 'Behavior',
+      _NodeInspectorPanel.routing => 'Routing',
+      _NodeInspectorPanel.data => 'Data',
+      _NodeInspectorPanel.checks => 'Checks',
+      _NodeInspectorPanel.completion => 'Completion',
+    };
+  }
+
+  IconData get icon {
+    return switch (this) {
+      _NodeInspectorPanel.basics => Icons.tune_rounded,
+      _NodeInspectorPanel.behavior => Icons.edit_note_rounded,
+      _NodeInspectorPanel.routing => Icons.alt_route_rounded,
+      _NodeInspectorPanel.data => Icons.input_rounded,
+      _NodeInspectorPanel.checks => Icons.fact_check_outlined,
+      _NodeInspectorPanel.completion => Icons.task_alt_rounded,
+    };
+  }
+}
+
 class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
-  final TextEditingController _searchController = TextEditingController();
   final TransformationController _canvasController = TransformationController();
   final Map<String, String?> _fieldErrors = <String, String?>{};
 
   Map<String, Object?> _catalogExtras = <String, Object?>{};
   List<_WorkflowDraft> _workflows = <_WorkflowDraft>[];
+  _WorkflowCollectionSection _collectionSection =
+      _WorkflowCollectionSection.all;
   String _searchQuery = '';
   String? _selectedWorkflowKey;
   String? _selectedNodeKey;
+  String _workflowInspectorSectionId =
+      _WorkflowInspectorPanel.overview.sectionId;
+  String _nodeInspectorSectionId = _NodeInspectorPanel.basics.sectionId;
   bool _showInspector = true;
   bool _showSourceDrawer = false;
-  bool _showWorkflowAdvanced = false;
-  bool _showNodeAdvanced = false;
   bool _pendingCanvasFit = true;
   Size _lastViewport = Size.zero;
   int _workflowCounter = 0;
@@ -63,7 +172,6 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
 
   @override
   void dispose() {
-    _searchController.dispose();
     _canvasController.dispose();
     super.dispose();
   }
@@ -157,31 +265,11 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
 
   String _nextNodeLocalKey() => 'node_${_nodeCounter++}';
 
-  List<_WorkflowDraft> get _filteredWorkflows {
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) {
-      return _workflows;
-    }
-    return _workflows.where((_WorkflowDraft workflow) {
-      if (workflow.name.toLowerCase().contains(query)) {
-        return true;
-      }
-      if (workflow.startNode.toLowerCase().contains(query)) {
-        return true;
-      }
-      if (workflow.nodes.any(
-        (_WorkflowNodeDraft node) =>
-            node.id.toLowerCase().contains(query) ||
-            node.kind.toLowerCase().contains(query) ||
-            node.uses.toLowerCase().contains(query),
-      )) {
-        return true;
-      }
-      return workflow.rawRuleSets.any((Object? ruleSet) {
-        final map = ruleSet as Map<String, Object?>?;
-        return (map?['name']?.toString().toLowerCase() ?? '').contains(query);
-      });
-    }).toList();
+  Map<_WorkflowCollectionSection, List<_WorkflowDraft>>
+  get _workflowsBySection {
+    return <_WorkflowCollectionSection, List<_WorkflowDraft>>{
+      _WorkflowCollectionSection.all: _workflows,
+    };
   }
 
   _WorkflowDraft? get _selectedWorkflow {
@@ -206,16 +294,6 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
         .firstOrNull;
   }
 
-  int get _totalNodeCount => _workflows.fold<int>(
-    0,
-    (int total, _WorkflowDraft workflow) => total + workflow.nodes.length,
-  );
-
-  int get _totalRuleSetCount => _workflows.fold<int>(
-    0,
-    (int total, _WorkflowDraft workflow) => total + workflow.rawRuleSets.length,
-  );
-
   double get _canvasScale => _canvasController.value.getMaxScaleOnAxis();
 
   void _selectWorkflow(_WorkflowDraft workflow) {
@@ -223,8 +301,6 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
       _selectedWorkflowKey = workflow.localKey;
       _selectedNodeKey = null;
       _showInspector = true;
-      _showWorkflowAdvanced = false;
-      _showNodeAdvanced = false;
       _pendingCanvasFit = true;
     });
   }
@@ -232,11 +308,52 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
   void _selectNode(String? nodeLocalKey) {
     setState(() {
       _selectedNodeKey = nodeLocalKey;
-      _showNodeAdvanced = false;
       if (nodeLocalKey != null) {
         _showInspector = true;
       }
     });
+  }
+
+  void _handleInspectorSectionChanged(String sectionId) {
+    final normalizedSectionId = sectionId.trim();
+    setState(() {
+      if (normalizedSectionId.startsWith('workflow-inspector-')) {
+        _workflowInspectorSectionId = normalizedSectionId;
+        if (_selectedNodeKey != null) {
+          _selectedNodeKey = null;
+        }
+        return;
+      }
+      if (normalizedSectionId.startsWith('node-inspector-')) {
+        _nodeInspectorSectionId = normalizedSectionId;
+      }
+    });
+  }
+
+  String _activeInspectorSectionId(_WorkflowNodeDraft? selectedNode) {
+    if (selectedNode == null) {
+      return _workflowInspectorSectionId;
+    }
+    final nodeSections = _nodeInspectorPanelsFor(selectedNode);
+    if (nodeSections.any(
+      (_NodeInspectorPanel panel) => panel.sectionId == _nodeInspectorSectionId,
+    )) {
+      return _nodeInspectorSectionId;
+    }
+    return nodeSections.first.sectionId;
+  }
+
+  List<_NodeInspectorPanel> _nodeInspectorPanelsFor(_WorkflowNodeDraft node) {
+    final isFinish = node.kind == 'finish';
+    final isGate = _normalizeWorkflowKind(node.kind) == 'check';
+    return <_NodeInspectorPanel>[
+      _NodeInspectorPanel.basics,
+      _NodeInspectorPanel.behavior,
+      if (!isFinish) _NodeInspectorPanel.routing,
+      if (!isFinish) _NodeInspectorPanel.data,
+      if (isGate) _NodeInspectorPanel.checks,
+      if (!isFinish) _NodeInspectorPanel.completion,
+    ];
   }
 
   void _handleViewportMeasured(Size viewport, _WorkflowGraphLayout layout) {
@@ -567,24 +684,13 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final stacked = constraints.maxWidth < 1180;
-        final compact = constraints.maxWidth < 1480;
-        final libraryWidth = compact ? 292.0 : 328.0;
-        final inspectorWidth = compact ? 376.0 : 432.0;
-
-        final libraryPane = _WorkflowLibraryRail(
-          workflows: _filteredWorkflows,
-          allWorkflowCount: _workflows.length,
-          totalNodeCount: _totalNodeCount,
-          totalRuleSetCount: _totalRuleSetCount,
-          searchController: _searchController,
-          hasSearch: _searchQuery.trim().isNotEmpty,
+        final collectionPane = _WorkflowCollectionPane(
+          workflowsBySection: _workflowsBySection,
+          initialSectionId: _collectionSection.sectionId,
+          searchQuery: _searchQuery,
           selectedWorkflowKey: _selectedWorkflowKey,
           onSearchChanged: (String value) {
             setState(() => _searchQuery = value);
-          },
-          onClearSearch: () {
-            _searchController.clear();
-            setState(() => _searchQuery = '');
           },
           onSelectWorkflow: _selectWorkflow,
         );
@@ -596,6 +702,7 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
           controller: _canvasController,
           scaleLabel: '${(_canvasScale * 100).round()}%',
           onSelectNode: _selectNode,
+          onClearNodeSelection: () => _selectNode(null),
           onViewportMeasured: _handleViewportMeasured,
           onToggleSource: () {
             setState(() => _showSourceDrawer = !_showSourceDrawer);
@@ -607,7 +714,7 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
           onZoomOut: () => _zoomCanvas(1 / 1.18),
           onFitCanvas: () => _resetCanvas(layout),
           sourceDrawerOpen: _showSourceDrawer,
-          inspectorVisible: stacked ? _showInspector : true,
+          inspectorVisible: _showInspector,
           viewportSize: _lastViewport,
         );
 
@@ -616,69 +723,18 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
         return Column(
           children: [
             Expanded(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0x94101929),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: borderColor.withValues(alpha: 0.78),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.24),
-                      blurRadius: 32,
-                      offset: const Offset(0, 14),
-                    ),
-                  ],
-                ),
-                child: stacked
-                    ? Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            SizedBox(
-                              height: math.min(
-                                250,
-                                math.max(190, constraints.maxHeight * 0.28),
-                              ),
-                              child: libraryPane,
-                            ),
-                            const SizedBox(height: 16),
-                            Expanded(child: canvasPane),
-                            if (_showInspector) ...[
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                height: math.min(
-                                  360,
-                                  math.max(260, constraints.maxHeight * 0.32),
-                                ),
-                                child: inspectorPane,
-                              ),
-                            ],
-                          ],
-                        ),
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SizedBox(width: libraryWidth, child: libraryPane),
-                          Container(
-                            width: 1,
-                            color: borderColor.withValues(alpha: 0.85),
-                          ),
-                          Expanded(child: canvasPane),
-                          if (_showInspector) ...[
-                            Container(
-                              width: 1,
-                              color: borderColor.withValues(alpha: 0.85),
-                            ),
-                            SizedBox(
-                              width: inspectorWidth,
-                              child: inspectorPane,
-                            ),
-                          ],
-                        ],
-                      ),
+              child: ConfigWorkspaceThreePaneShell(
+                stacked: stacked,
+                collectionPane: collectionPane,
+                editorPane: canvasPane,
+                detailPane: inspectorPane,
+                showDetailPane: _showInspector,
+                collectionFlex: 28,
+                editorFlex: 46,
+                detailFlex: 26,
+                stackedCollectionFlex: 30,
+                stackedEditorFlex: 40,
+                stackedDetailFlex: 30,
               ),
             ),
             const SizedBox(height: 16),
@@ -701,231 +757,369 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
 
   Widget _buildInspectorPane(_WorkflowDraft workflow) {
     final selectedNode = _selectedNode;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  selectedNode == null ? 'Workflow' : 'Step',
-                  style: const TextStyle(
-                    color: textPrimaryColor,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              if (selectedNode != null)
-                TextButton(
-                  onPressed: () => _selectNode(null),
-                  child: const Text('Workflow'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: SingleChildScrollView(
-              child: selectedNode == null
-                  ? _buildWorkflowInspectorBody(workflow)
-                  : _buildNodeInspectorBody(workflow, selectedNode),
-            ),
-          ),
-        ],
-      ),
+    return AppSidePanel(
+      side: AppSidePanelSide.right,
+      initialSectionId: _activeInspectorSectionId(selectedNode),
+      searchHintText: selectedNode == null
+          ? 'Filter workflow settings...'
+          : 'Filter step settings...',
+      onSectionChanged: _handleInspectorSectionChanged,
+      headerPadding: const EdgeInsets.fromLTRB(18, 18, 14, 0),
+      controlsPadding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+      bodyPadding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      sections: selectedNode == null
+          ? _buildWorkflowInspectorSections(workflow)
+          : _buildNodeInspectorSections(workflow, selectedNode),
     );
   }
 
-  Widget _buildWorkflowInspectorBody(_WorkflowDraft workflow) {
-    final nodeIds = _nodeOptions(workflow);
+  List<AppSidePanelSection> _buildWorkflowInspectorSections(
+    _WorkflowDraft workflow,
+  ) {
+    return _WorkflowInspectorPanel.values
+        .map((_WorkflowInspectorPanel panel) {
+          return AppSidePanelSection(
+            id: panel.sectionId,
+            label: panel.label,
+            icon: panel.icon,
+            quickActionsBuilder: (BuildContext context, String searchQuery) {
+              return FilledButton.icon(
+                onPressed: _addNode,
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                label: const Text('Add step'),
+              );
+            },
+            builder: (BuildContext context, String searchQuery) {
+              return _buildWorkflowInspectorSectionContent(
+                workflow,
+                panel,
+                searchQuery,
+              );
+            },
+          );
+        })
+        .toList(growable: false);
+  }
+
+  List<AppSidePanelSection> _buildNodeInspectorSections(
+    _WorkflowDraft workflow,
+    _WorkflowNodeDraft node,
+  ) {
+    final panels = _nodeInspectorPanelsFor(node);
+
+    return panels
+        .map((_NodeInspectorPanel panel) {
+          return AppSidePanelSection(
+            id: panel.sectionId,
+            label: panel.label,
+            icon: panel.icon,
+            quickActionsBuilder: (BuildContext context, String searchQuery) {
+              return FilledButton.tonalIcon(
+                onPressed: _deleteSelectedNode,
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text('Remove step'),
+              );
+            },
+            builder: (BuildContext context, String searchQuery) {
+              return _buildNodeInspectorSectionContent(
+                workflow,
+                node,
+                panel,
+                searchQuery,
+              );
+            },
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Widget _buildWorkflowInspectorSectionContent(
+    _WorkflowDraft workflow,
+    _WorkflowInspectorPanel panel,
+    String searchQuery,
+  ) {
     final workflowKey = workflow.localKey;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _InspectorActionCard(
-          title: 'Add steps',
-          body:
-              'Build the flow here. The canvas stays roomy and focused on the state machine itself.',
-          actionLabel: 'Add step',
-          icon: Icons.add_circle_outline_rounded,
-          onTap: _addNode,
-        ),
-        const SizedBox(height: 14),
-        _InspectorSection(
-          title: 'Workflow',
-          child: Column(
-            children: [
-              _InspectorTextField(
-                key: ValueKey(_fieldKey(workflowKey, 'workflow_name')),
-                label: 'Workflow name',
-                initialValue: workflow.name,
-                onChanged: (String value) {
-                  _updateWorkflow((_WorkflowDraft target) {
-                    target.name = _slugify(value);
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              _InspectorDropdownField(
-                key: ValueKey(_fieldKey(workflowKey, 'start_node')),
-                label: 'Start node',
-                value: workflow.startNode.isEmpty ? null : workflow.startNode,
-                includeBlank: true,
-                blankLabel: 'No start node',
-                options: nodeIds,
-                onChanged: (String? value) {
-                  _updateWorkflow((_WorkflowDraft target) {
-                    target.startNode = value ?? '';
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              _InspectorInlineFacts(
-                entries: <MapEntry<String, String>>[
-                  MapEntry('Steps', '${workflow.nodes.length}'),
-                  MapEntry(
-                    'Checks',
-                    '${workflow.nodes.where((node) => _normalizeWorkflowKind(node.kind) == 'check').length}',
-                  ),
-                  MapEntry(
-                    'Finish',
-                    '${workflow.nodes.where((node) => node.kind == 'finish').length}',
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _InspectorDisclosureCard(
-          expanded: _showWorkflowAdvanced,
-          title: _showWorkflowAdvanced
-              ? 'Hide advanced workflow settings'
-              : 'Show advanced workflow settings',
-          body:
-              'Retry limits, reusable rules, validation details, and source access live here when you need them.',
-          onTap: () {
-            setState(() => _showWorkflowAdvanced = !_showWorkflowAdvanced);
-          },
-        ),
-        if (_showWorkflowAdvanced) ...[
-          const SizedBox(height: 14),
-          _InspectorSection(
-            title: 'Limits',
-            child: Column(
-              children: [
-                Row(
+    final nodeIds = _nodeOptions(workflow);
+
+    switch (panel) {
+      case _WorkflowInspectorPanel.overview:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildWorkflowInspectorSummaryCard(workflow),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching workflow basics',
+          emptyBody:
+              'Try a different search term to find workflow naming and entry controls.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: 'Workflow setup',
+              searchTerms: const <String>[
+                'workflow name',
+                'start node',
+                'entry point',
+                'steps',
+              ],
+              child: _InspectorSection(
+                title: 'Workflow',
+                child: Column(
                   children: [
-                    Expanded(
-                      child: _InspectorNumberField(
-                        key: ValueKey(
-                          _fieldKey(workflowKey, 'max_visits_per_node'),
-                        ),
-                        label: 'Max visits / step',
-                        initialValue: _intText(workflow.maxVisitsPerNode),
-                        onChanged: (int value) {
-                          _updateWorkflow((_WorkflowDraft target) {
-                            target.maxVisitsPerNode = value;
-                          });
-                        },
-                      ),
+                    _InspectorTextField(
+                      key: ValueKey(_fieldKey(workflowKey, 'workflow_name')),
+                      label: 'Workflow name',
+                      initialValue: workflow.name,
+                      onChanged: (String value) {
+                        _updateWorkflow((_WorkflowDraft target) {
+                          target.name = _slugify(value);
+                        });
+                      },
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _InspectorNumberField(
-                        key: ValueKey(
-                          _fieldKey(workflowKey, 'max_total_transitions'),
+                    const SizedBox(height: 12),
+                    _InspectorDropdownField(
+                      key: ValueKey(_fieldKey(workflowKey, 'start_node')),
+                      label: 'Start step',
+                      value: workflow.startNode.isEmpty
+                          ? null
+                          : workflow.startNode,
+                      includeBlank: true,
+                      blankLabel: 'No start step',
+                      options: nodeIds,
+                      onChanged: (String? value) {
+                        _updateWorkflow((_WorkflowDraft target) {
+                          target.startNode = value ?? '';
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorInlineFacts(
+                      entries: <MapEntry<String, String>>[
+                        MapEntry('Steps', '${workflow.nodes.length}'),
+                        MapEntry(
+                          'Checks',
+                          '${workflow.nodes.where((node) => _normalizeWorkflowKind(node.kind) == 'check').length}',
                         ),
-                        label: 'Max transitions',
-                        initialValue: _intText(workflow.maxTotalTransitions),
-                        onChanged: (int value) {
-                          _updateWorkflow((_WorkflowDraft target) {
-                            target.maxTotalTransitions = value;
-                          });
-                        },
-                      ),
+                        MapEntry(
+                          'Finish',
+                          '${workflow.nodes.where((node) => node.kind == 'finish').length}',
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          if (workflow.rawRuleSets.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            _InspectorSection(
-              title: 'Reusable rules',
-              child: Column(
-                children: [
-                  for (
-                    int index = 0;
-                    index < workflow.rawRuleSets.length;
-                    index++
-                  )
-                    Padding(
-                      padding: EdgeInsets.only(
-                        bottom: index == workflow.rawRuleSets.length - 1
-                            ? 0
-                            : 10,
-                      ),
-                      child: _InspectorListCard(
-                        title: _stringValue(
-                          (workflow.rawRuleSets[index]
-                              as Map<String, Object?>?)?['name'],
-                        ),
-                        subtitle: _joinMultiline(<String>[
-                          _stringValue(
-                            (workflow.rawRuleSets[index]
-                                as Map<String, Object?>?)?['source_kind'],
-                          ),
-                          _stringValue(
-                            (workflow.rawRuleSets[index]
-                                as Map<String, Object?>?)?['base_path'],
-                          ),
-                        ]),
-                        tone: successColor,
-                      ),
-                    ),
-                ],
               ),
             ),
           ],
-          if (widget.validation != null) ...[
-            const SizedBox(height: 14),
-            _WorkflowValidationSummaryCard(report: widget.validation!),
+        );
+      case _WorkflowInspectorPanel.limits:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildWorkflowInspectorSummaryCard(workflow),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching workflow limits',
+          emptyBody:
+              'Try a different search term to find retry and transition limits.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: 'Workflow limits',
+              searchTerms: const <String>[
+                'max visits per step',
+                'max transitions',
+                'duplicate result cap',
+              ],
+              child: _InspectorSection(
+                title: 'Limits',
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _InspectorNumberField(
+                            key: ValueKey(
+                              _fieldKey(workflowKey, 'max_visits_per_node'),
+                            ),
+                            label: 'Max visits / step',
+                            initialValue: _intText(workflow.maxVisitsPerNode),
+                            onChanged: (int value) {
+                              _updateWorkflow((_WorkflowDraft target) {
+                                target.maxVisitsPerNode = value;
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _InspectorNumberField(
+                            key: ValueKey(
+                              _fieldKey(workflowKey, 'max_total_transitions'),
+                            ),
+                            label: 'Max transitions',
+                            initialValue: _intText(
+                              workflow.maxTotalTransitions,
+                            ),
+                            onChanged: (int value) {
+                              _updateWorkflow((_WorkflowDraft target) {
+                                target.maxTotalTransitions = value;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorNumberField(
+                      key: ValueKey(
+                        _fieldKey(workflowKey, 'duplicate_result_cap'),
+                      ),
+                      label: 'Duplicate result cap',
+                      initialValue: _intText(workflow.duplicateResultCap),
+                      onChanged: (int value) {
+                        _updateWorkflow((_WorkflowDraft target) {
+                          target.duplicateResultCap = value;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
-          const SizedBox(height: 14),
-          _InspectorActionCard(
-            title: 'Source',
-            body:
-                'Open YAML only when the simplified editor does not cover what you need.',
-            actionLabel: 'Open source',
-            icon: Icons.code_rounded,
-            onTap: () {
-              setState(() => _showSourceDrawer = true);
-            },
-          ),
-        ] else ...[
-          const SizedBox(height: 14),
-          _InspectorActionCard(
-            title: 'Need more control?',
-            body:
-                'Open advanced settings for limits, reusable rules, validation details, and source access.',
-            actionLabel: 'Advanced',
-            icon: Icons.tune_rounded,
-            onTap: () {
-              setState(() => _showWorkflowAdvanced = true);
-            },
-          ),
-        ],
-      ],
-    );
+        );
+      case _WorkflowInspectorPanel.rules:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildWorkflowInspectorSummaryCard(workflow),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching workflow rules',
+          emptyBody:
+              'Try a different search term to find reusable rule set controls.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: 'Reusable rules',
+              searchTerms: const <String>[
+                'rule sets',
+                'embedded rules',
+                'policy',
+                'knowledge base',
+              ],
+              child: _InspectorSection(
+                title: 'Reusable rules',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (workflow.rawRuleSets.isEmpty)
+                      const InfoPanel(
+                        title: 'No reusable rules yet',
+                        body:
+                            'Add shared rule set definitions here, or open the full source drawer when you need advanced shapes.',
+                      ),
+                    if (workflow.rawRuleSets.isNotEmpty) ...[
+                      for (
+                        int index = 0;
+                        index < workflow.rawRuleSets.length;
+                        index++
+                      )
+                        Padding(
+                          padding: EdgeInsets.only(
+                            bottom: index == workflow.rawRuleSets.length - 1
+                                ? 0
+                                : 10,
+                          ),
+                          child: _InspectorListCard(
+                            title: _stringValue(
+                              (workflow.rawRuleSets[index]
+                                  as Map<String, Object?>?)?['name'],
+                            ),
+                            subtitle: _joinMultiline(<String>[
+                              _stringValue(
+                                (workflow.rawRuleSets[index]
+                                    as Map<String, Object?>?)?['source_kind'],
+                              ),
+                              _stringValue(
+                                (workflow.rawRuleSets[index]
+                                    as Map<String, Object?>?)?['base_path'],
+                              ),
+                            ]),
+                            tone: successColor,
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                    ],
+                    _InspectorYamlEditor(
+                      key: ValueKey(_fieldKey(workflowKey, 'rule_sets')),
+                      label: 'Rule sets',
+                      helperText:
+                          'Edit the workflow rule_sets list directly when you need full access to embedded rules or source metadata.',
+                      initialValue: _MiniYamlWriter.serialize(
+                        workflow.rawRuleSets,
+                      ),
+                      errorText: _fieldError(
+                        _fieldKey(workflowKey, 'rule_sets'),
+                      ),
+                      onChanged: (String value) {
+                        try {
+                          final parsed = _parseYamlListFragment(value);
+                          _updateFieldError(
+                            _fieldKey(workflowKey, 'rule_sets'),
+                            null,
+                          );
+                          _updateWorkflow((_WorkflowDraft target) {
+                            target.rawRuleSets = parsed;
+                          });
+                        } on _MiniYamlException catch (error) {
+                          _updateFieldError(
+                            _fieldKey(workflowKey, 'rule_sets'),
+                            error.message,
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      case _WorkflowInspectorPanel.source:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildWorkflowInspectorSummaryCard(workflow),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching source tools',
+          emptyBody:
+              'Try a different search term to find YAML and validation controls.',
+          blocks: <_InspectorPanelBlock>[
+            if (widget.validation != null)
+              _InspectorPanelBlock(
+                title: 'Validation',
+                searchTerms: const <String>['validation', 'catalog', 'issues'],
+                child: _WorkflowValidationSummaryCard(
+                  report: widget.validation!,
+                ),
+              ),
+            _InspectorPanelBlock(
+              title: 'Source',
+              searchTerms: const <String>[
+                'yaml',
+                'source',
+                'config path',
+                'editor',
+              ],
+              child: _InspectorActionCard(
+                title: 'Workflow source',
+                body:
+                    'Open the YAML drawer when you need to adjust fields that are easier to edit directly in source.',
+                actionLabel: 'Open source',
+                icon: Icons.code_rounded,
+                onTap: () {
+                  setState(() => _showSourceDrawer = true);
+                },
+              ),
+            ),
+          ],
+        );
+    }
   }
 
-  Widget _buildNodeInspectorBody(
+  Widget _buildNodeInspectorSectionContent(
     _WorkflowDraft workflow,
     _WorkflowNodeDraft node,
+    _NodeInspectorPanel panel,
+    String searchQuery,
   ) {
     final nodeKey = node.localKey;
     final isFinish = node.kind == 'finish';
@@ -954,6 +1148,10 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
       (Object? value) =>
           value is Map<String, Object?> || value is List<Object?>,
     );
+    final runTargetOptions = LinkedHashSet<String>.from(<String>[
+      ...widget.runTargetOptions,
+      if (node.uses.trim().isNotEmpty) node.uses.trim(),
+    ]).toList(growable: false);
     final kindOptions = <String>{
       'task',
       'check',
@@ -961,210 +1159,267 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
       if (node.kind.trim().isNotEmpty) node.kind,
     }.toList();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: panelAltColor,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: borderColor),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      node.id,
-                      style: const TextStyle(
-                        color: textPrimaryColor,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
+    switch (panel) {
+      case _NodeInspectorPanel.basics:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildNodeInspectorSummaryCard(workflow, node),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching step basics',
+          emptyBody:
+              'Try a different search term to find step identity and authoring controls.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: 'Step setup',
+              searchTerms: const <String>[
+                'step id',
+                'step type',
+                'runs',
+                'start step',
+              ],
+              child: _InspectorSection(
+                title: 'Step',
+                child: Column(
+                  children: [
+                    _InspectorTextField(
+                      key: ValueKey(_fieldKey(nodeKey, 'id')),
+                      label: 'Step id',
+                      initialValue: node.id,
+                      errorText: _fieldError(_fieldKey(nodeKey, 'id')),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft targetWorkflow,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          _renameNode(targetWorkflow, targetNode, value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorDropdownField(
+                      key: ValueKey(_fieldKey(nodeKey, 'kind')),
+                      label: 'Step type',
+                      value: node.kind.isEmpty ? null : node.kind,
+                      options: kindOptions,
+                      onChanged: (String? value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.kind = (value ?? '').trim();
+                        });
+                      },
+                    ),
+                    if (!isFinish) ...[
+                      const SizedBox(height: 12),
+                      _InspectorDropdownField(
+                        key: ValueKey(_fieldKey(nodeKey, 'uses')),
+                        label: 'Runs',
+                        value: node.uses.isEmpty ? null : node.uses,
+                        options: runTargetOptions,
+                        includeBlank: true,
+                        blankLabel: 'No run target',
+                        helperText:
+                            'Configured agents and tools. Existing custom values stay available here too.',
+                        onChanged: (String? value) {
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            targetNode.uses = (value ?? '').trim();
+                          });
+                        },
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    _InspectorToggleTile(
+                      title: 'Start step',
+                      value: workflow.startNode == node.id,
+                      subtitle: 'Use this step as the workflow entry point.',
+                      onChanged: (bool value) {
+                        _updateWorkflow((_WorkflowDraft target) {
+                          target.startNode = value ? node.id : '';
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      case _NodeInspectorPanel.behavior:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildNodeInspectorSummaryCard(workflow, node),
+          searchQuery: searchQuery,
+          emptyTitle: isFinish
+              ? 'No matching finish behavior'
+              : 'No matching step behavior',
+          emptyBody: isFinish
+              ? 'Try a different search term to find finish result controls.'
+              : 'Try a different search term to find optional prompt behavior.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: isFinish ? 'Finish result' : 'Optional prompt behavior',
+              searchTerms: isFinish
+                  ? const <String>['finish', 'result', 'summary']
+                  : const <String>[
+                      'instructions',
+                      'prompt',
+                      'what should this step do',
+                      'optional',
+                      'agent only',
+                      'tool step',
+                    ],
+              child: isFinish
+                  ? _InspectorSection(
+                      title: 'Finish',
+                      child: _InspectorMultilineField(
+                        key: ValueKey(_fieldKey(nodeKey, 'finish_summary')),
+                        label: 'Summary',
+                        hintText:
+                            'Optional final summary for the workflow result',
+                        initialValue: _withTextValue(node, 'summary'),
+                        onChanged: (String value) {
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            _setWithTextValue(targetNode, 'summary', value);
+                          });
+                        },
+                      ),
+                    )
+                  : _InspectorSection(
+                      title: 'Prompt overlay',
+                      child: _InspectorMultilineField(
+                        key: ValueKey(_fieldKey(nodeKey, 'prompt')),
+                        label: 'Optional instructions',
+                        hintText:
+                            'One instruction per line for agent-driven steps',
+                        helperText:
+                            'Leave this empty for tool-only steps. These instructions only apply when the step run is prompt-driven.',
+                        initialValue: node.promptInstructions.join('\n'),
+                        onChanged: (String value) {
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            targetNode.promptInstructions = _splitLines(value);
+                          });
+                        },
                       ),
                     ),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: _deleteSelectedNode,
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    label: const Text('Remove step'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                node.uses.isEmpty
-                    ? 'No target configured yet.'
-                    : 'Runs ${node.uses}',
-                style: const TextStyle(color: textMutedColor, height: 1.45),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        _InspectorSection(
-          title: 'Step',
-          child: Column(
-            children: [
-              _InspectorTextField(
-                key: ValueKey(_fieldKey(nodeKey, 'id')),
-                label: 'Step id',
-                initialValue: node.id,
-                errorText: _fieldError(_fieldKey(nodeKey, 'id')),
-                onChanged: (String value) {
-                  _updateNode((
-                    _WorkflowDraft targetWorkflow,
-                    _WorkflowNodeDraft targetNode,
-                  ) {
-                    _renameNode(targetWorkflow, targetNode, value);
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              _InspectorDropdownField(
-                key: ValueKey(_fieldKey(nodeKey, 'kind')),
-                label: 'Step type',
-                value: node.kind.isEmpty ? null : node.kind,
-                options: kindOptions,
-                onChanged: (String? value) {
-                  _updateNode((
-                    _WorkflowDraft _,
-                    _WorkflowNodeDraft targetNode,
-                  ) {
-                    targetNode.kind = (value ?? '').trim();
-                  });
-                },
-              ),
-              if (!isFinish) ...[
-                const SizedBox(height: 12),
-                _InspectorTextField(
-                  key: ValueKey(_fieldKey(nodeKey, 'uses')),
-                  label: 'Runs',
-                  initialValue: node.uses,
-                  onChanged: (String value) {
-                    _updateNode((
-                      _WorkflowDraft _,
-                      _WorkflowNodeDraft targetNode,
-                    ) {
-                      targetNode.uses = value.trim();
-                    });
-                  },
-                ),
+            ),
+          ],
+        );
+      case _NodeInspectorPanel.routing:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildNodeInspectorSummaryCard(workflow, node),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching routing controls',
+          emptyBody: 'Try a different search term to find transition settings.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: 'Next steps',
+              searchTerms: const <String>[
+                'success',
+                'failure',
+                'blocked',
+                'transitions',
+                'routing',
               ],
-              const SizedBox(height: 12),
-              _InspectorToggleTile(
-                title: 'Start step',
-                value: workflow.startNode == node.id,
-                subtitle: 'Use this step as the workflow entry point.',
-                onChanged: (bool value) {
-                  _updateWorkflow((_WorkflowDraft target) {
-                    target.startNode = value ? node.id : '';
-                  });
-                },
+              child: _InspectorSection(
+                title: 'Next',
+                child: Column(
+                  children: [
+                    _InspectorDropdownField(
+                      key: ValueKey(_fieldKey(nodeKey, 'success')),
+                      label: 'On success',
+                      includeBlank: true,
+                      blankLabel: 'No transition',
+                      value: node.transitions.success.isEmpty
+                          ? null
+                          : node.transitions.success,
+                      options: successOptions,
+                      onChanged: (String? value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.transitions.success = value ?? '';
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorDropdownField(
+                      key: ValueKey(_fieldKey(nodeKey, 'failure')),
+                      label: 'On failure',
+                      includeBlank: true,
+                      blankLabel: 'No transition',
+                      value: node.transitions.failure.isEmpty
+                          ? null
+                          : node.transitions.failure,
+                      options: failureOptions,
+                      onChanged: (String? value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.transitions.failure = value ?? '';
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorDropdownField(
+                      key: ValueKey(_fieldKey(nodeKey, 'blocked')),
+                      label: 'On blocked',
+                      includeBlank: true,
+                      blankLabel: 'No transition',
+                      value: node.transitions.blocked.isEmpty
+                          ? null
+                          : node.transitions.blocked,
+                      options: blockedOptions,
+                      onChanged: (String? value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.transitions.blocked = value ?? '';
+                        });
+                      },
+                    ),
+                    if (hasSelfLoop) ...[
+                      const SizedBox(height: 12),
+                      const InfoPanel(
+                        title: 'Self-loop detected',
+                        body:
+                            'Existing capped retry loops stay visible here, but this editor avoids offering the current step as a new transition target by default.',
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
-        if (!isFinish) ...[
-          const SizedBox(height: 14),
-          _InspectorSection(
-            title: 'Next',
-            child: Column(
-              children: [
-                _InspectorDropdownField(
-                  key: ValueKey(_fieldKey(nodeKey, 'success')),
-                  label: 'On success',
-                  includeBlank: true,
-                  blankLabel: 'No transition',
-                  value: node.transitions.success.isEmpty
-                      ? null
-                      : node.transitions.success,
-                  options: successOptions,
-                  onChanged: (String? value) {
-                    _updateNode((
-                      _WorkflowDraft _,
-                      _WorkflowNodeDraft targetNode,
-                    ) {
-                      targetNode.transitions.success = value ?? '';
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-                _InspectorDropdownField(
-                  key: ValueKey(_fieldKey(nodeKey, 'failure')),
-                  label: 'On failure',
-                  includeBlank: true,
-                  blankLabel: 'No transition',
-                  value: node.transitions.failure.isEmpty
-                      ? null
-                      : node.transitions.failure,
-                  options: failureOptions,
-                  onChanged: (String? value) {
-                    _updateNode((
-                      _WorkflowDraft _,
-                      _WorkflowNodeDraft targetNode,
-                    ) {
-                      targetNode.transitions.failure = value ?? '';
-                    });
-                  },
-                ),
-                if (hasSelfLoop) ...[
-                  const SizedBox(height: 12),
-                  InfoPanel(
-                    title: 'Self-loop detected',
-                    body:
-                        'The harness allows capped retry loops. This editor keeps an existing self-loop visible, but avoids offering the current step as a new target by default.',
-                  ),
-                ],
-              ],
             ),
-          ),
-        ],
-        const SizedBox(height: 14),
-        if (isFinish)
-          _InspectorSection(
-            title: 'Finish',
-            child: _InspectorMultilineField(
-              key: ValueKey(_fieldKey(nodeKey, 'finish_summary')),
-              label: 'Summary',
-              hintText: 'Optional final summary for the workflow result',
-              initialValue: _withTextValue(node, 'summary'),
-              onChanged: (String value) {
-                _updateNode((_WorkflowDraft _, _WorkflowNodeDraft targetNode) {
-                  _setWithTextValue(targetNode, 'summary', value);
-                });
-              },
-            ),
-          )
-        else ...[
-          _InspectorSection(
-            title: 'Instructions',
-            child: _InspectorMultilineField(
-              key: ValueKey(_fieldKey(nodeKey, 'prompt')),
-              label: 'What should this step do?',
-              hintText: 'One instruction per line',
-              initialValue: node.promptInstructions.join('\n'),
-              onChanged: (String value) {
-                _updateNode((_WorkflowDraft _, _WorkflowNodeDraft targetNode) {
-                  targetNode.promptInstructions = _splitLines(value);
-                });
-              },
-            ),
-          ),
-          const SizedBox(height: 14),
-          _InspectorSection(
-            title: 'Inputs',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _InspectorYamlEditor(
+          ],
+        );
+      case _NodeInspectorPanel.data:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildNodeInspectorSummaryCard(workflow, node),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching data controls',
+          emptyBody:
+              'Try a different search term to find payload, contract, or mapping settings.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: 'Step inputs',
+              searchTerms: const <String>['inputs', 'payload', 'with values'],
+              child: _InspectorSection(
+                title: 'Inputs',
+                child: _InspectorYamlEditor(
                   key: ValueKey(_fieldKey(nodeKey, 'with')),
                   label: 'Inputs',
                   helperText: hasStructuredInputs
-                      ? 'This step has structured inputs. Advanced editing preserves the full shape.'
+                      ? 'This step has structured inputs. Editing here preserves the full shape.'
                       : 'The stable payload this step always receives.',
                   initialValue: _MiniYamlWriter.serialize(node.withValues),
                   errorText: _fieldError(_fieldKey(nodeKey, 'with')),
@@ -1186,570 +1441,720 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
                     }
                   },
                 ),
-              ],
-            ),
-          ),
-        ],
-        const SizedBox(height: 14),
-        _InspectorDisclosureCard(
-          expanded: _showNodeAdvanced,
-          title: _showNodeAdvanced
-              ? 'Hide advanced step settings'
-              : 'Show advanced step settings',
-          body:
-              'Retries, data flow, checks, and deterministic rules live here when the simple step model is not enough.',
-          onTap: () {
-            setState(() => _showNodeAdvanced = !_showNodeAdvanced);
-          },
-        ),
-        if (_showNodeAdvanced) ...[
-          const SizedBox(height: 14),
-          _InspectorSection(
-            title: 'Limits',
-            child: Row(
-              children: [
-                Expanded(
-                  child: _InspectorNumberField(
-                    key: ValueKey(_fieldKey(nodeKey, 'max_visits')),
-                    label: 'Max visits',
-                    initialValue: _intText(node.maxVisits),
-                    onChanged: (int value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.maxVisits = value;
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _InspectorNumberField(
-                    key: ValueKey(_fieldKey(nodeKey, 'max_failures')),
-                    label: 'Max failures',
-                    initialValue: _intText(node.maxFailures),
-                    onChanged: (int value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.maxFailures = value;
-                      });
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (!isFinish) ...[
-            const SizedBox(height: 14),
-            _InspectorSection(
-              title: 'Safety',
-              child: Column(
-                children: [
-                  _InspectorToggleTile(
-                    title: 'Write step',
-                    value: node.implementation,
-                    subtitle:
-                        'Mark this as an implementation step that should stay behind checks.',
-                    onChanged: (bool value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.implementation = value;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'requires_gates')),
-                    label: 'Must pass checks from',
-                    hintText: 'One check step id per line',
-                    initialValue: node.requiresGates.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.requiresGates = _splitLines(value);
-                      });
-                    },
-                  ),
-                ],
               ),
             ),
-            const SizedBox(height: 14),
-            _InspectorSection(
-              title: 'Data flow',
-              child: Column(
-                children: [
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'required_input_keys')),
-                    label: 'Required inputs',
-                    hintText: 'One input key per line',
-                    initialValue: node.requiredInputKeys.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.requiredInputKeys = _splitLines(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'optional_input_keys')),
-                    label: 'Optional inputs',
-                    hintText: 'One input key per line',
-                    initialValue: node.optionalInputKeys.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.optionalInputKeys = _splitLines(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'required_data_keys')),
-                    label: 'Required outputs',
-                    hintText: 'One output key per line',
-                    initialValue: node.requiredDataKeys.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.requiredDataKeys = _splitLines(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'include_node_results')),
-                    label: 'Use output from steps',
-                    hintText: 'One source step id per line',
-                    initialValue: node.includeNodeResults.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.includeNodeResults = _splitLines(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorYamlEditor(
-                    key: ValueKey(_fieldKey(nodeKey, 'input_mappings')),
-                    label: 'Mapped inputs',
-                    helperText:
-                        'Map selected values from earlier step outputs into this step.',
-                    initialValue: _MiniYamlWriter.serialize(
-                      node.inputMappings
-                          .map(
-                            (_WorkflowInputMappingDraft mapping) =>
-                                mapping.toYamlMap(),
-                          )
-                          .toList(),
-                    ),
-                    errorText: _fieldError(
-                      _fieldKey(nodeKey, 'input_mappings'),
-                    ),
-                    onChanged: (String value) {
-                      try {
-                        final parsed = _parseYamlListFragment(value);
-                        final mappings = parsed
-                            .whereType<Map<String, Object?>>()
-                            .map(_WorkflowInputMappingDraft.fromYaml)
-                            .toList();
-                        _updateFieldError(
-                          _fieldKey(nodeKey, 'input_mappings'),
-                          null,
-                        );
+            _InspectorPanelBlock(
+              title: 'Contracts and mappings',
+              searchTerms: const <String>[
+                'required inputs',
+                'optional inputs',
+                'required outputs',
+                'input mappings',
+                'include node results',
+                'check decision output',
+              ],
+              child: _InspectorSection(
+                title: 'Data flow',
+                child: Column(
+                  children: [
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'required_input_keys')),
+                      label: 'Required inputs',
+                      hintText: 'One input key per line',
+                      initialValue: node.requiredInputKeys.join('\n'),
+                      onChanged: (String value) {
                         _updateNode((
                           _WorkflowDraft _,
                           _WorkflowNodeDraft targetNode,
                         ) {
-                          targetNode.inputMappings = mappings;
+                          targetNode.requiredInputKeys = _splitLines(value);
                         });
-                      } on _MiniYamlException catch (error) {
-                        _updateFieldError(
-                          _fieldKey(nodeKey, 'input_mappings'),
-                          error.message,
-                        );
-                      }
-                    },
-                  ),
-                  if (isGate || node.producesGateDecision) ...[
+                      },
+                    ),
                     const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'optional_input_keys')),
+                      label: 'Optional inputs',
+                      hintText: 'One input key per line',
+                      initialValue: node.optionalInputKeys.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.optionalInputKeys = _splitLines(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'required_data_keys')),
+                      label: 'Required outputs',
+                      hintText: 'One output key per line',
+                      initialValue: node.requiredDataKeys.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.requiredDataKeys = _splitLines(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'include_node_results')),
+                      label: 'Use output from steps',
+                      hintText: 'One source step id per line',
+                      initialValue: node.includeNodeResults.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.includeNodeResults = _splitLines(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorYamlEditor(
+                      key: ValueKey(_fieldKey(nodeKey, 'input_mappings')),
+                      label: 'Mapped inputs',
+                      helperText:
+                          'Map selected values from earlier step outputs into this step.',
+                      initialValue: _MiniYamlWriter.serialize(
+                        node.inputMappings
+                            .map(
+                              (_WorkflowInputMappingDraft mapping) =>
+                                  mapping.toYamlMap(),
+                            )
+                            .toList(),
+                      ),
+                      errorText: _fieldError(
+                        _fieldKey(nodeKey, 'input_mappings'),
+                      ),
+                      onChanged: (String value) {
+                        try {
+                          final parsed = _parseYamlListFragment(value);
+                          final mappings = parsed
+                              .whereType<Map<String, Object?>>()
+                              .map(_WorkflowInputMappingDraft.fromYaml)
+                              .toList();
+                          _updateFieldError(
+                            _fieldKey(nodeKey, 'input_mappings'),
+                            null,
+                          );
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            targetNode.inputMappings = mappings;
+                          });
+                        } on _MiniYamlException catch (error) {
+                          _updateFieldError(
+                            _fieldKey(nodeKey, 'input_mappings'),
+                            error.message,
+                          );
+                        }
+                      },
+                    ),
+                    if (isGate || node.producesGateDecision) ...[
+                      const SizedBox(height: 12),
+                      _InspectorToggleTile(
+                        title: 'Require check decision output',
+                        value: node.producesGateDecision,
+                        subtitle:
+                            'Use this only when this step must emit check decision data in its output contract.',
+                        onChanged: (bool value) {
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            targetNode.producesGateDecision = value;
+                          });
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      case _NodeInspectorPanel.checks:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildNodeInspectorSummaryCard(workflow, node),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching check controls',
+          emptyBody:
+              'Try a different search term to find check matching or deterministic rule settings.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: 'Check result matching',
+              searchTerms: const <String>[
+                'pass statuses',
+                'fail statuses',
+                'pass exit codes',
+                'fail exit codes',
+                'retryable',
+              ],
+              child: _InspectorSection(
+                title: 'Check result matching',
+                child: Column(
+                  children: [
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'gate_pass_statuses')),
+                      label: 'Pass statuses',
+                      hintText: 'One status per line',
+                      initialValue: node.gatePassStatuses.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.gatePassStatuses = _splitLines(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'gate_fail_statuses')),
+                      label: 'Fail statuses',
+                      hintText: 'One status per line',
+                      initialValue: node.gateFailStatuses.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.gateFailStatuses = _splitLines(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'gate_pass_exit_codes')),
+                      label: 'Pass exit codes',
+                      hintText: 'One integer per line',
+                      initialValue: node.gatePassExitCodes.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.gatePassExitCodes = _splitInts(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'gate_fail_exit_codes')),
+                      label: 'Fail exit codes',
+                      hintText: 'One integer per line',
+                      initialValue: node.gateFailExitCodes.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.gateFailExitCodes = _splitInts(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 10),
                     _InspectorToggleTile(
-                      title: 'Require check decision output',
-                      value: node.producesGateDecision,
+                      title: 'Treat retryable as fail',
+                      value: node.treatRetryableAsFail,
                       subtitle:
-                          'Use this only when this step must emit check decision data in its output contract.',
+                          'Promote retryable results into failed check outcomes.',
                       onChanged: (bool value) {
                         _updateNode((
                           _WorkflowDraft _,
                           _WorkflowNodeDraft targetNode,
                         ) {
-                          targetNode.producesGateDecision = value;
+                          targetNode.treatRetryableAsFail = value;
                         });
                       },
                     ),
                   ],
-                ],
+                ),
               ),
             ),
-          ],
-          if (!isFinish) ...[
-            const SizedBox(height: 14),
-            _InspectorSection(
-              title: 'Extra paths',
-              child: _InspectorDropdownField(
-                key: ValueKey(_fieldKey(nodeKey, 'blocked')),
-                label: 'On blocked',
-                includeBlank: true,
-                blankLabel: 'No transition',
-                value: node.transitions.blocked.isEmpty
-                    ? null
-                    : node.transitions.blocked,
-                options: blockedOptions,
-                onChanged: (String? value) {
-                  _updateNode((
-                    _WorkflowDraft _,
-                    _WorkflowNodeDraft targetNode,
-                  ) {
-                    targetNode.transitions.blocked = value ?? '';
-                  });
-                },
-              ),
-            ),
-          ],
-          if (isGate) ...[
-            const SizedBox(height: 14),
-            _InspectorSection(
-              title: 'Check result matching',
-              child: Column(
-                children: [
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'gate_pass_statuses')),
-                    label: 'Pass statuses',
-                    hintText: 'One status per line',
-                    initialValue: node.gatePassStatuses.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.gatePassStatuses = _splitLines(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'gate_fail_statuses')),
-                    label: 'Fail statuses',
-                    hintText: 'One status per line',
-                    initialValue: node.gateFailStatuses.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.gateFailStatuses = _splitLines(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'gate_pass_exit_codes')),
-                    label: 'Pass exit codes',
-                    hintText: 'One integer per line',
-                    initialValue: node.gatePassExitCodes.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.gatePassExitCodes = _splitInts(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'gate_fail_exit_codes')),
-                    label: 'Fail exit codes',
-                    hintText: 'One integer per line',
-                    initialValue: node.gateFailExitCodes.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.gateFailExitCodes = _splitInts(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _InspectorToggleTile(
-                    title: 'Treat retryable as fail',
-                    value: node.treatRetryableAsFail,
-                    subtitle:
-                        'Promote retryable results into failed check outcomes.',
-                    onChanged: (bool value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.treatRetryableAsFail = value;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            _InspectorSection(
+            _InspectorPanelBlock(
               title: 'Deterministic rules',
-              child: Column(
-                children: [
-                  _InspectorToggleTile(
-                    title: 'Enabled',
-                    value: node.policyGateEnabled,
-                    subtitle:
-                        'Evaluate rules after the raw check result comes back.',
-                    onChanged: (bool value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.policyGateEnabled = value;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _InspectorTextField(
-                    key: ValueKey(_fieldKey(nodeKey, 'policy_gate_rule_set')),
-                    label: 'Rule set',
-                    initialValue: node.policyGateRuleSet,
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.policyGateRuleSet = value.trim();
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorTextField(
-                    key: ValueKey(_fieldKey(nodeKey, 'policy_gate_on_error')),
-                    label: 'On evaluation error',
-                    initialValue: node.policyGateOnEvaluationError,
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.policyGateOnEvaluationError = value.trim();
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorTextField(
-                    key: ValueKey(
-                      _fieldKey(nodeKey, 'policy_gate_merge_findings'),
-                    ),
-                    label: 'Merge findings',
-                    initialValue: node.policyGateMergeFindings,
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.policyGateMergeFindings = value.trim();
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(
-                      _fieldKey(nodeKey, 'policy_gate_session_rule_files'),
-                    ),
-                    label: 'Session rule files',
-                    hintText: 'One file pattern per line',
-                    initialValue: node.policyGateSessionRuleFiles.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.policyGateSessionRuleFiles = _splitLines(
-                          value,
-                        );
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorYamlEditor(
-                    key: ValueKey(
-                      _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
-                    ),
-                    label: 'Fact bindings',
-                    helperText:
-                        'Expose selected workflow facts to the policy engine.',
-                    initialValue: _MiniYamlWriter.serialize(
-                      node.policyGateFactBindings
-                          .map(
-                            (_PolicyFactBindingDraft binding) =>
-                                binding.toYamlMap(),
-                          )
-                          .toList(),
-                    ),
-                    errorText: _fieldError(
-                      _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
-                    ),
-                    onChanged: (String value) {
-                      try {
-                        final parsed = _parseYamlListFragment(value);
-                        final bindings = parsed
-                            .whereType<Map<String, Object?>>()
-                            .map(_PolicyFactBindingDraft.fromYaml)
-                            .toList();
-                        _updateFieldError(
-                          _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
-                          null,
-                        );
+              searchTerms: const <String>[
+                'rule set',
+                'fact bindings',
+                'route hints',
+                'session rule files',
+                'evaluation error',
+                'merge findings',
+              ],
+              child: _InspectorSection(
+                title: 'Deterministic rules',
+                child: Column(
+                  children: [
+                    _InspectorToggleTile(
+                      title: 'Enabled',
+                      value: node.policyGateEnabled,
+                      subtitle:
+                          'Evaluate rules after the raw check result comes back.',
+                      onChanged: (bool value) {
                         _updateNode((
                           _WorkflowDraft _,
                           _WorkflowNodeDraft targetNode,
                         ) {
-                          targetNode.policyGateFactBindings = bindings;
+                          targetNode.policyGateEnabled = value;
                         });
-                      } on _MiniYamlException catch (error) {
-                        _updateFieldError(
-                          _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
-                          error.message,
-                        );
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorYamlEditor(
-                    key: ValueKey(
-                      _fieldKey(nodeKey, 'policy_gate_allowed_route_hints'),
+                      },
                     ),
-                    label: 'Allowed route hints',
-                    helperText:
-                        'Allow named policy hints to redirect the workflow to known steps.',
-                    initialValue: _MiniYamlWriter.serialize(
-                      node.allowedRouteHints,
-                    ),
-                    errorText: _fieldError(
-                      _fieldKey(nodeKey, 'policy_gate_allowed_route_hints'),
-                    ),
-                    onChanged: (String value) {
-                      try {
-                        final parsed = _parseYamlMapFragment(value);
-                        _updateFieldError(
-                          _fieldKey(nodeKey, 'policy_gate_allowed_route_hints'),
-                          null,
-                        );
+                    const SizedBox(height: 10),
+                    _InspectorTextField(
+                      key: ValueKey(_fieldKey(nodeKey, 'policy_gate_rule_set')),
+                      label: 'Rule set',
+                      initialValue: node.policyGateRuleSet,
+                      onChanged: (String value) {
                         _updateNode((
                           _WorkflowDraft _,
                           _WorkflowNodeDraft targetNode,
                         ) {
-                          targetNode.allowedRouteHints = parsed.map(
-                            (String key, Object? value) =>
-                                MapEntry(key, _stringValue(value)),
+                          targetNode.policyGateRuleSet = value.trim();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorTextField(
+                      key: ValueKey(_fieldKey(nodeKey, 'policy_gate_on_error')),
+                      label: 'On evaluation error',
+                      initialValue: node.policyGateOnEvaluationError,
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.policyGateOnEvaluationError = value.trim();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorTextField(
+                      key: ValueKey(
+                        _fieldKey(nodeKey, 'policy_gate_merge_findings'),
+                      ),
+                      label: 'Merge findings',
+                      initialValue: node.policyGateMergeFindings,
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.policyGateMergeFindings = value.trim();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(
+                        _fieldKey(nodeKey, 'policy_gate_session_rule_files'),
+                      ),
+                      label: 'Session rule files',
+                      hintText: 'One file pattern per line',
+                      initialValue: node.policyGateSessionRuleFiles.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.policyGateSessionRuleFiles = _splitLines(
+                            value,
                           );
                         });
-                      } on _MiniYamlException catch (error) {
-                        _updateFieldError(
-                          _fieldKey(nodeKey, 'policy_gate_allowed_route_hints'),
-                          error.message,
-                        );
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _InspectorToggleTile(
-                    title: 'Override raw check status',
-                    value: node.policyGateOverrideGateStatus,
-                    subtitle:
-                        'Allow rules output to replace the raw check result.',
-                    onChanged: (bool value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.policyGateOverrideGateStatus = value;
-                      });
-                    },
-                  ),
-                ],
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorYamlEditor(
+                      key: ValueKey(
+                        _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
+                      ),
+                      label: 'Fact bindings',
+                      helperText:
+                          'Expose selected workflow facts to the policy engine.',
+                      initialValue: _MiniYamlWriter.serialize(
+                        node.policyGateFactBindings
+                            .map(
+                              (_PolicyFactBindingDraft binding) =>
+                                  binding.toYamlMap(),
+                            )
+                            .toList(),
+                      ),
+                      errorText: _fieldError(
+                        _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
+                      ),
+                      onChanged: (String value) {
+                        try {
+                          final parsed = _parseYamlListFragment(value);
+                          final bindings = parsed
+                              .whereType<Map<String, Object?>>()
+                              .map(_PolicyFactBindingDraft.fromYaml)
+                              .toList();
+                          _updateFieldError(
+                            _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
+                            null,
+                          );
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            targetNode.policyGateFactBindings = bindings;
+                          });
+                        } on _MiniYamlException catch (error) {
+                          _updateFieldError(
+                            _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
+                            error.message,
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorYamlEditor(
+                      key: ValueKey(
+                        _fieldKey(nodeKey, 'policy_gate_allowed_route_hints'),
+                      ),
+                      label: 'Allowed route hints',
+                      helperText:
+                          'Allow named policy hints to redirect the workflow to known steps.',
+                      initialValue: _MiniYamlWriter.serialize(
+                        node.allowedRouteHints,
+                      ),
+                      errorText: _fieldError(
+                        _fieldKey(nodeKey, 'policy_gate_allowed_route_hints'),
+                      ),
+                      onChanged: (String value) {
+                        try {
+                          final parsed = _parseYamlMapFragment(value);
+                          _updateFieldError(
+                            _fieldKey(
+                              nodeKey,
+                              'policy_gate_allowed_route_hints',
+                            ),
+                            null,
+                          );
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            targetNode.allowedRouteHints = parsed.map(
+                              (String key, Object? value) =>
+                                  MapEntry(key, _stringValue(value)),
+                            );
+                          });
+                        } on _MiniYamlException catch (error) {
+                          _updateFieldError(
+                            _fieldKey(
+                              nodeKey,
+                              'policy_gate_allowed_route_hints',
+                            ),
+                            error.message,
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _InspectorToggleTile(
+                      title: 'Override raw check status',
+                      value: node.policyGateOverrideGateStatus,
+                      subtitle:
+                          'Allow rules output to replace the raw check result.',
+                      onChanged: (bool value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.policyGateOverrideGateStatus = value;
+                        });
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
-          if (!isFinish) ...[
-            const SizedBox(height: 14),
-            _InspectorSection(
+        );
+      case _NodeInspectorPanel.completion:
+        return _buildInspectorPanelContent(
+          summaryCard: _buildNodeInspectorSummaryCard(workflow, node),
+          searchQuery: searchQuery,
+          emptyTitle: 'No matching completion controls',
+          emptyBody:
+              'Try a different search term to find limits, safety, or completion requirements.',
+          blocks: <_InspectorPanelBlock>[
+            _InspectorPanelBlock(
+              title: 'Limits',
+              searchTerms: const <String>[
+                'max visits',
+                'max failures',
+                'retry',
+              ],
+              child: _InspectorSection(
+                title: 'Limits',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _InspectorNumberField(
+                        key: ValueKey(_fieldKey(nodeKey, 'max_visits')),
+                        label: 'Max visits',
+                        initialValue: _intText(node.maxVisits),
+                        onChanged: (int value) {
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            targetNode.maxVisits = value;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _InspectorNumberField(
+                        key: ValueKey(_fieldKey(nodeKey, 'max_failures')),
+                        label: 'Max failures',
+                        initialValue: _intText(node.maxFailures),
+                        onChanged: (int value) {
+                          _updateNode((
+                            _WorkflowDraft _,
+                            _WorkflowNodeDraft targetNode,
+                          ) {
+                            targetNode.maxFailures = value;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            _InspectorPanelBlock(
+              title: 'Safety',
+              searchTerms: const <String>[
+                'write step',
+                'implementation',
+                'requires checks',
+                'must pass checks',
+              ],
+              child: _InspectorSection(
+                title: 'Safety',
+                child: Column(
+                  children: [
+                    _InspectorToggleTile(
+                      title: 'Write step',
+                      value: node.implementation,
+                      subtitle:
+                          'Mark this as an implementation step that should stay behind checks.',
+                      onChanged: (bool value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.implementation = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'requires_gates')),
+                      label: 'Must pass checks from',
+                      hintText: 'One check step id per line',
+                      initialValue: node.requiresGates.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.requiresGates = _splitLines(value);
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            _InspectorPanelBlock(
               title: 'Done means',
-              child: Column(
-                children: [
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'required_changed_files')),
-                    label: 'Required changed files',
-                    hintText: 'One path or glob per line',
-                    initialValue: node.requiredChangedFiles.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.requiredChangedFiles = _splitLines(value);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _InspectorMultilineField(
-                    key: ValueKey(_fieldKey(nodeKey, 'required_tool_calls')),
-                    label: 'Required tool calls',
-                    hintText: 'One tool id per line',
-                    initialValue: node.requiredToolCalls.join('\n'),
-                    onChanged: (String value) {
-                      _updateNode((
-                        _WorkflowDraft _,
-                        _WorkflowNodeDraft targetNode,
-                      ) {
-                        targetNode.requiredToolCalls = _splitLines(value);
-                      });
-                    },
-                  ),
-                ],
+              searchTerms: const <String>[
+                'required changed files',
+                'required tool calls',
+                'completion contract',
+              ],
+              child: _InspectorSection(
+                title: 'Done means',
+                child: Column(
+                  children: [
+                    _InspectorMultilineField(
+                      key: ValueKey(
+                        _fieldKey(nodeKey, 'required_changed_files'),
+                      ),
+                      label: 'Required changed files',
+                      hintText: 'One path or glob per line',
+                      initialValue: node.requiredChangedFiles.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.requiredChangedFiles = _splitLines(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorMultilineField(
+                      key: ValueKey(_fieldKey(nodeKey, 'required_tool_calls')),
+                      label: 'Required tool calls',
+                      hintText: 'One tool id per line',
+                      initialValue: node.requiredToolCalls.join('\n'),
+                      onChanged: (String value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.requiredToolCalls = _splitLines(value);
+                        });
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
-        ] else ...[
-          const SizedBox(height: 14),
-          _InspectorActionCard(
-            title: 'Need more control?',
-            body:
-                'Open advanced step settings for retries, data flow, checks, and deterministic rules.',
-            actionLabel: 'Advanced',
-            icon: Icons.tune_rounded,
-            onTap: () {
-              setState(() => _showNodeAdvanced = true);
-            },
+        );
+    }
+  }
+
+  Widget _buildWorkflowInspectorSummaryCard(_WorkflowDraft workflow) {
+    return _buildInspectorSummaryCard(
+      title: workflow.name,
+      subtitle: _joinInline(<String>[
+        workflow.startNode.isEmpty
+            ? 'No start step configured'
+            : 'Start ${workflow.startNode}',
+        '${workflow.nodes.length} steps',
+        if (workflow.rawRuleSets.isNotEmpty)
+          '${workflow.rawRuleSets.length} rule set${workflow.rawRuleSets.length == 1 ? '' : 's'}',
+      ]),
+      footer: <Widget>[
+        StatusPill(
+          label:
+              '${workflow.nodes.length} step${workflow.nodes.length == 1 ? '' : 's'}',
+          color: infoColor,
+        ),
+        if (workflow.rawRuleSets.isNotEmpty)
+          StatusPill(
+            label:
+                '${workflow.rawRuleSets.length} rule set${workflow.rawRuleSets.length == 1 ? '' : 's'}',
+            color: successColor,
           ),
-        ],
       ],
+    );
+  }
+
+  Widget _buildNodeInspectorSummaryCard(
+    _WorkflowDraft workflow,
+    _WorkflowNodeDraft node,
+  ) {
+    final isCheck = _normalizeWorkflowKind(node.kind) == 'check';
+    return _buildInspectorSummaryCard(
+      title: node.id,
+      subtitle: node.kind == 'finish'
+          ? 'Final step'
+          : (node.uses.isEmpty
+                ? 'No target configured yet.'
+                : 'Runs ${node.uses}'),
+      footer: <Widget>[
+        StatusPill(
+          label: node.kind.isEmpty ? 'step' : node.kind,
+          color: isCheck ? warningColor : infoColor,
+        ),
+        if (workflow.startNode == node.id)
+          const StatusPill(label: 'start', color: accentColor),
+        if (node.implementation)
+          const StatusPill(label: 'write step', color: dangerColor),
+      ],
+    );
+  }
+
+  Widget _buildInspectorSummaryCard({
+    required String title,
+    required String subtitle,
+    List<Widget> footer = const <Widget>[],
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panelAltColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title.trim().isEmpty ? 'Untitled' : title,
+            style: const TextStyle(
+              color: textPrimaryColor,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (subtitle.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              subtitle,
+              style: const TextStyle(color: textMutedColor, height: 1.45),
+            ),
+          ],
+          if (footer.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: footer),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInspectorPanelContent({
+    required Widget summaryCard,
+    required String searchQuery,
+    required List<_InspectorPanelBlock> blocks,
+    required String emptyTitle,
+    required String emptyBody,
+  }) {
+    final visibleBlocks = blocks
+        .where(
+          (_InspectorPanelBlock block) =>
+              searchQuery.trim().isEmpty ||
+              AppFuzzySearch.matches(searchQuery, <String>[
+                block.title,
+                ...block.searchTerms,
+              ]),
+        )
+        .toList(growable: false);
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          summaryCard,
+          const SizedBox(height: 14),
+          if (visibleBlocks.isEmpty)
+            EmptyState(title: emptyTitle, body: emptyBody)
+          else
+            for (int index = 0; index < visibleBlocks.length; index++) ...[
+              visibleBlocks[index].child,
+              if (index < visibleBlocks.length - 1) const SizedBox(height: 14),
+            ],
+        ],
+      ),
     );
   }
 
@@ -1768,139 +2173,52 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
   }
 }
 
-class _WorkflowLibraryRail extends StatelessWidget {
-  const _WorkflowLibraryRail({
-    required this.workflows,
-    required this.allWorkflowCount,
-    required this.totalNodeCount,
-    required this.totalRuleSetCount,
-    required this.searchController,
-    required this.hasSearch,
+class _InspectorPanelBlock {
+  const _InspectorPanelBlock({
+    required this.title,
+    required this.child,
+    this.searchTerms = const <String>[],
+  });
+
+  final String title;
+  final List<String> searchTerms;
+  final Widget child;
+}
+
+class _WorkflowCollectionPane extends StatelessWidget {
+  const _WorkflowCollectionPane({
+    required this.workflowsBySection,
+    required this.initialSectionId,
+    required this.searchQuery,
     required this.selectedWorkflowKey,
     required this.onSearchChanged,
-    required this.onClearSearch,
     required this.onSelectWorkflow,
   });
 
-  final List<_WorkflowDraft> workflows;
-  final int allWorkflowCount;
-  final int totalNodeCount;
-  final int totalRuleSetCount;
-  final TextEditingController searchController;
-  final bool hasSearch;
+  final Map<_WorkflowCollectionSection, List<_WorkflowDraft>>
+  workflowsBySection;
+  final String initialSectionId;
+  final String searchQuery;
   final String? selectedWorkflowKey;
   final ValueChanged<String> onSearchChanged;
-  final VoidCallback onClearSearch;
   final ValueChanged<_WorkflowDraft> onSelectWorkflow;
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final compactHeader = constraints.maxHeight < 300;
-        final minimalHeader = constraints.maxHeight < 240;
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Workflow Library',
-                style: TextStyle(
-                  color: textPrimaryColor,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (!minimalHeader) ...[
-                const SizedBox(height: 6),
-                const Text(
-                  'Browse the catalog and jump between workflow boards without leaving the canvas.',
-                  style: TextStyle(color: textMutedColor, height: 1.45),
-                ),
-              ],
-              SizedBox(height: minimalHeader ? 12 : 16),
-              TextField(
-                controller: searchController,
-                onChanged: onSearchChanged,
-                decoration: InputDecoration(
-                  hintText: 'Search workflows, steps, and rule sets...',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: hasSearch
-                      ? IconButton(
-                          onPressed: onClearSearch,
-                          icon: const Icon(Icons.close_rounded),
-                        )
-                      : null,
-                ),
-              ),
-              if (!compactHeader) ...[
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    _WorkflowCountChip(
-                      label: 'Workflows',
-                      value: '$allWorkflowCount',
-                      tone: accentColor,
-                    ),
-                    _WorkflowCountChip(
-                      label: 'Steps',
-                      value: '$totalNodeCount',
-                      tone: infoColor,
-                    ),
-                    _WorkflowCountChip(
-                      label: 'Rule sets',
-                      value: '$totalRuleSetCount',
-                      tone: successColor,
-                    ),
-                  ],
-                ),
-              ],
-              SizedBox(height: compactHeader ? 12 : 16),
-              Expanded(
-                child: workflows.isEmpty
-                    ? const EmptyState(
-                        title: 'No matching workflows',
-                        body:
-                            'Try a different search term to find a workflow board in the catalog.',
-                      )
-                    : ListView.separated(
-                        itemCount: workflows.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 12),
-                        itemBuilder: (BuildContext context, int index) {
-                          final workflow = workflows[index];
-                          return _WorkflowLibraryCard(
-                            workflow: workflow,
-                            selected: workflow.localKey == selectedWorkflowKey,
-                            onTap: () => onSelectWorkflow(workflow),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+  String _titleForWorkflow(_WorkflowDraft workflow) {
+    final trimmed = workflow.name.trim();
+    return trimmed.isEmpty ? 'Untitled workflow' : trimmed;
   }
-}
 
-class _WorkflowLibraryCard extends StatelessWidget {
-  const _WorkflowLibraryCard({
-    required this.workflow,
-    required this.selected,
-    required this.onTap,
-  });
+  String _subtitleForWorkflow(_WorkflowDraft workflow) {
+    return _joinInline(<String>[
+      workflow.startNode.isEmpty
+          ? 'No start node configured'
+          : 'Start ${workflow.startNode}',
+      if (workflow.maxTotalTransitions > 0)
+        '${workflow.maxTotalTransitions} hop cap',
+    ]);
+  }
 
-  final _WorkflowDraft workflow;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
+  List<Widget> _footerForWorkflow(_WorkflowDraft workflow) {
     final gateCount = workflow.nodes
         .where(
           (_WorkflowNodeDraft node) =>
@@ -1910,138 +2228,99 @@ class _WorkflowLibraryCard extends StatelessWidget {
     final implementationCount = workflow.nodes
         .where((_WorkflowNodeDraft node) => node.implementation)
         .length;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: selected ? panelRaisedColor : panelAltColor,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: selected
-                  ? accentColor
-                  : borderColor.withValues(alpha: 0.92),
-            ),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: accentColor.withValues(alpha: 0.12),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      workflow.name,
-                      style: const TextStyle(
-                        color: textPrimaryColor,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  if (selected)
-                    const Icon(
-                      Icons.account_tree_rounded,
-                      size: 18,
-                      color: accentColor,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _joinInline(<String>[
-                  workflow.startNode.isEmpty
-                      ? 'No start node'
-                      : 'Start ${workflow.startNode}',
-                  '${workflow.nodes.length} steps',
-                  if (workflow.maxTotalTransitions > 0)
-                    '${workflow.maxTotalTransitions} hops',
-                ]),
-                style: const TextStyle(color: textMutedColor, height: 1.45),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (gateCount > 0)
-                    StatusPill(label: '$gateCount checks', color: warningColor),
-                  if (implementationCount > 0)
-                    StatusPill(
-                      label: '$implementationCount implementations',
-                      color: infoColor,
-                    ),
-                  if (workflow.rawRuleSets.isNotEmpty)
-                    StatusPill(
-                      label:
-                          '${workflow.rawRuleSets.length} rule set${workflow.rawRuleSets.length == 1 ? '' : 's'}',
-                      color: successColor,
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
+    final footer = <Widget>[
+      StatusPill(
+        label:
+            '${workflow.nodes.length} step${workflow.nodes.length == 1 ? '' : 's'}',
+        color: infoColor,
       ),
-    );
+    ];
+    if (workflow.rawRuleSets.isNotEmpty) {
+      footer.add(
+        StatusPill(
+          label:
+              '${workflow.rawRuleSets.length} rule set${workflow.rawRuleSets.length == 1 ? '' : 's'}',
+          color: successColor,
+        ),
+      );
+    }
+    if (gateCount > 0) {
+      footer.add(StatusPill(label: '$gateCount checks', color: warningColor));
+    }
+    if (implementationCount > 0) {
+      footer.add(
+        StatusPill(
+          label:
+              '$implementationCount implementation${implementationCount == 1 ? '' : 's'}',
+          color: accentColor,
+        ),
+      );
+    }
+    return footer;
   }
-}
-
-class _WorkflowCountChip extends StatelessWidget {
-  const _WorkflowCountChip({
-    required this.label,
-    required this.value,
-    required this.tone,
-  });
-
-  final String label;
-  final String value;
-  final Color tone;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: tone.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: tone.withValues(alpha: 0.22)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: textSubtleColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              color: tone,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
+    return AppDenseSidePanel<_WorkflowDraft>(
+      initialSectionId: initialSectionId,
+      initialSearchQuery: searchQuery,
+      onSearchChanged: onSearchChanged,
+      selectedEntryId: selectedWorkflowKey,
+      entryId: (_WorkflowDraft workflow) => workflow.localKey,
+      onSelectEntry: onSelectWorkflow,
+      searchHintText: 'Search workflows, steps, and rule sets...',
+      emptyTitle: 'No workflow panels',
+      emptyBody: 'Workflow sections will appear here once the catalog loads.',
+      sections: _WorkflowCollectionSection.values
+          .map((_WorkflowCollectionSection section) {
+            final workflows =
+                workflowsBySection[section] ?? const <_WorkflowDraft>[];
+            return AppDenseSidePanelSection<_WorkflowDraft>(
+              id: section.sectionId,
+              label: section.panelLabel,
+              icon: section.panelIcon,
+              entries: workflows,
+              searchFields: (_WorkflowDraft workflow) => <String>[
+                workflow.name,
+                workflow.startNode,
+                ...workflow.nodes.expand((_WorkflowNodeDraft node) {
+                  return <String>[
+                    node.id,
+                    node.kind,
+                    node.uses,
+                    ...node.requiredInputKeys,
+                    ...node.requiredDataKeys,
+                    ...node.requiresGates,
+                    ...node.includeNodeResults,
+                    ...node.requiredChangedFiles,
+                    ...node.requiredToolCalls,
+                  ];
+                }),
+                ...workflow.rawRuleSets.map((Object? ruleSet) {
+                  final map = ruleSet as Map<String, Object?>?;
+                  return map?['name']?.toString() ?? '';
+                }),
+              ],
+              emptyTitle: section.emptyTitle,
+              emptyBody: section.emptyBody,
+              rowBuilder:
+                  (
+                    BuildContext context,
+                    _WorkflowDraft workflow,
+                    bool selected,
+                    VoidCallback onTap,
+                  ) {
+                    return AppDenseSidePanelRow(
+                      title: _titleForWorkflow(workflow),
+                      subtitle: _subtitleForWorkflow(workflow),
+                      selected: selected,
+                      onTap: onTap,
+                      footer: _footerForWorkflow(workflow),
+                    );
+                  },
+            );
+          })
+          .toList(growable: false),
     );
   }
 }
@@ -2054,6 +2333,7 @@ class _WorkflowCanvasPane extends StatelessWidget {
     required this.controller,
     required this.scaleLabel,
     required this.onSelectNode,
+    required this.onClearNodeSelection,
     required this.onViewportMeasured,
     required this.onToggleSource,
     required this.onToggleInspector,
@@ -2071,6 +2351,7 @@ class _WorkflowCanvasPane extends StatelessWidget {
   final TransformationController controller;
   final String scaleLabel;
   final ValueChanged<String?> onSelectNode;
+  final VoidCallback onClearNodeSelection;
   final void Function(Size viewport, _WorkflowGraphLayout layout)
   onViewportMeasured;
   final VoidCallback onToggleSource;
@@ -2131,40 +2412,52 @@ class _WorkflowCanvasPane extends StatelessWidget {
                   return Stack(
                     children: [
                       Positioned.fill(
-                        child: InteractiveViewer(
-                          transformationController: controller,
-                          boundaryMargin: const EdgeInsets.all(1400),
-                          constrained: false,
-                          minScale: 0.18,
-                          maxScale: 2.4,
-                          child: SizedBox(
-                            width: layout.boardSize.width,
-                            height: layout.boardSize.height,
-                            child: Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: CustomPaint(
-                                    painter: _WorkflowBoardPainter(
-                                      layout: layout,
-                                      selectedNodeKey: selectedNodeKey,
+                        child: GestureDetector(
+                          key: const ValueKey<String>(
+                            'workflow-canvas-viewport',
+                          ),
+                          behavior: HitTestBehavior.translucent,
+                          onTap: onClearNodeSelection,
+                          child: InteractiveViewer(
+                            transformationController: controller,
+                            boundaryMargin: const EdgeInsets.all(1400),
+                            constrained: false,
+                            minScale: 0.18,
+                            maxScale: 2.4,
+                            child: SizedBox(
+                              width: layout.boardSize.width,
+                              height: layout.boardSize.height,
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: onClearNodeSelection,
+                                      child: CustomPaint(
+                                        painter: _WorkflowBoardPainter(
+                                          layout: layout,
+                                          selectedNodeKey: selectedNodeKey,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                for (final placement in layout.placements)
-                                  Positioned(
-                                    left: placement.rect.left,
-                                    top: placement.rect.top,
-                                    child: _WorkflowCanvasNodeCard(
-                                      node: placement.node,
-                                      selected:
-                                          placement.node.localKey ==
-                                          selectedNodeKey,
-                                      startNodeId: workflow.startNode,
-                                      onTap: () =>
-                                          onSelectNode(placement.node.localKey),
+                                  for (final placement in layout.placements)
+                                    Positioned(
+                                      left: placement.rect.left,
+                                      top: placement.rect.top,
+                                      child: _WorkflowCanvasNodeCard(
+                                        node: placement.node,
+                                        selected:
+                                            placement.node.localKey ==
+                                            selectedNodeKey,
+                                        startNodeId: workflow.startNode,
+                                        onTap: () => onSelectNode(
+                                          placement.node.localKey,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -2691,6 +2984,7 @@ class _InspectorDropdownField extends StatelessWidget {
     this.value,
     this.includeBlank = false,
     this.blankLabel = 'None',
+    this.helperText,
   });
 
   final String label;
@@ -2698,6 +2992,7 @@ class _InspectorDropdownField extends StatelessWidget {
   final String? value;
   final bool includeBlank;
   final String blankLabel;
+  final String? helperText;
   final ValueChanged<String?> onChanged;
 
   @override
@@ -2713,7 +3008,7 @@ class _InspectorDropdownField extends StatelessWidget {
       onChanged: onChanged,
       dropdownColor: panelAltColor,
       iconEnabledColor: textMutedColor,
-      decoration: InputDecoration(labelText: label),
+      decoration: InputDecoration(labelText: label, helperText: helperText),
       items: <DropdownMenuItem<String>>[
         if (includeBlank)
           DropdownMenuItem<String>(value: null, child: Text(blankLabel)),
@@ -2735,11 +3030,13 @@ class _InspectorMultilineField extends StatelessWidget {
     required this.initialValue,
     required this.onChanged,
     this.hintText,
+    this.helperText,
   });
 
   final String label;
   final String initialValue;
   final String? hintText;
+  final String? helperText;
   final ValueChanged<String> onChanged;
 
   @override
@@ -2753,6 +3050,7 @@ class _InspectorMultilineField extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         hintText: hintText,
+        helperText: helperText,
         alignLabelWithHint: true,
       ),
     );

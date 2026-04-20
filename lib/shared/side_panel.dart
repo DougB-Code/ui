@@ -329,16 +329,17 @@ class _AppSidePanelState extends State<AppSidePanel> {
                 ),
               ),
               ...widget.headerActions,
-              Tooltip(
-                message: 'Open panel menu',
-                child: IconButton(
-                  key: _menuButtonKey,
-                  onPressed: showNavigation ? _showSectionMenu : null,
-                  splashRadius: 18,
-                  icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                  color: textMutedColor,
+              if (showNavigation)
+                Tooltip(
+                  message: 'Open panel menu',
+                  child: IconButton(
+                    key: _menuButtonKey,
+                    onPressed: _showSectionMenu,
+                    splashRadius: 18,
+                    icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                    color: textMutedColor,
+                  ),
                 ),
-              ),
             ],
           ),
         ),

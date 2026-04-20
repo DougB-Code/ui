@@ -238,6 +238,46 @@ void main() {
 
     expect(find.text('Production graph'), findsOneWidget);
   });
+
+  testWidgets('side panel hides panel menu affordance for a single section', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAgentAwesomeTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            child: AppSidePanel(
+              searchHintText: 'Filter workflows...',
+              sections: [
+                AppSidePanelSection(
+                  id: 'workflows',
+                  label: 'Workflows',
+                  icon: Icons.account_tree_outlined,
+                  builder: (BuildContext context, String query) {
+                    final items = AppFuzzySearch.filter<String>(
+                      const <String>['chat_turn'],
+                      query,
+                      (String item) => <String>[item, 'workflow'],
+                    );
+                    return _TestPanelContent(
+                      items: items,
+                      emptyTitle: 'No matching workflows',
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Open panel menu'), findsNothing);
+    expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsNothing);
+  });
 }
 
 class _TestPanelContent extends StatelessWidget {

@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:ui/harness_config/harness_config_api.dart';
 import 'package:ui/harness_config/harness_document_state.dart';
@@ -1249,6 +1251,23 @@ class HarnessWorkflowsPage extends StatefulWidget {
 class _HarnessWorkflowsPageState
     extends
         HarnessDocumentPageState<HarnessWorkflowsPage, HarnessWorkflowCatalog> {
+  List<String> _runTargetOptions = const <String>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRunTargetOptions();
+  }
+
+  @override
+  void didUpdateWidget(covariant HarnessWorkflowsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.harnessConfigApi != widget.harnessConfigApi ||
+        oldWidget.harnessConfigAvailable != widget.harnessConfigAvailable) {
+      _loadRunTargetOptions();
+    }
+  }
+
   @override
   ScreenHeaderActionsController get headerActionsController =>
       widget.headerActionsController;
@@ -1284,6 +1303,40 @@ class _HarnessWorkflowsPageState
     return widget.harnessConfigApi.validateWorkflows(yaml);
   }
 
+  Future<void> _loadRunTargetOptions() async {
+    if (!widget.harnessConfigAvailable) {
+      if (mounted) {
+        setState(() => _runTargetOptions = const <String>[]);
+      }
+      return;
+    }
+
+    try {
+      final HarnessAgentCatalog agentCatalog =
+          await widget.harnessConfigApi.getAgents();
+      final HarnessToolCatalog toolCatalog = await widget.harnessConfigApi
+          .getTools();
+      final LinkedHashSet<String> options = LinkedHashSet<String>.from(<String>[
+        ...agentCatalog.agents.map((HarnessAgentSummary agent) => agent.name),
+        ...toolCatalog.toolGroups.expand(
+          (HarnessToolGroupSummary group) => group.tools,
+        ),
+        ...toolCatalog.externalTools.map(
+          (HarnessExternalToolSummary tool) => tool.name,
+        ),
+      ]..removeWhere((String value) => value.trim().isEmpty));
+      if (!mounted) {
+        return;
+      }
+      setState(() => _runTargetOptions = options.toList(growable: false));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _runTargetOptions = const <String>[]);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return buildDocumentUnavailable(
@@ -1295,6 +1348,7 @@ class _HarnessWorkflowsPageState
         return HarnessWorkflowsWorkspace(
           catalog: catalog,
           controller: controller,
+          runTargetOptions: _runTargetOptions,
           validation: validation,
         );
       },

@@ -4,15 +4,79 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/control_plane/control_plane_api.dart';
 import 'package:ui/harness_config/harness_config_api.dart';
+import 'package:ui/harness_config/harness_workflows_workspace.dart';
 import 'package:ui/main.dart';
 import 'package:ui/operations/operations_api.dart';
 import 'package:ui/providers/provider_catalog_api.dart';
+import 'package:ui/shared/ui.dart';
 
 const ValueKey<String> _appRailKey = ValueKey<String>('app-rail');
 const ValueKey<String> _appRailLogoKey = ValueKey<String>('app-rail-logo');
 const ValueKey<String> _appRailExpandIconKey = ValueKey<String>(
   'app-rail-expand-icon',
 );
+
+HarnessWorkflowNodeSummary _workflowNode({
+  required String id,
+  required String kind,
+  String uses = '',
+  String success = '',
+  String failure = '',
+  String blocked = '',
+}) {
+  return HarnessWorkflowNodeSummary(
+    id: id,
+    kind: kind,
+    uses: uses,
+    withKeys: const <String>[],
+    requiredInputKeys: const <String>[],
+    optionalInputKeys: const <String>[],
+    requiredDataKeys: const <String>[],
+    producesGateDecision: false,
+    transitions: HarnessWorkflowTransitionsSummary(
+      success: success,
+      failure: failure,
+      blocked: blocked,
+    ),
+    maxVisits: 0,
+    maxFailures: 0,
+    implementation: false,
+    requiresGates: const <String>[],
+    includeNodeResults: const <String>[],
+    inputMappings: const <HarnessWorkflowInputMapSummary>[],
+    promptInstructionCount: 0,
+    gatePassStatuses: const <String>[],
+    gateFailStatuses: const <String>[],
+    gatePassExitCodes: const <int>[],
+    gateFailExitCodes: const <int>[],
+    treatRetryableAsFail: false,
+    policyGateEnabled: false,
+    policyGateRuleSet: '',
+    policyGateFactBindings: const <String>[],
+    policyGateRouteHints: const <String>[],
+    policyGateOnEvalError: '',
+    policyGateMergeFindings: '',
+    policyGateOverrideStatus: false,
+    requiredChangedFiles: const <String>[],
+    requiredToolCalls: const <String>[],
+  );
+}
+
+HarnessWorkflowSummary _workflowSummary({
+  required String name,
+  required String startNode,
+  required List<HarnessWorkflowNodeSummary> nodes,
+}) {
+  return HarnessWorkflowSummary(
+    name: name,
+    startNode: startNode,
+    maxVisitsPerNode: 0,
+    maxTotalTransitions: 0,
+    duplicateResultCap: 0,
+    ruleSets: const <HarnessWorkflowRuleSetSummary>[],
+    nodes: nodes,
+  );
+}
 
 void main() {
   final providersSearchField = find.byWidgetPredicate(
@@ -161,6 +225,201 @@ void main() {
 
     await tester.binding.setSurfaceSize(null);
   });
+
+  testWidgets(
+    'workflow workspace uses the shared dense side panel for workflow selection',
+    (WidgetTester tester) async {
+      final controller = TextEditingController();
+
+      await tester.binding.setSurfaceSize(const Size(1440, 1000));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAgentAwesomeTheme(),
+          home: Scaffold(
+            body: SizedBox(
+              width: 1400,
+              height: 920,
+              child: HarnessWorkflowsWorkspace(
+                catalog: HarnessWorkflowCatalog(
+                  configPath: '/tmp/workflows.yaml',
+                  yaml: '',
+                  workflows: <HarnessWorkflowSummary>[
+                    _workflowSummary(
+                      name: 'release_train',
+                      startNode: 'build',
+                      nodes: <HarnessWorkflowNodeSummary>[
+                        _workflowNode(
+                          id: 'build',
+                          kind: 'task',
+                          uses: 'builder',
+                          success: 'finish',
+                        ),
+                        _workflowNode(id: 'finish', kind: 'finish'),
+                      ],
+                    ),
+                    _workflowSummary(
+                      name: 'draft_review',
+                      startNode: '',
+                      nodes: <HarnessWorkflowNodeSummary>[
+                        _workflowNode(
+                          id: 'review',
+                          kind: 'task',
+                          uses: 'reviewer',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                controller: controller,
+                runTargetOptions: const <String>[],
+                validation: null,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Workflow Library'), findsNothing);
+      expect(
+        find.text('Search workflows, steps, and rule sets...'),
+        findsOneWidget,
+      );
+      expect(find.text('release_train'), findsWidgets);
+      expect(find.text('draft_review'), findsOneWidget);
+      expect(find.text('Ready'), findsNothing);
+      expect(find.text('Needs attention'), findsNothing);
+
+      controller.dispose();
+      await tester.binding.setSurfaceSize(null);
+    },
+  );
+
+  testWidgets(
+    'workflow inspector switches between workflow and step panels from canvas selection',
+    (WidgetTester tester) async {
+      final controller = TextEditingController();
+
+      await tester.binding.setSurfaceSize(const Size(1440, 1000));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAgentAwesomeTheme(),
+          home: Scaffold(
+            body: SizedBox(
+              width: 1400,
+              height: 920,
+              child: HarnessWorkflowsWorkspace(
+                catalog: HarnessWorkflowCatalog(
+                  configPath: '/tmp/workflows.yaml',
+                  yaml: '',
+                  workflows: <HarnessWorkflowSummary>[
+                    _workflowSummary(
+                      name: 'release_train',
+                      startNode: 'build',
+                      nodes: <HarnessWorkflowNodeSummary>[
+                        _workflowNode(
+                          id: 'build',
+                          kind: 'task',
+                          uses: 'builder',
+                          success: 'finish',
+                        ),
+                        _workflowNode(id: 'finish', kind: 'finish'),
+                      ],
+                    ),
+                  ],
+                ),
+                controller: controller,
+                runTargetOptions: const <String>[],
+                validation: null,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('OVERVIEW'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Workflow'), findsNothing);
+
+      await tester.tap(find.text('finish').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('GENERAL'), findsOneWidget);
+      expect(find.byTooltip('Behavior'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Workflow'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('workflow-canvas-viewport')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('OVERVIEW'), findsOneWidget);
+      expect(find.byTooltip('Behavior'), findsNothing);
+
+      controller.dispose();
+      await tester.binding.setSurfaceSize(null);
+    },
+  );
+
+  testWidgets(
+    'workflow runs picker shows configured agents and tools',
+    (WidgetTester tester) async {
+      final controller = TextEditingController();
+
+      await tester.binding.setSurfaceSize(const Size(1440, 1000));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAgentAwesomeTheme(),
+          home: Scaffold(
+            body: SizedBox(
+              width: 1400,
+              height: 920,
+              child: HarnessWorkflowsWorkspace(
+                catalog: HarnessWorkflowCatalog(
+                  configPath: '/tmp/workflows.yaml',
+                  yaml: '',
+                  workflows: <HarnessWorkflowSummary>[
+                    _workflowSummary(
+                      name: 'chat_turn',
+                      startNode: 'reply',
+                      nodes: <HarnessWorkflowNodeSummary>[
+                        _workflowNode(
+                          id: 'reply',
+                          kind: 'task',
+                          uses: 'chat_responder',
+                          success: 'finish',
+                        ),
+                        _workflowNode(id: 'finish', kind: 'finish'),
+                      ],
+                    ),
+                  ],
+                ),
+                controller: controller,
+                runTargetOptions: const <String>['lead', 'ls', 'cat', 'patch'],
+                validation: null,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('reply').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>).at(1));
+      await tester.pumpAndSettle();
+
+      expect(find.text('lead').last, findsOneWidget);
+      expect(find.text('ls').last, findsOneWidget);
+      expect(find.text('cat').last, findsOneWidget);
+      expect(find.text('patch').last, findsOneWidget);
+      expect(find.text('chat_responder').last, findsOneWidget);
+
+      controller.dispose();
+      await tester.binding.setSurfaceSize(null);
+    },
+  );
 
   testWidgets(
     'provider preview is backend-owned and verify uses persisted alias',

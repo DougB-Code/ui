@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:ui/shared/ui.dart';
 
-class ConfigWorkspaceShell extends StatefulWidget {
+class ConfigWorkspaceShell extends StatelessWidget {
   const ConfigWorkspaceShell({
     super.key,
     required this.stacked,
@@ -31,32 +31,220 @@ class ConfigWorkspaceShell extends StatefulWidget {
   final double dividerHitWidth;
 
   @override
-  State<ConfigWorkspaceShell> createState() => _ConfigWorkspaceShellState();
+  Widget build(BuildContext context) {
+    return _ConfigWorkspaceFrame(
+      stacked: stacked,
+      stackedChild: stackedChild,
+      stackedBuilder: () {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Expanded(flex: stackedCollectionFlex, child: collectionPane),
+              SizedBox(height: stackedGap),
+              Expanded(flex: stackedDetailFlex, child: detailPane),
+            ],
+          ),
+        );
+      },
+      child: _ConfigWorkspaceHorizontalSplit(
+        leadingPane: collectionPane,
+        trailingPane: detailPane,
+        leadingFlex: collectionFlex,
+        trailingFlex: detailFlex,
+        minLeadingPaneWidth: minPaneWidth,
+        minTrailingPaneWidth: minPaneWidth,
+        dividerHitWidth: dividerHitWidth,
+        dividerKey: const ValueKey<String>('config-workspace-divider'),
+        handleKey: const ValueKey<String>('config-workspace-divider-handle'),
+      ),
+    );
+  }
 }
 
-class _ConfigWorkspaceShellState extends State<ConfigWorkspaceShell> {
-  double? _collectionFraction;
+class ConfigWorkspaceThreePaneShell extends StatelessWidget {
+  const ConfigWorkspaceThreePaneShell({
+    super.key,
+    required this.stacked,
+    required this.collectionPane,
+    required this.editorPane,
+    required this.detailPane,
+    this.showDetailPane = true,
+    this.stackedChild,
+    this.collectionFlex = 28,
+    this.editorFlex = 44,
+    this.detailFlex = 28,
+    this.stackedCollectionFlex = 28,
+    this.stackedEditorFlex = 42,
+    this.stackedDetailFlex = 30,
+    this.stackedGap = 16,
+    this.minCollectionPaneWidth = 320,
+    this.minEditorPaneWidth = 360,
+    this.minDetailPaneWidth = 320,
+    this.dividerHitWidth = 20,
+  });
+
+  final bool stacked;
+  final Widget collectionPane;
+  final Widget editorPane;
+  final Widget detailPane;
+  final bool showDetailPane;
+  final Widget? stackedChild;
+  final int collectionFlex;
+  final int editorFlex;
+  final int detailFlex;
+  final int stackedCollectionFlex;
+  final int stackedEditorFlex;
+  final int stackedDetailFlex;
+  final double stackedGap;
+  final double minCollectionPaneWidth;
+  final double minEditorPaneWidth;
+  final double minDetailPaneWidth;
+  final double dividerHitWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final combinedTrailingMinWidth = showDetailPane
+        ? minEditorPaneWidth + minDetailPaneWidth + dividerHitWidth
+        : minEditorPaneWidth;
+    final trailingPane = showDetailPane
+        ? _ConfigWorkspaceHorizontalSplit(
+            leadingPane: editorPane,
+            trailingPane: detailPane,
+            leadingFlex: editorFlex,
+            trailingFlex: detailFlex,
+            minLeadingPaneWidth: minEditorPaneWidth,
+            minTrailingPaneWidth: minDetailPaneWidth,
+            dividerHitWidth: dividerHitWidth,
+            dividerKey: const ValueKey<String>(
+              'config-workspace-detail-divider',
+            ),
+            handleKey: const ValueKey<String>(
+              'config-workspace-detail-divider-handle',
+            ),
+          )
+        : editorPane;
+
+    return _ConfigWorkspaceFrame(
+      stacked: stacked,
+      stackedChild: stackedChild,
+      stackedBuilder: () {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Expanded(flex: stackedCollectionFlex, child: collectionPane),
+              SizedBox(height: stackedGap),
+              Expanded(flex: stackedEditorFlex, child: editorPane),
+              if (showDetailPane) ...[
+                SizedBox(height: stackedGap),
+                Expanded(flex: stackedDetailFlex, child: detailPane),
+              ],
+            ],
+          ),
+        );
+      },
+      child: _ConfigWorkspaceHorizontalSplit(
+        leadingPane: collectionPane,
+        trailingPane: trailingPane,
+        leadingFlex: collectionFlex,
+        trailingFlex: editorFlex + (showDetailPane ? detailFlex : 0),
+        minLeadingPaneWidth: minCollectionPaneWidth,
+        minTrailingPaneWidth: combinedTrailingMinWidth,
+        dividerHitWidth: dividerHitWidth,
+        dividerKey: const ValueKey<String>('config-workspace-divider'),
+        handleKey: const ValueKey<String>('config-workspace-divider-handle'),
+      ),
+    );
+  }
+}
+
+class _ConfigWorkspaceFrame extends StatelessWidget {
+  const _ConfigWorkspaceFrame({
+    required this.stacked,
+    required this.stackedBuilder,
+    required this.child,
+    this.stackedChild,
+  });
+
+  final bool stacked;
+  final Widget child;
+  final Widget? stackedChild;
+  final Widget Function() stackedBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0x94101929),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: borderColor.withValues(alpha: 0.75)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.20),
+            blurRadius: 26,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: stacked ? stackedChild ?? stackedBuilder() : child,
+    );
+  }
+}
+
+class _ConfigWorkspaceHorizontalSplit extends StatefulWidget {
+  const _ConfigWorkspaceHorizontalSplit({
+    required this.leadingPane,
+    required this.trailingPane,
+    required this.leadingFlex,
+    required this.trailingFlex,
+    required this.minLeadingPaneWidth,
+    required this.minTrailingPaneWidth,
+    required this.dividerHitWidth,
+    required this.dividerKey,
+    required this.handleKey,
+  });
+
+  final Widget leadingPane;
+  final Widget trailingPane;
+  final int leadingFlex;
+  final int trailingFlex;
+  final double minLeadingPaneWidth;
+  final double minTrailingPaneWidth;
+  final double dividerHitWidth;
+  final Key dividerKey;
+  final Key handleKey;
+
+  @override
+  State<_ConfigWorkspaceHorizontalSplit> createState() =>
+      _ConfigWorkspaceHorizontalSplitState();
+}
+
+class _ConfigWorkspaceHorizontalSplitState
+    extends State<_ConfigWorkspaceHorizontalSplit> {
+  double? _leadingFraction;
   bool _dividerHovered = false;
   bool _dividerDragging = false;
 
-  double get _defaultCollectionFraction {
-    final total = widget.collectionFlex + widget.detailFlex;
+  double get _defaultLeadingFraction {
+    final total = widget.leadingFlex + widget.trailingFlex;
     if (total <= 0) {
       return 0.5;
     }
-    return widget.collectionFlex / total;
+    return widget.leadingFlex / total;
   }
 
-  double _clampCollectionFraction(double fraction, double maxWidth) {
+  double _clampLeadingFraction(double fraction, double maxWidth) {
     final availableWidth = maxWidth - widget.dividerHitWidth;
     if (availableWidth <= 0) {
       return 0.5;
     }
-    final minFraction = (widget.minPaneWidth / availableWidth).clamp(
-      0.18,
-      0.48,
-    );
-    final maxFraction = 1 - minFraction;
+    final minLeadingFraction = (widget.minLeadingPaneWidth / availableWidth)
+        .clamp(0.18, 0.82);
+    final maxLeadingFraction =
+        1 - (widget.minTrailingPaneWidth / availableWidth).clamp(0.18, 0.82);
+    final minFraction = minLeadingFraction.toDouble();
+    final maxFraction = maxLeadingFraction.toDouble();
     if (minFraction >= maxFraction) {
       return 0.5;
     }
@@ -64,10 +252,10 @@ class _ConfigWorkspaceShellState extends State<ConfigWorkspaceShell> {
   }
 
   void _syncFractionForWidth(double maxWidth) {
-    final currentFraction = _collectionFraction ?? _defaultCollectionFraction;
-    final nextFraction = _clampCollectionFraction(currentFraction, maxWidth);
-    if (_collectionFraction != nextFraction) {
-      _collectionFraction = nextFraction;
+    final currentFraction = _leadingFraction ?? _defaultLeadingFraction;
+    final nextFraction = _clampLeadingFraction(currentFraction, maxWidth);
+    if (_leadingFraction != nextFraction) {
+      _leadingFraction = nextFraction;
     }
   }
 
@@ -97,165 +285,111 @@ class _ConfigWorkspaceShellState extends State<ConfigWorkspaceShell> {
     }
     final rawFraction =
         (localDx - (widget.dividerHitWidth / 2)) / availableWidth;
-    final nextFraction = _clampCollectionFraction(rawFraction, maxWidth);
-    if (nextFraction == _collectionFraction) {
+    final nextFraction = _clampLeadingFraction(rawFraction, maxWidth);
+    if (nextFraction == _leadingFraction) {
       return;
     }
-    setState(() => _collectionFraction = nextFraction);
+    setState(() => _leadingFraction = nextFraction);
   }
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0x94101929),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: borderColor.withValues(alpha: 0.75)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.20),
-            blurRadius: 26,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: widget.stacked
-          ? widget.stackedChild ??
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Expanded(
-                        flex: widget.stackedCollectionFlex,
-                        child: widget.collectionPane,
-                      ),
-                      SizedBox(height: widget.stackedGap),
-                      Expanded(
-                        flex: widget.stackedDetailFlex,
-                        child: widget.detailPane,
-                      ),
-                    ],
-                  ),
-                )
-          : LayoutBuilder(
-              builder: (BuildContext context, BoxConstraints constraints) {
-                _syncFractionForWidth(constraints.maxWidth);
-                final collectionFraction =
-                    _collectionFraction ?? _defaultCollectionFraction;
-                final availableWidth =
-                    constraints.maxWidth - widget.dividerHitWidth;
-                final collectionWidth = availableWidth * collectionFraction;
-                final detailWidth = availableWidth - collectionWidth;
-                final dividerActive = _dividerHovered || _dividerDragging;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        _syncFractionForWidth(constraints.maxWidth);
+        final leadingFraction = _leadingFraction ?? _defaultLeadingFraction;
+        final availableWidth = constraints.maxWidth - widget.dividerHitWidth;
+        final leadingWidth = availableWidth * leadingFraction;
+        final trailingWidth = availableWidth - leadingWidth;
+        final dividerActive = _dividerHovered || _dividerDragging;
 
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: collectionWidth,
-                      child: widget.collectionPane,
-                    ),
-                    MouseRegion(
-                      cursor: SystemMouseCursors.resizeColumn,
-                      onEnter: (_) => _setDividerHovered(true),
-                      onExit: (_) => _setDividerHovered(false),
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onHorizontalDragStart: (_) => _setDividerDragging(true),
-                        onHorizontalDragUpdate: (DragUpdateDetails details) {
-                          _updateFractionFromGlobalDx(
-                            details.globalPosition.dx,
-                            constraints.maxWidth,
-                          );
-                        },
-                        onHorizontalDragEnd: (_) => _setDividerDragging(false),
-                        onHorizontalDragCancel: () =>
-                            _setDividerDragging(false),
-                        child: SizedBox(
-                          width: widget.dividerHitWidth,
-                          child: Center(
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(width: leadingWidth, child: widget.leadingPane),
+            MouseRegion(
+              cursor: SystemMouseCursors.resizeColumn,
+              onEnter: (_) => _setDividerHovered(true),
+              onExit: (_) => _setDividerHovered(false),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragStart: (_) => _setDividerDragging(true),
+                onHorizontalDragUpdate: (DragUpdateDetails details) {
+                  _updateFractionFromGlobalDx(
+                    details.globalPosition.dx,
+                    constraints.maxWidth,
+                  );
+                },
+                onHorizontalDragEnd: (_) => _setDividerDragging(false),
+                onHorizontalDragCancel: () => _setDividerDragging(false),
+                child: SizedBox(
+                  width: widget.dividerHitWidth,
+                  child: Center(
+                    child: AnimatedContainer(
+                      key: widget.dividerKey,
+                      duration: const Duration(milliseconds: 160),
+                      curve: Curves.easeOutCubic,
+                      width: _dividerDragging ? 12 : 10,
+                      height: double.infinity,
+                      decoration: BoxDecoration(
+                        color: dividerActive
+                            ? infoColor.withValues(alpha: 0.10)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Center(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          curve: Curves.easeOutCubic,
+                          width: _dividerDragging ? 3 : 2,
+                          height: double.infinity,
+                          decoration: BoxDecoration(
+                            color: _dividerDragging
+                                ? infoColor
+                                : dividerActive
+                                ? infoColor.withValues(alpha: 0.78)
+                                : borderColor.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(999),
+                            boxShadow: dividerActive
+                                ? [
+                                    BoxShadow(
+                                      color: infoColor.withValues(
+                                        alpha: _dividerDragging ? 0.26 : 0.16,
+                                      ),
+                                      blurRadius: _dividerDragging ? 12 : 8,
+                                    ),
+                                  ]
+                                : const <BoxShadow>[],
+                          ),
+                          child: Align(
+                            alignment: Alignment.center,
                             child: AnimatedContainer(
-                              key: const ValueKey<String>(
-                                'config-workspace-divider',
-                              ),
+                              key: widget.handleKey,
                               duration: const Duration(milliseconds: 160),
                               curve: Curves.easeOutCubic,
-                              width: _dividerDragging ? 12 : 10,
-                              height: double.infinity,
+                              width: _dividerDragging ? 3 : 2,
+                              height: dividerActive ? 72 : 52,
                               decoration: BoxDecoration(
                                 color: dividerActive
-                                    ? infoColor.withValues(alpha: 0.10)
-                                    : Colors.transparent,
+                                    ? textPrimaryColor.withValues(
+                                        alpha: _dividerDragging ? 0.88 : 0.70,
+                                      )
+                                    : textSubtleColor.withValues(alpha: 0.52),
                                 borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Center(
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 160),
-                                  curve: Curves.easeOutCubic,
-                                  width: _dividerDragging ? 3 : 2,
-                                  height: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: _dividerDragging
-                                        ? infoColor
-                                        : dividerActive
-                                        ? infoColor.withValues(alpha: 0.78)
-                                        : borderColor.withValues(alpha: 0.85),
-                                    borderRadius: BorderRadius.circular(999),
-                                    boxShadow: dividerActive
-                                        ? [
-                                            BoxShadow(
-                                              color: infoColor.withValues(
-                                                alpha: _dividerDragging
-                                                    ? 0.26
-                                                    : 0.16,
-                                              ),
-                                              blurRadius: _dividerDragging
-                                                  ? 12
-                                                  : 8,
-                                            ),
-                                          ]
-                                        : const <BoxShadow>[],
-                                  ),
-                                  child: Align(
-                                    alignment: Alignment.center,
-                                    child: AnimatedContainer(
-                                      key: const ValueKey<String>(
-                                        'config-workspace-divider-handle',
-                                      ),
-                                      duration: const Duration(
-                                        milliseconds: 160,
-                                      ),
-                                      curve: Curves.easeOutCubic,
-                                      width: _dividerDragging ? 3 : 2,
-                                      height: dividerActive ? 72 : 52,
-                                      decoration: BoxDecoration(
-                                        color: dividerActive
-                                            ? textPrimaryColor.withValues(
-                                                alpha: _dividerDragging
-                                                    ? 0.88
-                                                    : 0.70,
-                                              )
-                                            : textSubtleColor.withValues(
-                                                alpha: 0.52,
-                                              ),
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                    SizedBox(width: detailWidth, child: widget.detailPane),
-                  ],
-                );
-              },
+                  ),
+                ),
+              ),
             ),
+            SizedBox(width: trailingWidth, child: widget.trailingPane),
+          ],
+        );
+      },
     );
   }
 }
