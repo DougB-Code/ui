@@ -73,7 +73,6 @@ HarnessWorkflowSummary _workflowSummary({
     maxVisitsPerNode: 0,
     maxTotalTransitions: 0,
     duplicateResultCap: 0,
-    ruleSets: const <HarnessWorkflowRuleSetSummary>[],
     nodes: nodes,
   );
 }
@@ -243,6 +242,7 @@ void main() {
                 catalog: HarnessWorkflowCatalog(
                   configPath: '/tmp/workflows.yaml',
                   yaml: '',
+                  ruleSets: const <HarnessWorkflowRuleSetSummary>[],
                   workflows: <HarnessWorkflowSummary>[
                     _workflowSummary(
                       name: 'release_train',
@@ -281,10 +281,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Workflow Library'), findsNothing);
-      expect(
-        find.text('Search workflows, steps, and rule sets...'),
-        findsOneWidget,
-      );
+      expect(find.text('Search workflows and steps...'), findsOneWidget);
       expect(find.text('release_train'), findsWidgets);
       expect(find.text('draft_review'), findsOneWidget);
       expect(find.text('Ready'), findsNothing);
@@ -312,6 +309,7 @@ void main() {
                 catalog: HarnessWorkflowCatalog(
                   configPath: '/tmp/workflows.yaml',
                   yaml: '',
+                  ruleSets: const <HarnessWorkflowRuleSetSummary>[],
                   workflows: <HarnessWorkflowSummary>[
                     _workflowSummary(
                       name: 'release_train',
@@ -361,10 +359,237 @@ void main() {
     },
   );
 
+  testWidgets('workflow runs picker shows configured agents and tools', (
+    WidgetTester tester,
+  ) async {
+    final controller = TextEditingController();
+
+    await tester.binding.setSurfaceSize(const Size(1440, 1000));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAgentAwesomeTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 1400,
+            height: 920,
+            child: HarnessWorkflowsWorkspace(
+              catalog: HarnessWorkflowCatalog(
+                configPath: '/tmp/workflows.yaml',
+                yaml: '',
+                ruleSets: const <HarnessWorkflowRuleSetSummary>[],
+                workflows: <HarnessWorkflowSummary>[
+                  _workflowSummary(
+                    name: 'chat_turn',
+                    startNode: 'reply',
+                    nodes: <HarnessWorkflowNodeSummary>[
+                      _workflowNode(
+                        id: 'reply',
+                        kind: 'task',
+                        uses: 'chat_responder',
+                        success: 'finish',
+                      ),
+                      _workflowNode(id: 'finish', kind: 'finish'),
+                    ],
+                  ),
+                ],
+              ),
+              controller: controller,
+              runTargetOptions: const <String>['lead', 'ls', 'cat', 'patch'],
+              validation: null,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('reply').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).at(1));
+    await tester.pumpAndSettle();
+
+    expect(find.text('lead').last, findsOneWidget);
+    expect(find.text('ls').last, findsOneWidget);
+    expect(find.text('cat').last, findsOneWidget);
+    expect(find.text('patch').last, findsOneWidget);
+    expect(find.text('chat_responder').last, findsOneWidget);
+
+    controller.dispose();
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('rules workspace exposes structured shared grule rules', (
+    WidgetTester tester,
+  ) async {
+    final controller = TextEditingController()
+      ..text = '''
+rules:
+  - name: "acceptance"
+    file: "acceptance.grl"
+rule_sets:
+  - name: "shared_acceptance"
+    fail_closed: true
+    rules: ["acceptance"]
+workflows:
+  - name: "policy_review"
+    start_node: "verify"
+    nodes:
+      - id: "verify"
+        kind: "gate"
+        uses: "reviewer"
+        policy_gate:
+          enabled: true
+          rule_set: "shared_acceptance"
+        transitions:
+          success: "finish"
+          failure: "finish"
+      - id: "finish"
+        kind: "finish"
+''';
+
+    await tester.binding.setSurfaceSize(const Size(1440, 1000));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAgentAwesomeTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 1400,
+            height: 920,
+            child: HarnessRulesWorkspace(
+              catalog: HarnessWorkflowCatalog(
+                configPath: '/tmp/workflows.yaml',
+                yaml: controller.text,
+                rules: <HarnessWorkflowRuleSummary>[
+                  HarnessWorkflowRuleSummary(
+                    name: 'acceptance',
+                    file: 'acceptance.grl',
+                  ),
+                ],
+                ruleSets: <HarnessWorkflowRuleSetSummary>[
+                  HarnessWorkflowRuleSetSummary(
+                    name: 'shared_acceptance',
+                    rules: const <String>['acceptance'],
+                    failClosed: true,
+                  ),
+                ],
+                workflows: <HarnessWorkflowSummary>[
+                  _workflowSummary(
+                    name: 'policy_review',
+                    startNode: 'verify',
+                    nodes: <HarnessWorkflowNodeSummary>[
+                      _workflowNode(
+                        id: 'verify',
+                        kind: 'gate',
+                        uses: 'reviewer',
+                        success: 'finish',
+                        failure: 'finish',
+                      ),
+                      _workflowNode(id: 'finish', kind: 'finish'),
+                    ],
+                  ),
+                ],
+              ),
+              controller: controller,
+              validation: null,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Rules'), findsWidgets);
+    expect(find.text('Rule Sets'), findsWidgets);
+    expect(find.text('acceptance'), findsWidgets);
+    expect(find.text('acceptance.grl'), findsWidgets);
+    expect(find.text('shared_acceptance'), findsWidgets);
+    expect(find.text('1 rule'), findsWidgets);
+    expect(find.text('Add rule'), findsOneWidget);
+    expect(find.text('Add rule set'), findsOneWidget);
+
+    controller.dispose();
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('new shared rules default to app-folder grl files', (
+    WidgetTester tester,
+  ) async {
+    final controller = TextEditingController()..text = 'workflows: []\n';
+
+    await tester.binding.setSurfaceSize(const Size(1440, 1000));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAgentAwesomeTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 1400,
+            height: 920,
+            child: HarnessRulesWorkspace(
+              catalog: HarnessWorkflowCatalog(
+                configPath: '/tmp/workflows.yaml',
+                yaml: controller.text,
+                ruleSets: const <HarnessWorkflowRuleSetSummary>[],
+                workflows: const <HarnessWorkflowSummary>[],
+              ),
+              controller: controller,
+              validation: null,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add rule').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('rule_1.grl'), findsOneWidget);
+    expect(find.text('GRL file'), findsOneWidget);
+
+    controller.dispose();
+    await tester.binding.setSurfaceSize(null);
+  });
+
   testWidgets(
-    'workflow runs picker shows configured agents and tools',
+    'check inspector exposes structured fact bindings and route hints',
     (WidgetTester tester) async {
-      final controller = TextEditingController();
+      final controller = TextEditingController()
+        ..text = '''
+rules:
+  - name: "acceptance"
+    file: "acceptance.grl"
+rule_sets:
+  - name: "shared_acceptance"
+    rules: ["acceptance"]
+workflows:
+  - name: "policy_review"
+    start_node: "verify"
+    nodes:
+      - id: "verify"
+        kind: "gate"
+        uses: "reviewer"
+        policy_gate:
+          enabled: true
+          rule_set: "shared_acceptance"
+          fact_bindings:
+            - name: "PlanInput"
+              source: "input"
+              path: "plan_summary"
+              required: true
+          allowed_route_hints:
+            ask_user: "clarify"
+        transitions:
+          success: "finish"
+          failure: "finish"
+      - id: "clarify"
+        kind: "task"
+        uses: "assistant"
+        transitions:
+          success: "verify"
+      - id: "finish"
+        kind: "finish"
+''';
 
       await tester.binding.setSurfaceSize(const Size(1440, 1000));
       await tester.pumpWidget(
@@ -377,17 +602,36 @@ void main() {
               child: HarnessWorkflowsWorkspace(
                 catalog: HarnessWorkflowCatalog(
                   configPath: '/tmp/workflows.yaml',
-                  yaml: '',
+                  yaml: controller.text,
+                  rules: <HarnessWorkflowRuleSummary>[
+                    HarnessWorkflowRuleSummary(
+                      name: 'acceptance',
+                      file: 'acceptance.grl',
+                    ),
+                  ],
+                  ruleSets: <HarnessWorkflowRuleSetSummary>[
+                    HarnessWorkflowRuleSetSummary(
+                      name: 'shared_acceptance',
+                      rules: const <String>['acceptance'],
+                    ),
+                  ],
                   workflows: <HarnessWorkflowSummary>[
                     _workflowSummary(
-                      name: 'chat_turn',
-                      startNode: 'reply',
+                      name: 'policy_review',
+                      startNode: 'verify',
                       nodes: <HarnessWorkflowNodeSummary>[
                         _workflowNode(
-                          id: 'reply',
-                          kind: 'task',
-                          uses: 'chat_responder',
+                          id: 'verify',
+                          kind: 'gate',
+                          uses: 'reviewer',
                           success: 'finish',
+                          failure: 'finish',
+                        ),
+                        _workflowNode(
+                          id: 'clarify',
+                          kind: 'task',
+                          uses: 'assistant',
+                          success: 'verify',
                         ),
                         _workflowNode(id: 'finish', kind: 'finish'),
                       ],
@@ -395,7 +639,7 @@ void main() {
                   ],
                 ),
                 controller: controller,
-                runTargetOptions: const <String>['lead', 'ls', 'cat', 'patch'],
+                runTargetOptions: const <String>[],
                 validation: null,
               ),
             ),
@@ -404,17 +648,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('reply').first);
+      await tester.tap(find.text('verify').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Checks'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byType(DropdownButtonFormField<String>).at(1));
-      await tester.pumpAndSettle();
-
-      expect(find.text('lead').last, findsOneWidget);
-      expect(find.text('ls').last, findsOneWidget);
-      expect(find.text('cat').last, findsOneWidget);
-      expect(find.text('patch').last, findsOneWidget);
-      expect(find.text('chat_responder').last, findsOneWidget);
+      expect(find.text('Gate contract'), findsOneWidget);
+      expect(find.text('PlanInput'), findsOneWidget);
+      expect(find.text('Add fact binding'), findsOneWidget);
+      expect(find.text('ask_user'), findsOneWidget);
+      expect(find.text('Add route hint'), findsOneWidget);
 
       controller.dispose();
       await tester.binding.setSurfaceSize(null);
@@ -633,6 +876,7 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
     return HarnessWorkflowCatalog(
       configPath: '/tmp/workflow.yaml',
       yaml: 'workflows:\n  - name: chat_turn\n',
+      ruleSets: <HarnessWorkflowRuleSetSummary>[],
       workflows: <HarnessWorkflowSummary>[
         HarnessWorkflowSummary(
           name: 'chat_turn',
@@ -640,7 +884,6 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
           maxVisitsPerNode: 2,
           maxTotalTransitions: 6,
           duplicateResultCap: 1,
-          ruleSets: <HarnessWorkflowRuleSetSummary>[],
           nodes: <HarnessWorkflowNodeSummary>[
             HarnessWorkflowNodeSummary(
               id: 'reply',
@@ -726,6 +969,7 @@ class _FakeHarnessConfigApi implements HarnessConfigApi {
     return HarnessWorkflowCatalog(
       configPath: catalog.configPath,
       yaml: yaml,
+      ruleSets: catalog.ruleSets,
       workflows: catalog.workflows,
     );
   }

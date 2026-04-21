@@ -7,6 +7,923 @@ import 'package:ui/shared/side_panel.dart';
 import 'package:ui/shared/ui.dart';
 import 'package:ui/shared/workspace_shell.dart';
 
+class HarnessRulesWorkspace extends StatefulWidget {
+  const HarnessRulesWorkspace({
+    super.key,
+    required this.catalog,
+    required this.controller,
+    required this.validation,
+  });
+
+  final HarnessWorkflowCatalog catalog;
+  final TextEditingController controller;
+  final HarnessConfigValidationReport? validation;
+
+  @override
+  State<HarnessRulesWorkspace> createState() => _HarnessRulesWorkspaceState();
+}
+
+class _HarnessRulesWorkspaceState extends State<HarnessRulesWorkspace> {
+  static const String _rulesSectionId = 'rules-catalog';
+  static const String _ruleSetsSectionId = 'rule-sets-catalog';
+
+  Map<String, Object?> _documentExtras = <String, Object?>{};
+  List<Object?> _rawRules = <Object?>[];
+  List<Object?> _rawRuleSets = <Object?>[];
+  String _searchQuery = '';
+  String? _selectedEntryId;
+  int _editorVersion = 0;
+  String? _catalogParseError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDraftsFromSource();
+  }
+
+  @override
+  void didUpdateWidget(covariant HarnessRulesWorkspace oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.catalog.yaml != widget.catalog.yaml ||
+        oldWidget.catalog.configPath != widget.catalog.configPath ||
+        oldWidget.catalog.rules.length != widget.catalog.rules.length ||
+        oldWidget.catalog.ruleSets.length != widget.catalog.ruleSets.length) {
+      _loadDraftsFromSource(preserveSelection: true);
+    }
+  }
+
+  void _loadDraftsFromSource({bool preserveSelection = false}) {
+    final previousSelection = preserveSelection
+        ? _selectedEntry?.entryKey
+        : null;
+
+    Map<String, Object?> extras = <String, Object?>{};
+    List<Object?> rawRules = <Object?>[];
+    List<Object?> rawRuleSets = <Object?>[];
+    String? parseError;
+
+    try {
+      final document = _MiniYamlParser(widget.controller.text).parseDocument();
+      if (document is! Map<String, Object?>) {
+        throw const _MiniYamlException('Expected a map at the document root.');
+      }
+      extras = LinkedHashMap<String, Object?>.from(document)
+        ..remove('rules')
+        ..remove('rule_sets');
+      rawRules =
+          ((document['rules'] as List<Object?>?) ?? const <Object?>[]).toList();
+      rawRuleSets =
+          ((document['rule_sets'] as List<Object?>?) ?? const <Object?>[])
+              .toList();
+    } on _MiniYamlException catch (error) {
+      parseError = error.message;
+    } catch (error) {
+      parseError = error.toString();
+    }
+
+    if (rawRules.isEmpty) {
+      rawRules = widget.catalog.rules
+          .map(
+            (HarnessWorkflowRuleSummary value) => <String, Object?>{
+              'name': value.name,
+              if (value.file.isNotEmpty) 'file': value.file,
+            },
+          )
+          .toList(growable: false);
+    }
+
+    if (rawRuleSets.isEmpty) {
+      rawRuleSets = widget.catalog.ruleSets
+          .map(
+            (HarnessWorkflowRuleSetSummary value) => <String, Object?>{
+              'name': value.name,
+              if (value.rules.isNotEmpty) 'rules': value.rules,
+              if (value.maxCycle > 0) 'max_cycle': value.maxCycle,
+              if (value.returnErrorOnFailedRuleEvaluation != null)
+                'return_error_on_failed_rule_evaluation':
+                    value.returnErrorOnFailedRuleEvaluation,
+              if (value.failClosed != null) 'fail_closed': value.failClosed,
+            },
+          )
+          .toList(growable: false);
+    }
+
+    setState(() {
+      _documentExtras = extras;
+      _rawRules = rawRules;
+      _rawRuleSets = rawRuleSets;
+      _catalogParseError = parseError;
+      _editorVersion += 1;
+      _restoreSelection(preferredEntryKey: previousSelection);
+    });
+    _syncControllerFromDrafts();
+  }
+
+  List<_IndexedSharedRuleDraft> get _indexedRules {
+    final drafts = <_IndexedSharedRuleDraft>[];
+    for (int index = 0; index < _rawRules.length; index++) {
+      final raw = _rawRules[index];
+      if (raw is! Map<String, Object?>) {
+        continue;
+      }
+      drafts.add(
+        _IndexedSharedRuleDraft(
+          rawIndex: index,
+          draft: _WorkflowRuleDraft.fromYaml(raw),
+        ),
+      );
+    }
+    return drafts;
+  }
+
+  List<_IndexedSharedRuleSetDraft> get _indexedRuleSets {
+    final drafts = <_IndexedSharedRuleSetDraft>[];
+    for (int index = 0; index < _rawRuleSets.length; index++) {
+      final raw = _rawRuleSets[index];
+      if (raw is! Map<String, Object?>) {
+        continue;
+      }
+      drafts.add(
+        _IndexedSharedRuleSetDraft(
+          rawIndex: index,
+          draft: _WorkflowRuleSetDraft.fromYaml(raw),
+        ),
+      );
+    }
+    return drafts;
+  }
+
+  int get _unsupportedEntryCount =>
+      _rawRules.where((Object? value) => value is! Map<String, Object?>).length +
+      _rawRuleSets.where((Object? value) => value is! Map<String, Object?>).length;
+
+  List<_RulesWorkspaceEntry> get _entries => <_RulesWorkspaceEntry>[
+    ..._indexedRules.map(
+      (_IndexedSharedRuleDraft value) => _RulesWorkspaceEntry(
+        kind: _RulesWorkspaceEntryKind.rule,
+        rawIndex: value.rawIndex,
+      ),
+    ),
+    ..._indexedRuleSets.map(
+      (_IndexedSharedRuleSetDraft value) => _RulesWorkspaceEntry(
+        kind: _RulesWorkspaceEntryKind.ruleSet,
+        rawIndex: value.rawIndex,
+      ),
+    ),
+  ];
+
+  _RulesWorkspaceEntry? get _selectedEntry {
+    final entries = _entries;
+    if (entries.isEmpty) {
+      return null;
+    }
+    final selectedEntryId = _selectedEntryId;
+    if (selectedEntryId == null) {
+      return entries.first;
+    }
+    return entries.where((_RulesWorkspaceEntry value) => value.entryId == selectedEntryId).firstOrNull ??
+        entries.first;
+  }
+
+  _IndexedSharedRuleDraft? get _selectedRule {
+    final entry = _selectedEntry;
+    if (entry == null || entry.kind != _RulesWorkspaceEntryKind.rule) {
+      return null;
+    }
+    return _indexedRules
+        .where((_IndexedSharedRuleDraft value) => value.rawIndex == entry.rawIndex)
+        .firstOrNull;
+  }
+
+  _IndexedSharedRuleSetDraft? get _selectedRuleSet {
+    final entry = _selectedEntry;
+    if (entry == null || entry.kind != _RulesWorkspaceEntryKind.ruleSet) {
+      return null;
+    }
+    return _indexedRuleSets
+        .where((_IndexedSharedRuleSetDraft value) => value.rawIndex == entry.rawIndex)
+        .firstOrNull;
+  }
+
+  void _restoreSelection({String? preferredEntryKey}) {
+    final entries = _entries;
+    if (entries.isEmpty) {
+      _selectedEntryId = null;
+      return;
+    }
+    final selected = entries.firstWhere(
+      (_RulesWorkspaceEntry value) => value.entryKey == preferredEntryKey,
+      orElse: () => entries.first,
+    );
+    _selectedEntryId = selected.entryId;
+  }
+
+  void _syncControllerFromDrafts() {
+    final root = <String, Object?>{}..addAll(_documentExtras);
+    if (_rawRules.isNotEmpty) {
+      root['rules'] = _rawRules;
+    }
+    if (_rawRuleSets.isNotEmpty) {
+      root['rule_sets'] = _rawRuleSets;
+    }
+    final yaml = _MiniYamlWriter.serialize(root);
+    if (widget.controller.text == yaml) {
+      return;
+    }
+    widget.controller.value = TextEditingValue(
+      text: yaml,
+      selection: TextSelection.collapsed(offset: yaml.length),
+    );
+  }
+
+  String _fieldKey(String field) => 'shared-rules|$field|$_editorVersion';
+
+  List<String> _ruleOptions({String currentValue = ''}) {
+    final options = LinkedHashSet<String>.from(
+      _indexedRules
+          .map((_IndexedSharedRuleDraft value) => value.draft.name)
+          .where((String value) => value.trim().isNotEmpty),
+    );
+    if (currentValue.trim().isNotEmpty) {
+      options.add(currentValue.trim());
+    }
+    return options.toList(growable: false);
+  }
+
+  List<String> _ruleSetOptions({String currentValue = ''}) {
+    final options = LinkedHashSet<String>.from(
+      _indexedRuleSets
+          .map((_IndexedSharedRuleSetDraft value) => value.draft.name)
+          .where((String value) => value.trim().isNotEmpty),
+    );
+    if (currentValue.trim().isNotEmpty) {
+      options.add(currentValue.trim());
+    }
+    return options.toList(growable: false);
+  }
+
+  String _nextRuleName() {
+    final existing = _ruleOptions().toSet();
+    for (int index = 1; ; index++) {
+      final candidate = 'rule_$index';
+      if (!existing.contains(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  String _nextRuleSetName() {
+    final existing = _ruleSetOptions().toSet();
+    for (int index = 1; ; index++) {
+      final candidate = 'rule_set_$index';
+      if (!existing.contains(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  void _selectEntry(_RulesWorkspaceEntry entry) {
+    setState(() {
+      _selectedEntryId = entry.entryId;
+    });
+  }
+
+  void _addRule() {
+    setState(() {
+      _rawRules = <Object?>[
+        ..._rawRules,
+        _WorkflowRuleDraft(
+          name: _nextRuleName(),
+          file: '${_nextRuleName()}.grl',
+        ).toYamlMap(),
+      ];
+      _selectedEntryId =
+          '${_RulesWorkspaceEntryKind.rule.name}:${_rawRules.length - 1}';
+      _editorVersion += 1;
+      _syncControllerFromDrafts();
+    });
+  }
+
+  void _addRuleSet() {
+    setState(() {
+      _rawRuleSets = <Object?>[
+        ..._rawRuleSets,
+        _WorkflowRuleSetDraft(
+          name: _nextRuleSetName(),
+          rules: _indexedRules.isEmpty ? const <String>[] : <String>[_indexedRules.first.draft.name],
+          returnErrorOnFailedRuleEvaluation: true,
+          failClosed: true,
+        ).toYamlMap(),
+      ];
+      _selectedEntryId =
+          '${_RulesWorkspaceEntryKind.ruleSet.name}:${_rawRuleSets.length - 1}';
+      _editorVersion += 1;
+      _syncControllerFromDrafts();
+    });
+  }
+
+  void _updateRule(
+    int rawIndex,
+    void Function(_WorkflowRuleDraft draft) mutate,
+  ) {
+    if (rawIndex < 0 || rawIndex >= _rawRules.length) {
+      return;
+    }
+    final raw = _rawRules[rawIndex];
+    if (raw is! Map<String, Object?>) {
+      return;
+    }
+    final draft = _WorkflowRuleDraft.fromYaml(raw);
+    mutate(draft);
+    setState(() {
+      _rawRules[rawIndex] = draft.toYamlMap();
+      _syncControllerFromDrafts();
+    });
+  }
+
+  void _updateRuleSet(
+    int rawIndex,
+    void Function(_WorkflowRuleSetDraft draft) mutate,
+  ) {
+    if (rawIndex < 0 || rawIndex >= _rawRuleSets.length) {
+      return;
+    }
+    final raw = _rawRuleSets[rawIndex];
+    if (raw is! Map<String, Object?>) {
+      return;
+    }
+    final draft = _WorkflowRuleSetDraft.fromYaml(raw);
+    mutate(draft);
+    setState(() {
+      _rawRuleSets[rawIndex] = draft.toYamlMap();
+      _syncControllerFromDrafts();
+    });
+  }
+
+  void _deleteRule(int rawIndex) {
+    if (rawIndex < 0 || rawIndex >= _rawRules.length) {
+      return;
+    }
+    setState(() {
+      final deleted = _rawRules[rawIndex];
+      String deletedName = '';
+      if (deleted is Map<String, Object?>) {
+        deletedName = _WorkflowRuleDraft.fromYaml(deleted).name;
+      }
+      _rawRules.removeAt(rawIndex);
+      if (deletedName.isNotEmpty) {
+        for (int index = 0; index < _rawRuleSets.length; index++) {
+          final raw = _rawRuleSets[index];
+          if (raw is! Map<String, Object?>) {
+            continue;
+          }
+          final draft = _WorkflowRuleSetDraft.fromYaml(raw);
+          draft.rules = draft.rules
+              .where((String value) => value.trim() != deletedName)
+              .toList(growable: false);
+          _rawRuleSets[index] = draft.toYamlMap();
+        }
+      }
+      final entries = _entries;
+      _selectedEntryId = entries.isEmpty ? null : entries.first.entryId;
+      _editorVersion += 1;
+      _syncControllerFromDrafts();
+    });
+  }
+
+  void _deleteRuleSet(int rawIndex) {
+    if (rawIndex < 0 || rawIndex >= _rawRuleSets.length) {
+      return;
+    }
+    setState(() {
+      _rawRuleSets.removeAt(rawIndex);
+      final entries = _entries;
+      _selectedEntryId = entries.isEmpty ? null : entries.first.entryId;
+      _editorVersion += 1;
+      _syncControllerFromDrafts();
+    });
+  }
+
+  String _subtitleForRule(_WorkflowRuleDraft rule) {
+    if (rule.file.trim().isEmpty) {
+      return 'No GRL file configured';
+    }
+    return rule.file.trim();
+  }
+
+  String _subtitleForRuleSet(_WorkflowRuleSetDraft ruleSet) {
+    final ruleCount = ruleSet.rules.length;
+    if (ruleCount == 0) {
+      return 'No rules selected';
+    }
+    return '$ruleCount rule${ruleCount == 1 ? '' : 's'}';
+  }
+
+  Widget _buildCollectionPane() {
+    final indexedRules = _indexedRules;
+    final indexedRuleSets = _indexedRuleSets;
+    return AppDenseSidePanel<_RulesWorkspaceEntry>(
+      initialSectionId: _rulesSectionId,
+      initialSearchQuery: _searchQuery,
+      onSearchChanged: (String value) {
+        setState(() => _searchQuery = value);
+      },
+      selectedEntryId: _selectedEntry?.entryId,
+      entryId: (_RulesWorkspaceEntry entry) => entry.entryId,
+      onSelectEntry: _selectEntry,
+      searchHintText: 'Search rules and rule sets...',
+      emptyTitle: 'No rules',
+      emptyBody:
+          'Reusable GRL rules and rule sets will appear here once the catalog loads.',
+      sections: <AppDenseSidePanelSection<_RulesWorkspaceEntry>>[
+        AppDenseSidePanelSection<_RulesWorkspaceEntry>(
+          id: _rulesSectionId,
+          label: 'Rules',
+          icon: Icons.rule_folder_outlined,
+          entries: indexedRules
+              .map(
+                (_IndexedSharedRuleDraft value) => _RulesWorkspaceEntry(
+                  kind: _RulesWorkspaceEntryKind.rule,
+                  rawIndex: value.rawIndex,
+                ),
+              )
+              .toList(growable: false),
+          searchFields: (_RulesWorkspaceEntry entry) => <String>[
+            _indexedRules
+                    .where(
+                      (_IndexedSharedRuleDraft value) =>
+                          value.rawIndex == entry.rawIndex,
+                    )
+                    .firstOrNull
+                    ?.draft
+                    .name ??
+                '',
+          ],
+          headerBuilder:
+              (
+                BuildContext context,
+                List<_RulesWorkspaceEntry> entries,
+                List<_RulesWorkspaceEntry> filteredEntries,
+                String searchQuery,
+              ) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${entries.length} shared rule${entries.length == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        color: textMutedColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.tonalIcon(
+                      onPressed: _addRule,
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                      label: const Text('Add rule'),
+                    ),
+                  ],
+                );
+              },
+          rowBuilder:
+              (
+                BuildContext context,
+                _RulesWorkspaceEntry entry,
+                bool selected,
+                VoidCallback onTap,
+              ) {
+                final rule = _indexedRules
+                    .where(
+                      (_IndexedSharedRuleDraft value) =>
+                          value.rawIndex == entry.rawIndex,
+                    )
+                    .first
+                    .draft;
+                return AppDenseSidePanelRow(
+                  title: rule.name.isEmpty ? 'Unnamed rule' : rule.name,
+                  subtitle: _subtitleForRule(rule),
+                  selected: selected,
+                  onTap: onTap,
+                  footer: <Widget>[
+                    const StatusPill(label: 'grl', color: infoColor),
+                  ],
+                );
+              },
+          emptyTitle: 'No shared rules',
+          emptyBody:
+              'Add a rule here, then select it from workflow check steps.',
+        ),
+        AppDenseSidePanelSection<_RulesWorkspaceEntry>(
+          id: _ruleSetsSectionId,
+          label: 'Rule Sets',
+          icon: Icons.library_books_outlined,
+          entries: indexedRuleSets
+              .map(
+                (_IndexedSharedRuleSetDraft value) => _RulesWorkspaceEntry(
+                  kind: _RulesWorkspaceEntryKind.ruleSet,
+                  rawIndex: value.rawIndex,
+                ),
+              )
+              .toList(growable: false),
+          searchFields: (_RulesWorkspaceEntry entry) => <String>[
+            _indexedRuleSets
+                    .where(
+                      (_IndexedSharedRuleSetDraft value) =>
+                          value.rawIndex == entry.rawIndex,
+                    )
+                    .firstOrNull
+                    ?.draft
+                    .name ??
+                '',
+          ],
+          headerBuilder:
+              (
+                BuildContext context,
+                List<_RulesWorkspaceEntry> entries,
+                List<_RulesWorkspaceEntry> filteredEntries,
+                String searchQuery,
+              ) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${entries.length} rule set${entries.length == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        color: textMutedColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.tonalIcon(
+                      onPressed: _addRuleSet,
+                      icon: const Icon(Icons.add_circle_outline_rounded),
+                      label: const Text('Add rule set'),
+                    ),
+                  ],
+                );
+              },
+          rowBuilder:
+              (
+                BuildContext context,
+                _RulesWorkspaceEntry entry,
+                bool selected,
+                VoidCallback onTap,
+              ) {
+                final ruleSet = _indexedRuleSets
+                    .where(
+                      (_IndexedSharedRuleSetDraft value) =>
+                          value.rawIndex == entry.rawIndex,
+                    )
+                    .first
+                    .draft;
+                return AppDenseSidePanelRow(
+                  title: ruleSet.name.isEmpty ? 'Unnamed rule set' : ruleSet.name,
+                  subtitle: _subtitleForRuleSet(ruleSet),
+                  selected: selected,
+                  onTap: onTap,
+                  footer: <Widget>[
+                    const StatusPill(label: 'set', color: successColor),
+                  ],
+                );
+              },
+          emptyTitle: 'No rule sets',
+          emptyBody:
+              'Add a rule set here, then select it from workflow check steps.',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetailPane() {
+    final selectedRule = _selectedRule;
+    final selectedRuleSet = _selectedRuleSet;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      child: selectedRule == null && selectedRuleSet == null
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const EmptyState(
+                    title: 'No item selected',
+                    body:
+                        'Pick a rule or rule set on the left, or create one here to manage it.',
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _addRule,
+                        icon: const Icon(Icons.add_circle_outline_rounded),
+                        label: const Text('Add rule'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _addRuleSet,
+                        icon: const Icon(Icons.add_circle_outline_rounded),
+                        label: const Text('Add rule set'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            )
+          : SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (widget.validation != null) ...[
+                    _WorkflowValidationSummaryCard(report: widget.validation!),
+                  ],
+                  if (_catalogParseError != null) ...[
+                    const SizedBox(height: 12),
+                    InfoPanel(
+                      title: 'Source fallback in use',
+                      body:
+                          'The YAML document could not be parsed cleanly, so this screen fell back to the catalog summary. Parse error: $_catalogParseError',
+                    ),
+                  ],
+                  if (_unsupportedEntryCount > 0) ...[
+                    const SizedBox(height: 12),
+                    InfoPanel(
+                      title: 'Some entries still need YAML',
+                      body:
+                          '$_unsupportedEntryCount rule or rule set ${_unsupportedEntryCount == 1 ? 'entry uses' : 'entries use'} shapes this editor does not model directly yet. They are preserved in the underlying document.',
+                    ),
+                  ],
+                  SizedBox(height: widget.validation == null ? 0 : 16),
+                  if (selectedRule != null)
+                    _buildRuleEditor(
+                      rawIndex: selectedRule.rawIndex,
+                      rule: selectedRule.draft,
+                    ),
+                  if (selectedRuleSet != null)
+                    _buildRuleSetEditor(
+                      rawIndex: selectedRuleSet.rawIndex,
+                      ruleSet: selectedRuleSet.draft,
+                    ),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _buildRuleEditor({
+    required int rawIndex,
+    required _WorkflowRuleDraft rule,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panelAltColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: infoColor.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      rule.name.isEmpty ? 'Unnamed rule' : rule.name,
+                      style: const TextStyle(
+                        color: textPrimaryColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _subtitleForRule(rule),
+                      style: const TextStyle(color: textMutedColor),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              const StatusPill(label: 'grl', color: infoColor),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Remove rule',
+                onPressed: () => _deleteRule(rawIndex),
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _InspectorTextField(
+            key: ValueKey(_fieldKey('rule_${rawIndex}_name')),
+            label: 'Rule name',
+            initialValue: rule.name,
+            helperText:
+                'Rule sets reference this shared name. Keep it stable when the same rule is reused.',
+            onChanged: (String value) {
+              _updateRule(rawIndex, (_WorkflowRuleDraft target) {
+                target.name = _slugify(value);
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          _InspectorTextField(
+            key: ValueKey(_fieldKey('rule_${rawIndex}_file')),
+            label: 'GRL file',
+            initialValue: rule.file,
+            helperText:
+                'Relative `.grl` file path inside the app config folder.',
+            onChanged: (String value) {
+              _updateRule(rawIndex, (_WorkflowRuleDraft target) {
+                target.file = value.trim();
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRuleSetEditor({
+    required int rawIndex,
+    required _WorkflowRuleSetDraft ruleSet,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panelAltColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: successColor.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ruleSet.name.isEmpty
+                          ? 'Unnamed rule set'
+                          : ruleSet.name,
+                      style: const TextStyle(
+                        color: textPrimaryColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _subtitleForRuleSet(ruleSet),
+                      style: const TextStyle(color: textMutedColor),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              const StatusPill(label: 'set', color: successColor),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Remove rule set',
+                onPressed: () => _deleteRuleSet(rawIndex),
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _InspectorTextField(
+            key: ValueKey(_fieldKey('rule_set_${rawIndex}_name')),
+            label: 'Rule Set name',
+            initialValue: ruleSet.name,
+            helperText:
+                'Workflow gates reference this shared name. Keep it stable when multiple workflows reuse this rule set.',
+            onChanged: (String value) {
+              _updateRuleSet(rawIndex, (_WorkflowRuleSetDraft target) {
+                target.name = _slugify(value);
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          _InspectorMultilineField(
+            key: ValueKey(_fieldKey('rule_set_${rawIndex}_rules')),
+            label: 'Rules',
+            hintText: 'One rule name per line',
+            helperText:
+                _ruleOptions().isEmpty
+                    ? 'Add rules first, then include them here.'
+                    : 'Available rules: ${_ruleOptions().join(', ')}',
+            initialValue: ruleSet.rules.join('\n'),
+            onChanged: (String value) {
+              _updateRuleSet(rawIndex, (_WorkflowRuleSetDraft target) {
+                target.rules = _splitLines(value);
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _InspectorNumberField(
+                  key: ValueKey(_fieldKey('rule_set_${rawIndex}_max_cycle')),
+                  label: 'Default max cycle',
+                  initialValue: _intText(ruleSet.maxCycle),
+                  helperText:
+                      'Workflow gates can override this when a specific path needs a different cycle cap.',
+                  onChanged: (int value) {
+                    _updateRuleSet(rawIndex, (_WorkflowRuleSetDraft target) {
+                      target.maxCycle = value;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _InspectorToggleTile(
+                  title: 'Default fail closed',
+                  value: ruleSet.failClosed ?? true,
+                  subtitle:
+                      'Workflow gates can override this when they need a different failure mode.',
+                  onChanged: (bool value) {
+                    _updateRuleSet(rawIndex, (_WorkflowRuleSetDraft target) {
+                      target.failClosed = value;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _InspectorToggleTile(
+            title: 'Default return evaluation errors',
+            value: ruleSet.returnErrorOnFailedRuleEvaluation ?? true,
+            subtitle:
+                'Workflow gates can override this when they want softer evaluation behavior.',
+            onChanged: (bool value) {
+              _updateRuleSet(rawIndex, (_WorkflowRuleSetDraft target) {
+                target.returnErrorOnFailedRuleEvaluation = value;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final stacked = constraints.maxWidth < 1180;
+        return ConfigWorkspaceShell(
+          stacked: stacked,
+          collectionPane: _buildCollectionPane(),
+          detailPane: _buildDetailPane(),
+          collectionFlex: 34,
+          detailFlex: 66,
+          stackedCollectionFlex: 38,
+          stackedDetailFlex: 62,
+        );
+      },
+    );
+  }
+}
+
+enum _RulesWorkspaceEntryKind { rule, ruleSet }
+
+class _RulesWorkspaceEntry {
+  const _RulesWorkspaceEntry({required this.kind, required this.rawIndex});
+
+  final _RulesWorkspaceEntryKind kind;
+  final int rawIndex;
+
+  String get entryId => '${kind.name}:$rawIndex';
+
+  String get entryKey => entryId;
+}
+
+class _IndexedSharedRuleDraft {
+  const _IndexedSharedRuleDraft({required this.rawIndex, required this.draft});
+
+  final int rawIndex;
+  final _WorkflowRuleDraft draft;
+}
+
+class _IndexedSharedRuleSetDraft {
+  const _IndexedSharedRuleSetDraft({
+    required this.rawIndex,
+    required this.draft,
+  });
+
+  final int rawIndex;
+  final _WorkflowRuleSetDraft draft;
+}
+
 class HarnessWorkflowsWorkspace extends StatefulWidget {
   const HarnessWorkflowsWorkspace({
     super.key,
@@ -77,7 +994,7 @@ extension on _WorkflowInspectorPanel {
     return switch (this) {
       _WorkflowInspectorPanel.overview => 'Overview',
       _WorkflowInspectorPanel.limits => 'Limits',
-      _WorkflowInspectorPanel.rules => 'Rules',
+      _WorkflowInspectorPanel.rules => 'Policy',
       _WorkflowInspectorPanel.source => 'Source',
     };
   }
@@ -135,7 +1052,7 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
 
   Map<String, Object?> _catalogExtras = <String, Object?>{};
   List<_WorkflowDraft> _workflows = <_WorkflowDraft>[];
-  _WorkflowCollectionSection _collectionSection =
+  final _WorkflowCollectionSection _collectionSection =
       _WorkflowCollectionSection.all;
   String _searchQuery = '';
   String? _selectedWorkflowKey;
@@ -665,6 +1582,158 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
 
   String? _fieldError(String fieldKey) => _fieldErrors[fieldKey];
 
+  List<_WorkflowRuleSetDraft> _sharedRuleSetDrafts() {
+    return ((_catalogExtras['rule_sets'] as List<Object?>?) ??
+            const <Object?>[])
+        .whereType<Map<String, Object?>>()
+        .map(_WorkflowRuleSetDraft.fromYaml)
+        .toList(growable: false);
+  }
+
+  List<_WorkflowRuleDraft> _sharedRuleDrafts() {
+    return ((_catalogExtras['rules'] as List<Object?>?) ?? const <Object?>[])
+        .whereType<Map<String, Object?>>()
+        .map(_WorkflowRuleDraft.fromYaml)
+        .toList(growable: false);
+  }
+
+  List<String> _sharedRuleSetOptions({String currentValue = ''}) {
+    final options = LinkedHashSet<String>.from(
+      _sharedRuleSetDrafts()
+          .map((_WorkflowRuleSetDraft value) => value.name)
+          .where((String value) => value.trim().isNotEmpty),
+    );
+    if (currentValue.trim().isNotEmpty) {
+      options.add(currentValue.trim());
+    }
+    return options.toList(growable: false);
+  }
+
+  List<String> _referencedSharedRuleSets(_WorkflowDraft workflow) {
+    final names = LinkedHashSet<String>.from(
+      workflow.nodes
+          .map((_WorkflowNodeDraft node) => node.policyGateRuleSet.trim())
+          .where((String value) => value.isNotEmpty),
+    );
+    return names.toList(growable: false);
+  }
+
+  String _nextFactBindingNameFor(_WorkflowNodeDraft node) {
+    final existing = node.policyGateFactBindings
+        .map((_PolicyFactBindingDraft value) => value.name)
+        .where((String value) => value.trim().isNotEmpty)
+        .toSet();
+    for (int index = 1; ; index++) {
+      final candidate = 'fact_$index';
+      if (!existing.contains(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  String _nextRouteHintNameFor(_WorkflowNodeDraft node) {
+    final existing = node.allowedRouteHints.keys
+        .map((String value) => value.trim())
+        .where((String value) => value.isNotEmpty)
+        .toSet();
+    for (int index = 1; ; index++) {
+      final candidate = 'route_$index';
+      if (!existing.contains(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  void _addPolicyFactBinding() {
+    final node = _selectedNode;
+    if (node == null) {
+      return;
+    }
+    _updateNode((_WorkflowDraft _, _WorkflowNodeDraft targetNode) {
+      targetNode.policyGateFactBindings = <_PolicyFactBindingDraft>[
+        ...targetNode.policyGateFactBindings,
+        _PolicyFactBindingDraft(
+          name: _nextFactBindingNameFor(node),
+          source: 'input',
+          node: '',
+          path: '',
+          required: false,
+        ),
+      ];
+    });
+  }
+
+  void _updatePolicyFactBinding(int index, _PolicyFactBindingDraft binding) {
+    _updateNode((_WorkflowDraft _, _WorkflowNodeDraft targetNode) {
+      if (index < 0 || index >= targetNode.policyGateFactBindings.length) {
+        return;
+      }
+      final next = targetNode.policyGateFactBindings.toList(growable: true);
+      next[index] = binding;
+      targetNode.policyGateFactBindings = next;
+    });
+  }
+
+  void _deletePolicyFactBinding(int index) {
+    _updateNode((_WorkflowDraft _, _WorkflowNodeDraft targetNode) {
+      if (index < 0 || index >= targetNode.policyGateFactBindings.length) {
+        return;
+      }
+      final next = targetNode.policyGateFactBindings.toList(growable: true)
+        ..removeAt(index);
+      targetNode.policyGateFactBindings = next;
+    });
+  }
+
+  void _addAllowedRouteHint() {
+    final workflow = _selectedWorkflow;
+    final node = _selectedNode;
+    if (workflow == null || node == null) {
+      return;
+    }
+    final targetOptions = _transitionOptionsFor(
+      _nodeOptions(workflow),
+      node.id,
+      '',
+    );
+    _updateNode((_WorkflowDraft _, _WorkflowNodeDraft targetNode) {
+      targetNode.allowedRouteHints = LinkedHashMap<String, String>.from(
+        targetNode.allowedRouteHints,
+      )..[_nextRouteHintNameFor(node)] = targetOptions.firstOrNull ?? '';
+    });
+  }
+
+  void _updateAllowedRouteHint(int index, {String? hint, String? target}) {
+    _updateNode((_WorkflowDraft _, _WorkflowNodeDraft targetNode) {
+      final entries = targetNode.allowedRouteHints.entries.toList(
+        growable: true,
+      );
+      if (index < 0 || index >= entries.length) {
+        return;
+      }
+      final current = entries[index];
+      entries[index] = MapEntry(hint ?? current.key, target ?? current.value);
+      targetNode.allowedRouteHints = LinkedHashMap<String, String>.fromEntries(
+        entries,
+      );
+    });
+  }
+
+  void _deleteAllowedRouteHint(int index) {
+    _updateNode((_WorkflowDraft _, _WorkflowNodeDraft targetNode) {
+      final entries = targetNode.allowedRouteHints.entries.toList(
+        growable: true,
+      );
+      if (index < 0 || index >= entries.length) {
+        return;
+      }
+      entries.removeAt(index);
+      targetNode.allowedRouteHints = LinkedHashMap<String, String>.fromEntries(
+        entries,
+      );
+    });
+  }
+
   List<String> _nodeOptions(_WorkflowDraft workflow) =>
       workflow.nodes.map((_WorkflowNodeDraft node) => node.id).toList();
 
@@ -742,7 +1811,6 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
               open: _showSourceDrawer,
               controller: widget.controller,
               validation: widget.validation,
-              configPath: widget.catalog.configPath,
               parseError: _sourceApplyError ?? _catalogParseError,
               onApplySource: _applySource,
               onClose: () {
@@ -982,93 +2050,116 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
           ],
         );
       case _WorkflowInspectorPanel.rules:
+        final sharedRules = _sharedRuleDrafts();
+        final sharedRuleSets = _sharedRuleSetDrafts();
+        final referencedRuleSets = _referencedSharedRuleSets(workflow);
         return _buildInspectorPanelContent(
           summaryCard: _buildWorkflowInspectorSummaryCard(workflow),
           searchQuery: searchQuery,
-          emptyTitle: 'No matching workflow rules',
+          emptyTitle: 'No matching workflow policy',
           emptyBody:
-              'Try a different search term to find reusable rule set controls.',
+              'Try a different search term to find shared rule references or policy guidance.',
           blocks: <_InspectorPanelBlock>[
             _InspectorPanelBlock(
-              title: 'Reusable rules',
+              title: 'Shared rules',
               searchTerms: const <String>[
-                'rule sets',
-                'embedded rules',
+                'shared rules',
+                'rules',
                 'policy',
-                'knowledge base',
+                'fact bindings',
+                'route hints',
               ],
               child: _InspectorSection(
-                title: 'Reusable rules',
+                title: 'Shared rules',
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (workflow.rawRuleSets.isEmpty)
-                      const InfoPanel(
-                        title: 'No reusable rules yet',
-                        body:
-                            'Add shared rule set definitions here, or open the full source drawer when you need advanced shapes.',
-                      ),
-                    if (workflow.rawRuleSets.isNotEmpty) ...[
-                      for (
-                        int index = 0;
-                        index < workflow.rawRuleSets.length;
-                        index++
-                      )
-                        Padding(
-                          padding: EdgeInsets.only(
-                            bottom: index == workflow.rawRuleSets.length - 1
-                                ? 0
-                                : 10,
-                          ),
-                          child: _InspectorListCard(
-                            title: _stringValue(
-                              (workflow.rawRuleSets[index]
-                                  as Map<String, Object?>?)?['name'],
-                            ),
-                            subtitle: _joinMultiline(<String>[
-                              _stringValue(
-                                (workflow.rawRuleSets[index]
-                                    as Map<String, Object?>?)?['source_kind'],
-                              ),
-                              _stringValue(
-                                (workflow.rawRuleSets[index]
-                                    as Map<String, Object?>?)?['base_path'],
-                              ),
-                            ]),
-                            tone: successColor,
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-                    ],
-                    _InspectorYamlEditor(
-                      key: ValueKey(_fieldKey(workflowKey, 'rule_sets')),
-                      label: 'Rule sets',
-                      helperText:
-                          'Edit the workflow rule_sets list directly when you need full access to embedded rules or source metadata.',
-                      initialValue: _MiniYamlWriter.serialize(
-                        workflow.rawRuleSets,
-                      ),
-                      errorText: _fieldError(
-                        _fieldKey(workflowKey, 'rule_sets'),
-                      ),
-                      onChanged: (String value) {
-                        try {
-                          final parsed = _parseYamlListFragment(value);
-                          _updateFieldError(
-                            _fieldKey(workflowKey, 'rule_sets'),
-                            null,
-                          );
-                          _updateWorkflow((_WorkflowDraft target) {
-                            target.rawRuleSets = parsed;
-                          });
-                        } on _MiniYamlException catch (error) {
-                          _updateFieldError(
-                            _fieldKey(workflowKey, 'rule_sets'),
-                            error.message,
-                          );
-                        }
-                      },
+                    const InfoPanel(
+                      title: 'How grules fit',
+                      body:
+                          'Shared GRL rules are authored once from Harness > Rules. Rule Sets compose those rules and define the default evaluation behavior. Workflow gates then reference a Rule Set and provide the workflow-specific fact bindings, route hints, and any per-gate overrides.',
                     ),
+                    if (sharedRules.isEmpty && sharedRuleSets.isEmpty) ...[
+                      const SizedBox(height: 12),
+                      const InfoPanel(
+                        title: 'No shared policy items yet',
+                        body:
+                            'Create shared rules and rule sets from the dedicated Rules screen, then reference a rule set from any workflow gate that needs deterministic policy evaluation.',
+                      ),
+                    ],
+                    if (sharedRules.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const _InspectorListCard(
+                        title: 'Available rules',
+                        subtitle:
+                            'These are the atomic GRL files that rule sets can compose.',
+                        tone: infoColor,
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: sharedRules
+                            .map(
+                              (_WorkflowRuleDraft value) => StatusPill(
+                                label: value.name,
+                                color: infoColor,
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                    ],
+                    if (sharedRuleSets.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const _InspectorListCard(
+                        title: 'Available rule sets',
+                        subtitle:
+                            'These are the executable Rule Sets that workflow gates can reference.',
+                        tone: successColor,
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: sharedRuleSets
+                            .map(
+                              (_WorkflowRuleSetDraft value) => StatusPill(
+                                label: value.name,
+                                color: successColor,
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                    ],
+                    if (referencedRuleSets.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const _InspectorListCard(
+                        title: 'This workflow references',
+                        subtitle:
+                            'These rule sets are currently selected by gate steps in this workflow.',
+                        tone: successColor,
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: referencedRuleSets
+                            .map(
+                              (String value) =>
+                                  StatusPill(label: value, color: infoColor),
+                            )
+                            .toList(growable: false),
+                      ),
+                    ],
+                    if (referencedRuleSets.isEmpty &&
+                        sharedRuleSets.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const InfoPanel(
+                        title: 'No rule sets attached yet',
+                        body:
+                            'Select a shared rule set from any check step in this workflow when you want deterministic policy evaluation.',
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1148,10 +2239,10 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
       (Object? value) =>
           value is Map<String, Object?> || value is List<Object?>,
     );
-    final runTargetOptions = LinkedHashSet<String>.from(<String>[
+    final runTargetOptions = <String>{
       ...widget.runTargetOptions,
       if (node.uses.trim().isNotEmpty) node.uses.trim(),
-    ]).toList(growable: false);
+    }.toList(growable: false);
     final kindOptions = <String>{
       'task',
       'check',
@@ -1582,6 +2673,9 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
           ],
         );
       case _NodeInspectorPanel.checks:
+        final ruleSetOptions = _sharedRuleSetOptions(
+          currentValue: node.policyGateRuleSet,
+        );
         return _buildInspectorPanelContent(
           summaryCard: _buildNodeInspectorSummaryCard(workflow, node),
           searchQuery: searchQuery,
@@ -1693,7 +2787,14 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
               child: _InspectorSection(
                 title: 'Deterministic rules',
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const InfoPanel(
+                      title: 'Gate contract',
+                      body:
+                          'Gate steps reuse named Rule Sets from Harness > Rules. Rule Sets define the default evaluation settings; this gate can override them when this workflow needs a different policy posture.',
+                    ),
+                    const SizedBox(height: 12),
                     _InspectorToggleTile(
                       title: 'Enabled',
                       value: node.policyGateEnabled,
@@ -1709,46 +2810,136 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
                       },
                     ),
                     const SizedBox(height: 10),
-                    _InspectorTextField(
+                    _InspectorDropdownField(
                       key: ValueKey(_fieldKey(nodeKey, 'policy_gate_rule_set')),
-                      label: 'Rule set',
-                      initialValue: node.policyGateRuleSet,
-                      onChanged: (String value) {
+                      label: 'Rule Set',
+                      value: node.policyGateRuleSet.isEmpty
+                          ? null
+                          : node.policyGateRuleSet,
+                      includeBlank: true,
+                      blankLabel: 'Session rule files only',
+                      options: ruleSetOptions,
+                      helperText:
+                          'Select a shared rule set from the Rules screen, or leave this blank and load per-session GRL files instead.',
+                      onChanged: (String? value) {
                         _updateNode((
                           _WorkflowDraft _,
                           _WorkflowNodeDraft targetNode,
                         ) {
-                          targetNode.policyGateRuleSet = value.trim();
+                          targetNode.policyGateRuleSet = (value ?? '').trim();
                         });
                       },
                     ),
                     const SizedBox(height: 12),
-                    _InspectorTextField(
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _InspectorNumberField(
+                            key: ValueKey(
+                              _fieldKey(nodeKey, 'policy_gate_max_cycle'),
+                            ),
+                            label: 'Max cycle override',
+                            initialValue: _intText(node.policyGateMaxCycle),
+                            helperText:
+                                'Leave at 0 to use the Rule Set default.',
+                            onChanged: (int value) {
+                              _updateNode((
+                                _WorkflowDraft _,
+                                _WorkflowNodeDraft targetNode,
+                              ) {
+                                targetNode.policyGateMaxCycle = value;
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _InspectorDropdownField(
+                            key: ValueKey(
+                              _fieldKey(nodeKey, 'policy_gate_fail_closed'),
+                            ),
+                            label: 'Fail closed',
+                            value: _nullableBoolChoice(node.policyGateFailClosed),
+                            includeBlank: true,
+                            blankLabel: 'Rule Set default',
+                            options: const <String>['enabled', 'disabled'],
+                            onChanged: (String? value) {
+                              _updateNode((
+                                _WorkflowDraft _,
+                                _WorkflowNodeDraft targetNode,
+                              ) {
+                                targetNode.policyGateFailClosed =
+                                    _nullableBoolChoiceValue(value);
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorDropdownField(
+                      key: ValueKey(
+                        _fieldKey(
+                          nodeKey,
+                          'policy_gate_return_error_on_failed_rule_evaluation',
+                        ),
+                      ),
+                      label: 'Return evaluation errors',
+                      value: _nullableBoolChoice(
+                        node.policyGateReturnEvalErrors,
+                      ),
+                      includeBlank: true,
+                      blankLabel: 'Rule Set default',
+                      options: const <String>['enabled', 'disabled'],
+                      onChanged: (String? value) {
+                        _updateNode((
+                          _WorkflowDraft _,
+                          _WorkflowNodeDraft targetNode,
+                        ) {
+                          targetNode.policyGateReturnEvalErrors =
+                              _nullableBoolChoiceValue(value);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _InspectorDropdownField(
                       key: ValueKey(_fieldKey(nodeKey, 'policy_gate_on_error')),
                       label: 'On evaluation error',
-                      initialValue: node.policyGateOnEvaluationError,
-                      onChanged: (String value) {
+                      value: node.policyGateOnEvaluationError.isEmpty
+                          ? null
+                          : node.policyGateOnEvaluationError,
+                      includeBlank: true,
+                      blankLabel: 'Fail (default)',
+                      options: const <String>['fail', 'blocked'],
+                      onChanged: (String? value) {
                         _updateNode((
                           _WorkflowDraft _,
                           _WorkflowNodeDraft targetNode,
                         ) {
-                          targetNode.policyGateOnEvaluationError = value.trim();
+                          targetNode.policyGateOnEvaluationError = (value ?? '')
+                              .trim();
                         });
                       },
                     ),
                     const SizedBox(height: 12),
-                    _InspectorTextField(
+                    _InspectorDropdownField(
                       key: ValueKey(
                         _fieldKey(nodeKey, 'policy_gate_merge_findings'),
                       ),
                       label: 'Merge findings',
-                      initialValue: node.policyGateMergeFindings,
-                      onChanged: (String value) {
+                      value: node.policyGateMergeFindings.isEmpty
+                          ? null
+                          : node.policyGateMergeFindings,
+                      includeBlank: true,
+                      blankLabel: 'Append (default)',
+                      options: const <String>['append', 'replace'],
+                      onChanged: (String? value) {
                         _updateNode((
                           _WorkflowDraft _,
                           _WorkflowNodeDraft targetNode,
                         ) {
-                          targetNode.policyGateMergeFindings = value.trim();
+                          targetNode.policyGateMergeFindings = (value ?? '')
+                              .trim();
                         });
                       },
                     ),
@@ -1772,92 +2963,82 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    _InspectorYamlEditor(
-                      key: ValueKey(
-                        _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
-                      ),
-                      label: 'Fact bindings',
-                      helperText:
-                          'Expose selected workflow facts to the policy engine.',
-                      initialValue: _MiniYamlWriter.serialize(
-                        node.policyGateFactBindings
-                            .map(
-                              (_PolicyFactBindingDraft binding) =>
-                                  binding.toYamlMap(),
-                            )
-                            .toList(),
-                      ),
-                      errorText: _fieldError(
-                        _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
-                      ),
-                      onChanged: (String value) {
-                        try {
-                          final parsed = _parseYamlListFragment(value);
-                          final bindings = parsed
-                              .whereType<Map<String, Object?>>()
-                              .map(_PolicyFactBindingDraft.fromYaml)
-                              .toList();
-                          _updateFieldError(
-                            _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
-                            null,
-                          );
-                          _updateNode((
-                            _WorkflowDraft _,
-                            _WorkflowNodeDraft targetNode,
-                          ) {
-                            targetNode.policyGateFactBindings = bindings;
-                          });
-                        } on _MiniYamlException catch (error) {
-                          _updateFieldError(
-                            _fieldKey(nodeKey, 'policy_gate_fact_bindings'),
-                            error.message,
-                          );
-                        }
-                      },
+                    const _InspectorListCard(
+                      title: 'Available fact surfaces',
+                      subtitle:
+                          'Built-ins: Session, Workflow, Node, Input, and PolicyDecision. Add fact bindings when a reusable rule needs a stable named value such as a prior summary or an input key.',
+                      tone: infoColor,
                     ),
                     const SizedBox(height: 12),
-                    _InspectorYamlEditor(
-                      key: ValueKey(
-                        _fieldKey(nodeKey, 'policy_gate_allowed_route_hints'),
+                    if (node.policyGateFactBindings.isEmpty)
+                      const InfoPanel(
+                        title: 'No fact bindings yet',
+                        body:
+                            'Bind only the facts this Rule Set depends on. That keeps the policy reusable between workflows.',
                       ),
-                      label: 'Allowed route hints',
-                      helperText:
-                          'Allow named policy hints to redirect the workflow to known steps.',
-                      initialValue: _MiniYamlWriter.serialize(
-                        node.allowedRouteHints,
+                    if (node.policyGateFactBindings.isNotEmpty) ...[
+                      for (
+                        int index = 0;
+                        index < node.policyGateFactBindings.length;
+                        index++
+                      )
+                        Padding(
+                          padding: EdgeInsets.only(
+                            bottom:
+                                index == node.policyGateFactBindings.length - 1
+                                ? 0
+                                : 10,
+                          ),
+                          child: _buildPolicyFactBindingEditor(
+                            workflow: workflow,
+                            node: node,
+                            nodeKey: nodeKey,
+                            index: index,
+                            binding: node.policyGateFactBindings[index],
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                    ],
+                    FilledButton.tonalIcon(
+                      onPressed: _addPolicyFactBinding,
+                      icon: const Icon(Icons.add_link_rounded),
+                      label: const Text('Add fact binding'),
+                    ),
+                    const SizedBox(height: 12),
+                    if (node.allowedRouteHints.isEmpty)
+                      const InfoPanel(
+                        title: 'No route hints yet',
+                        body:
+                            'Allowlist route hints only when rules may redirect the workflow to a known next step.',
                       ),
-                      errorText: _fieldError(
-                        _fieldKey(nodeKey, 'policy_gate_allowed_route_hints'),
-                      ),
-                      onChanged: (String value) {
-                        try {
-                          final parsed = _parseYamlMapFragment(value);
-                          _updateFieldError(
-                            _fieldKey(
-                              nodeKey,
-                              'policy_gate_allowed_route_hints',
+                    if (node.allowedRouteHints.isNotEmpty) ...[
+                      for (
+                        int index = 0;
+                        index < node.allowedRouteHints.length;
+                        index++
+                      )
+                        Padding(
+                          padding: EdgeInsets.only(
+                            bottom: index == node.allowedRouteHints.length - 1
+                                ? 0
+                                : 10,
+                          ),
+                          child: _buildAllowedRouteHintEditor(
+                            workflow: workflow,
+                            node: node,
+                            nodeKey: nodeKey,
+                            index: index,
+                            entry: node.allowedRouteHints.entries.elementAt(
+                              index,
                             ),
-                            null,
-                          );
-                          _updateNode((
-                            _WorkflowDraft _,
-                            _WorkflowNodeDraft targetNode,
-                          ) {
-                            targetNode.allowedRouteHints = parsed.map(
-                              (String key, Object? value) =>
-                                  MapEntry(key, _stringValue(value)),
-                            );
-                          });
-                        } on _MiniYamlException catch (error) {
-                          _updateFieldError(
-                            _fieldKey(
-                              nodeKey,
-                              'policy_gate_allowed_route_hints',
-                            ),
-                            error.message,
-                          );
-                        }
-                      },
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                    ],
+                    FilledButton.tonalIcon(
+                      onPressed: _addAllowedRouteHint,
+                      icon: const Icon(Icons.alt_route_rounded),
+                      label: const Text('Add route hint'),
                     ),
                     const SizedBox(height: 10),
                     _InspectorToggleTile(
@@ -2031,6 +3212,7 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
   }
 
   Widget _buildWorkflowInspectorSummaryCard(_WorkflowDraft workflow) {
+    final referencedRuleSets = _referencedSharedRuleSets(workflow);
     return _buildInspectorSummaryCard(
       title: workflow.name,
       subtitle: _joinInline(<String>[
@@ -2038,8 +3220,8 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
             ? 'No start step configured'
             : 'Start ${workflow.startNode}',
         '${workflow.nodes.length} steps',
-        if (workflow.rawRuleSets.isNotEmpty)
-          '${workflow.rawRuleSets.length} rule set${workflow.rawRuleSets.length == 1 ? '' : 's'}',
+        if (referencedRuleSets.isNotEmpty)
+          '${referencedRuleSets.length} shared rule${referencedRuleSets.length == 1 ? '' : 's'}',
       ]),
       footer: <Widget>[
         StatusPill(
@@ -2047,10 +3229,10 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
               '${workflow.nodes.length} step${workflow.nodes.length == 1 ? '' : 's'}',
           color: infoColor,
         ),
-        if (workflow.rawRuleSets.isNotEmpty)
+        if (referencedRuleSets.isNotEmpty)
           StatusPill(
             label:
-                '${workflow.rawRuleSets.length} rule set${workflow.rawRuleSets.length == 1 ? '' : 's'}',
+                '${referencedRuleSets.length} shared rule${referencedRuleSets.length == 1 ? '' : 's'}',
             color: successColor,
           ),
       ],
@@ -2079,6 +3261,206 @@ class _HarnessWorkflowsWorkspaceState extends State<HarnessWorkflowsWorkspace> {
         if (node.implementation)
           const StatusPill(label: 'write step', color: dangerColor),
       ],
+    );
+  }
+
+  Widget _buildPolicyFactBindingEditor({
+    required _WorkflowDraft workflow,
+    required _WorkflowNodeDraft node,
+    required String nodeKey,
+    required int index,
+    required _PolicyFactBindingDraft binding,
+  }) {
+    final nodeOptions = LinkedHashSet<String>.from(
+      _nodeOptions(workflow).where((String value) => value.trim().isNotEmpty),
+    );
+    if (binding.node.trim().isNotEmpty) {
+      nodeOptions.add(binding.node.trim());
+    }
+    final showNodeTarget = binding.source.trim() == 'node_result';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panelAltColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: infoColor.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  binding.name.isEmpty ? 'Fact binding' : binding.name,
+                  style: const TextStyle(
+                    color: textPrimaryColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove fact binding',
+                onPressed: () => _deletePolicyFactBinding(index),
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _InspectorTextField(
+            key: ValueKey(_fieldKey(nodeKey, 'binding_${index}_name')),
+            label: 'Fact name',
+            initialValue: binding.name,
+            helperText:
+                'This becomes a named fact in GRL, for example `PlanInput.String()`.',
+            onChanged: (String value) {
+              _updatePolicyFactBinding(index, binding.copyWith(name: value));
+            },
+          ),
+          const SizedBox(height: 12),
+          _InspectorDropdownField(
+            key: ValueKey(_fieldKey(nodeKey, 'binding_${index}_source')),
+            label: 'Source',
+            value: binding.source.isEmpty ? null : binding.source,
+            includeBlank: true,
+            blankLabel: 'Select source',
+            options: const <String>[
+              'session',
+              'workflow',
+              'node',
+              'input',
+              'outputs',
+              'node_result',
+            ],
+            helperText:
+                'Choose which stable snapshot the reusable rule should read from.',
+            onChanged: (String? value) {
+              _updatePolicyFactBinding(
+                index,
+                binding.copyWith(
+                  source: value ?? '',
+                  node: value == 'node_result' ? binding.node : '',
+                ),
+              );
+            },
+          ),
+          if (showNodeTarget) ...[
+            const SizedBox(height: 12),
+            _InspectorDropdownField(
+              key: ValueKey(_fieldKey(nodeKey, 'binding_${index}_node')),
+              label: 'Source step',
+              value: binding.node.isEmpty ? null : binding.node,
+              includeBlank: true,
+              blankLabel: 'Select step',
+              options: nodeOptions.toList(growable: false),
+              onChanged: (String? value) {
+                _updatePolicyFactBinding(
+                  index,
+                  binding.copyWith(node: value ?? ''),
+                );
+              },
+            ),
+          ],
+          const SizedBox(height: 12),
+          _InspectorTextField(
+            key: ValueKey(_fieldKey(nodeKey, 'binding_${index}_path')),
+            label: 'Path',
+            initialValue: binding.path,
+            helperText:
+                'Examples: `summary`, `outputs.changed_files`, or leave blank to bind the full snapshot.',
+            onChanged: (String value) {
+              _updatePolicyFactBinding(index, binding.copyWith(path: value));
+            },
+          ),
+          const SizedBox(height: 10),
+          _InspectorToggleTile(
+            title: 'Required',
+            value: binding.required,
+            subtitle:
+                'Mark this when rule evaluation should fail if the fact cannot be resolved.',
+            onChanged: (bool value) {
+              _updatePolicyFactBinding(
+                index,
+                binding.copyWith(required: value),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAllowedRouteHintEditor({
+    required _WorkflowDraft workflow,
+    required _WorkflowNodeDraft node,
+    required String nodeKey,
+    required int index,
+    required MapEntry<String, String> entry,
+  }) {
+    final targetOptions = LinkedHashSet<String>.from(
+      _transitionOptionsFor(_nodeOptions(workflow), node.id, entry.value),
+    );
+    if (entry.value.trim().isNotEmpty) {
+      targetOptions.add(entry.value.trim());
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panelAltColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accentColor.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  entry.key.isEmpty ? 'Route hint' : entry.key,
+                  style: const TextStyle(
+                    color: textPrimaryColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove route hint',
+                onPressed: () => _deleteAllowedRouteHint(index),
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _InspectorTextField(
+            key: ValueKey(_fieldKey(nodeKey, 'route_hint_${index}_name')),
+            label: 'Hint name',
+            initialValue: entry.key,
+            helperText: 'Rules set this through `PolicyDecision.RouteHint`.',
+            onChanged: (String value) {
+              _updateAllowedRouteHint(index, hint: value.trim());
+            },
+          ),
+          const SizedBox(height: 12),
+          _InspectorDropdownField(
+            key: ValueKey(_fieldKey(nodeKey, 'route_hint_${index}_target')),
+            label: 'Target step',
+            value: entry.value.isEmpty ? null : entry.value,
+            includeBlank: true,
+            blankLabel: 'Select step',
+            options: targetOptions.toList(growable: false),
+            helperText:
+                'Only these steps may be reached when a rule emits this route hint.',
+            onChanged: (String? value) {
+              _updateAllowedRouteHint(index, target: value ?? '');
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -2228,6 +3610,11 @@ class _WorkflowCollectionPane extends StatelessWidget {
     final implementationCount = workflow.nodes
         .where((_WorkflowNodeDraft node) => node.implementation)
         .length;
+    final referencedRuleSets = LinkedHashSet<String>.from(
+      workflow.nodes
+          .map((_WorkflowNodeDraft node) => node.policyGateRuleSet.trim())
+          .where((String value) => value.isNotEmpty),
+    );
     final footer = <Widget>[
       StatusPill(
         label:
@@ -2235,11 +3622,11 @@ class _WorkflowCollectionPane extends StatelessWidget {
         color: infoColor,
       ),
     ];
-    if (workflow.rawRuleSets.isNotEmpty) {
+    if (referencedRuleSets.isNotEmpty) {
       footer.add(
         StatusPill(
           label:
-              '${workflow.rawRuleSets.length} rule set${workflow.rawRuleSets.length == 1 ? '' : 's'}',
+              '${referencedRuleSets.length} shared rule${referencedRuleSets.length == 1 ? '' : 's'}',
           color: successColor,
         ),
       );
@@ -2268,7 +3655,7 @@ class _WorkflowCollectionPane extends StatelessWidget {
       selectedEntryId: selectedWorkflowKey,
       entryId: (_WorkflowDraft workflow) => workflow.localKey,
       onSelectEntry: onSelectWorkflow,
-      searchHintText: 'Search workflows, steps, and rule sets...',
+      searchHintText: 'Search workflows and steps...',
       emptyTitle: 'No workflow panels',
       emptyBody: 'Workflow sections will appear here once the catalog loads.',
       sections: _WorkflowCollectionSection.values
@@ -2288,6 +3675,7 @@ class _WorkflowCollectionPane extends StatelessWidget {
                     node.id,
                     node.kind,
                     node.uses,
+                    node.policyGateRuleSet,
                     ...node.requiredInputKeys,
                     ...node.requiredDataKeys,
                     ...node.requiresGates,
@@ -2295,10 +3683,6 @@ class _WorkflowCollectionPane extends StatelessWidget {
                     ...node.requiredChangedFiles,
                     ...node.requiredToolCalls,
                   ];
-                }),
-                ...workflow.rawRuleSets.map((Object? ruleSet) {
-                  final map = ruleSet as Map<String, Object?>?;
-                  return map?['name']?.toString() ?? '';
                 }),
               ],
               emptyTitle: section.emptyTitle,
@@ -2933,11 +4317,13 @@ class _InspectorTextField extends StatelessWidget {
     required this.initialValue,
     required this.onChanged,
     this.errorText,
+    this.helperText,
   });
 
   final String label;
   final String initialValue;
   final String? errorText;
+  final String? helperText;
   final ValueChanged<String> onChanged;
 
   @override
@@ -2946,7 +4332,11 @@ class _InspectorTextField extends StatelessWidget {
       initialValue: initialValue,
       onChanged: onChanged,
       style: const TextStyle(color: textPrimaryColor),
-      decoration: InputDecoration(labelText: label, errorText: errorText),
+      decoration: InputDecoration(
+        labelText: label,
+        errorText: errorText,
+        helperText: helperText,
+      ),
     );
   }
 }
@@ -2957,11 +4347,13 @@ class _InspectorNumberField extends StatelessWidget {
     required this.label,
     required this.initialValue,
     required this.onChanged,
+    this.helperText,
   });
 
   final String label;
   final String initialValue;
   final ValueChanged<int> onChanged;
+  final String? helperText;
 
   @override
   Widget build(BuildContext context) {
@@ -2970,7 +4362,7 @@ class _InspectorNumberField extends StatelessWidget {
       keyboardType: TextInputType.number,
       onChanged: (String value) => onChanged(_parseInt(value)),
       style: const TextStyle(color: textPrimaryColor),
-      decoration: InputDecoration(labelText: label),
+      decoration: InputDecoration(labelText: label, helperText: helperText),
     );
   }
 }
@@ -3190,74 +4582,6 @@ class _InspectorActionCard extends StatelessWidget {
   }
 }
 
-class _InspectorDisclosureCard extends StatelessWidget {
-  const _InspectorDisclosureCard({
-    required this.expanded,
-    required this.title,
-    required this.body,
-    required this.onTap,
-  });
-
-  final bool expanded;
-  final String title;
-  final String body;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: panelAltColor,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: borderColor),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: textPrimaryColor,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      body,
-                      style: const TextStyle(
-                        color: textMutedColor,
-                        height: 1.45,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Icon(
-                expanded
-                    ? Icons.keyboard_arrow_up_rounded
-                    : Icons.keyboard_arrow_down_rounded,
-                color: textMutedColor,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _InspectorInlineFacts extends StatelessWidget {
   const _InspectorInlineFacts({required this.entries});
 
@@ -3387,7 +4711,6 @@ class _WorkflowSourceDrawer extends StatelessWidget {
     required this.open,
     required this.controller,
     required this.validation,
-    required this.configPath,
     required this.parseError,
     required this.onApplySource,
     required this.onClose,
@@ -3396,7 +4719,6 @@ class _WorkflowSourceDrawer extends StatelessWidget {
   final bool open;
   final TextEditingController controller;
   final HarnessConfigValidationReport? validation;
-  final String configPath;
   final String? parseError;
   final VoidCallback onApplySource;
   final VoidCallback onClose;
@@ -3452,11 +4774,9 @@ class _WorkflowSourceDrawer extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Text(
-              configPath.isEmpty
-                  ? 'Edit the full workflow catalog YAML here. Click Apply source to rebuild the board from manual YAML changes.'
-                  : 'Config path: $configPath',
-              style: const TextStyle(color: textMutedColor),
+            const Text(
+              'Edit the full workflow catalog YAML here. Click Apply source to rebuild the board from manual YAML changes.',
+              style: TextStyle(color: textMutedColor),
             ),
             if (parseError != null && parseError!.trim().isNotEmpty) ...[
               const SizedBox(height: 14),
@@ -3998,7 +5318,6 @@ class _WorkflowDraft {
     required this.maxVisitsPerNode,
     required this.maxTotalTransitions,
     required this.duplicateResultCap,
-    required this.rawRuleSets,
     required this.nodes,
     required this.extraFields,
   });
@@ -4025,11 +5344,8 @@ class _WorkflowDraft {
       maxVisitsPerNode: _intValue(map.remove('max_visits_per_node')),
       maxTotalTransitions: _intValue(map.remove('max_total_transitions')),
       duplicateResultCap: _intValue(map.remove('duplicate_result_cap')),
-      rawRuleSets:
-          ((map.remove('rule_sets') as List<Object?>?) ?? const <Object?>[])
-              .toList(),
       nodes: nodes,
-      extraFields: map,
+      extraFields: map..remove('rule_sets'),
     );
   }
 
@@ -4045,17 +5361,6 @@ class _WorkflowDraft {
       maxVisitsPerNode: summary.maxVisitsPerNode,
       maxTotalTransitions: summary.maxTotalTransitions,
       duplicateResultCap: summary.duplicateResultCap,
-      rawRuleSets: summary.ruleSets.map((HarnessWorkflowRuleSetSummary value) {
-        return <String, Object?>{
-          'name': value.name,
-          if (value.sourceKind.isNotEmpty) 'source_kind': value.sourceKind,
-          if (value.basePath.isNotEmpty) 'base_path': value.basePath,
-          if (value.knowledgeBaseName.isNotEmpty)
-            'knowledge_base_name': value.knowledgeBaseName,
-          if (value.knowledgeBaseVersion.isNotEmpty)
-            'knowledge_base_version': value.knowledgeBaseVersion,
-        };
-      }).toList(),
       nodes: summary.nodes
           .map(
             (HarnessWorkflowNodeSummary node) => _WorkflowNodeDraft.fromSummary(
@@ -4074,7 +5379,6 @@ class _WorkflowDraft {
   int maxVisitsPerNode;
   int maxTotalTransitions;
   int duplicateResultCap;
-  List<Object?> rawRuleSets;
   List<_WorkflowNodeDraft> nodes;
   Map<String, Object?> extraFields;
 
@@ -4097,11 +5401,6 @@ class _WorkflowDraft {
       map['duplicate_result_cap'] = duplicateResultCap;
     } else {
       map.remove('duplicate_result_cap');
-    }
-    if (rawRuleSets.isNotEmpty) {
-      map['rule_sets'] = rawRuleSets;
-    } else {
-      map.remove('rule_sets');
     }
     map['nodes'] = nodes
         .map((_WorkflowNodeDraft node) => node.toYamlMap())
@@ -4137,6 +5436,9 @@ class _WorkflowNodeDraft {
     this.policyGateEnabled = false,
     this.policyGateRuleSet = '',
     List<String>? policyGateSessionRuleFiles,
+    this.policyGateMaxCycle = 0,
+    this.policyGateReturnEvalErrors,
+    this.policyGateFailClosed,
     List<_PolicyFactBindingDraft>? policyGateFactBindings,
     Map<String, String>? allowedRouteHints,
     this.policyGateOnEvaluationError = '',
@@ -4252,6 +5554,11 @@ class _WorkflowNodeDraft {
       policyGateSessionRuleFiles: _stringList(
         policyGate.remove('session_rule_files'),
       ),
+      policyGateMaxCycle: _intValue(policyGate.remove('max_cycle')),
+      policyGateReturnEvalErrors: _nullableBoolValue(
+        policyGate.remove('return_error_on_failed_rule_evaluation'),
+      ),
+      policyGateFailClosed: _nullableBoolValue(policyGate.remove('fail_closed')),
       policyGateFactBindings:
           ((policyGate.remove('fact_bindings') as List<Object?>?) ??
                   const <Object?>[])
@@ -4322,6 +5629,9 @@ class _WorkflowNodeDraft {
       treatRetryableAsFail: summary.treatRetryableAsFail,
       policyGateEnabled: summary.policyGateEnabled,
       policyGateRuleSet: summary.policyGateRuleSet,
+      policyGateMaxCycle: summary.policyGateMaxCycle,
+      policyGateReturnEvalErrors: summary.policyGateReturnEvalErrors,
+      policyGateFailClosed: summary.policyGateFailClosed,
       policyGateFactBindings: const <_PolicyFactBindingDraft>[],
       allowedRouteHints: <String, String>{
         for (final hint in summary.policyGateRouteHints) hint: '',
@@ -4359,6 +5669,9 @@ class _WorkflowNodeDraft {
   bool policyGateEnabled;
   String policyGateRuleSet;
   List<String> policyGateSessionRuleFiles;
+  int policyGateMaxCycle;
+  bool? policyGateReturnEvalErrors;
+  bool? policyGateFailClosed;
   List<_PolicyFactBindingDraft> policyGateFactBindings;
   Map<String, String> allowedRouteHints;
   String policyGateOnEvaluationError;
@@ -4481,6 +5794,16 @@ class _WorkflowNodeDraft {
     if (policyGateSessionRuleFiles.isNotEmpty) {
       policyGate['session_rule_files'] = policyGateSessionRuleFiles;
     }
+    if (policyGateMaxCycle > 0) {
+      policyGate['max_cycle'] = policyGateMaxCycle;
+    }
+    if (policyGateReturnEvalErrors != null) {
+      policyGate['return_error_on_failed_rule_evaluation'] =
+          policyGateReturnEvalErrors;
+    }
+    if (policyGateFailClosed != null) {
+      policyGate['fail_closed'] = policyGateFailClosed;
+    }
     if (policyGateFactBindings.isNotEmpty) {
       policyGate['fact_bindings'] = policyGateFactBindings
           .map((_PolicyFactBindingDraft value) => value.toYamlMap())
@@ -4514,6 +5837,106 @@ class _WorkflowNodeDraft {
       map['completion_contract'] = completion;
     } else {
       map.remove('completion_contract');
+    }
+    return map;
+  }
+}
+
+class _WorkflowRuleDraft {
+  _WorkflowRuleDraft({
+    required this.name,
+    this.file = '',
+    Map<String, Object?>? extraFields,
+  }) : extraFields = extraFields ?? <String, Object?>{};
+
+  factory _WorkflowRuleDraft.fromYaml(Map<String, Object?> raw) {
+    final map = LinkedHashMap<String, Object?>.from(raw);
+    return _WorkflowRuleDraft(
+      name: _stringValue(map.remove('name')),
+      file: _stringValue(map.remove('file')),
+      extraFields: map,
+    );
+  }
+
+  String name;
+  String file;
+  Map<String, Object?> extraFields;
+
+  Map<String, Object?> toYamlMap() {
+    final map = <String, Object?>{}..addAll(extraFields);
+    if (name.isNotEmpty) {
+      map['name'] = name;
+    } else {
+      map.remove('name');
+    }
+    if (file.isNotEmpty) {
+      map['file'] = file;
+    } else {
+      map.remove('file');
+    }
+    return map;
+  }
+}
+
+class _WorkflowRuleSetDraft {
+  _WorkflowRuleSetDraft({
+    required this.name,
+    List<String>? rules,
+    this.maxCycle = 0,
+    this.returnErrorOnFailedRuleEvaluation,
+    this.failClosed,
+    Map<String, Object?>? extraFields,
+  }) : rules = rules ?? <String>[],
+       extraFields = extraFields ?? <String, Object?>{};
+
+  factory _WorkflowRuleSetDraft.fromYaml(Map<String, Object?> raw) {
+    final map = LinkedHashMap<String, Object?>.from(raw);
+    return _WorkflowRuleSetDraft(
+      name: _stringValue(map.remove('name')),
+      rules: _stringList(map.remove('rules')),
+      maxCycle: _intValue(map.remove('max_cycle')),
+      returnErrorOnFailedRuleEvaluation: _nullableBoolValue(
+        map.remove('return_error_on_failed_rule_evaluation'),
+      ),
+      failClosed: _nullableBoolValue(map.remove('fail_closed')),
+      extraFields: map,
+    );
+  }
+
+  String name;
+  List<String> rules;
+  int maxCycle;
+  bool? returnErrorOnFailedRuleEvaluation;
+  bool? failClosed;
+  Map<String, Object?> extraFields;
+
+  Map<String, Object?> toYamlMap() {
+    final map = <String, Object?>{}..addAll(extraFields);
+    if (name.isNotEmpty) {
+      map['name'] = name;
+    } else {
+      map.remove('name');
+    }
+    if (rules.isNotEmpty) {
+      map['rules'] = rules;
+    } else {
+      map.remove('rules');
+    }
+    if (maxCycle > 0) {
+      map['max_cycle'] = maxCycle;
+    } else {
+      map.remove('max_cycle');
+    }
+    if (returnErrorOnFailedRuleEvaluation != null) {
+      map['return_error_on_failed_rule_evaluation'] =
+          returnErrorOnFailedRuleEvaluation;
+    } else {
+      map.remove('return_error_on_failed_rule_evaluation');
+    }
+    if (failClosed != null) {
+      map['fail_closed'] = failClosed;
+    } else {
+      map.remove('fail_closed');
     }
     return map;
   }
@@ -4614,21 +6037,24 @@ class _WorkflowInputMappingDraft {
 }
 
 class _PolicyFactBindingDraft {
-  const _PolicyFactBindingDraft({
+  _PolicyFactBindingDraft({
     required this.name,
     required this.source,
     required this.node,
     required this.path,
     required this.required,
-  });
+    Map<String, Object?>? extraFields,
+  }) : extraFields = extraFields ?? <String, Object?>{};
 
   factory _PolicyFactBindingDraft.fromYaml(Map<String, Object?> map) {
+    final mutable = LinkedHashMap<String, Object?>.from(map);
     return _PolicyFactBindingDraft(
-      name: _stringValue(map['name']),
-      source: _stringValue(map['source']),
-      node: _stringValue(map['node']),
-      path: _stringValue(map['path']),
-      required: _boolValue(map['required']),
+      name: _stringValue(mutable.remove('name')),
+      source: _stringValue(mutable.remove('source')),
+      node: _stringValue(mutable.remove('node')),
+      path: _stringValue(mutable.remove('path')),
+      required: _boolValue(mutable.remove('required')),
+      extraFields: mutable,
     );
   }
 
@@ -4637,6 +6063,7 @@ class _PolicyFactBindingDraft {
   final String node;
   final String path;
   final bool required;
+  final Map<String, Object?> extraFields;
 
   _PolicyFactBindingDraft copyWith({
     String? name,
@@ -4644,6 +6071,7 @@ class _PolicyFactBindingDraft {
     String? node,
     String? path,
     bool? required,
+    Map<String, Object?>? extraFields,
   }) {
     return _PolicyFactBindingDraft(
       name: name ?? this.name,
@@ -4651,11 +6079,13 @@ class _PolicyFactBindingDraft {
       node: node ?? this.node,
       path: path ?? this.path,
       required: required ?? this.required,
+      extraFields: extraFields ?? this.extraFields,
     );
   }
 
   Map<String, Object?> toYamlMap() {
     return <String, Object?>{
+      ...extraFields,
       if (name.isNotEmpty) 'name': name,
       if (source.isNotEmpty) 'source': source,
       if (node.isNotEmpty) 'node': node,
@@ -5184,13 +6614,6 @@ void _setWithTextValue(_WorkflowNodeDraft node, String key, String value) {
   node.withValues[key] = trimmed;
 }
 
-String _joinMultiline(List<String> values) {
-  return values
-      .map((String value) => value.trim())
-      .where((String value) => value.isNotEmpty)
-      .join('\n');
-}
-
 List<String> _splitLines(String value) {
   return value
       .split(RegExp(r'[\n,]'))
@@ -5247,6 +6670,42 @@ bool _boolValue(Object? value) {
     return value;
   }
   return value?.toString().trim().toLowerCase() == 'true';
+}
+
+bool? _nullableBoolValue(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is bool) {
+    return value;
+  }
+  final normalized = value.toString().trim().toLowerCase();
+  switch (normalized) {
+    case 'true':
+      return true;
+    case 'false':
+      return false;
+    default:
+      return null;
+  }
+}
+
+String? _nullableBoolChoice(bool? value) {
+  if (value == null) {
+    return null;
+  }
+  return value ? 'enabled' : 'disabled';
+}
+
+bool? _nullableBoolChoiceValue(String? value) {
+  switch (value?.trim()) {
+    case 'enabled':
+      return true;
+    case 'disabled':
+      return false;
+    default:
+      return null;
+  }
 }
 
 List<String> _stringList(Object? value) {

@@ -1824,14 +1824,20 @@ class _ToolsCollectionPane extends StatelessWidget {
               emptyBody: platformFilter == _ToolPlatformFilter.all
                   ? 'Try a different search term to find ${kind.emptySearchDescription}.'
                   : 'Try a different search term or clear the platform filter to find ${kind.emptySearchDescription}.',
-              headerBuilder: (BuildContext context, _, __, ___) {
-                return _ToolSectionToolbar(
-                  platformFilter: platformFilter,
-                  sortMode: sortMode,
-                  onPlatformFilterChanged: onPlatformFilterChanged,
-                  onSortModeChanged: onSortModeChanged,
-                );
-              },
+              headerBuilder:
+                  (
+                    BuildContext context,
+                    List<_ToolWorkspaceEntry> entries,
+                    List<_ToolWorkspaceEntry> filteredEntries,
+                    String searchQuery,
+                  ) {
+                    return _ToolSectionToolbar(
+                      platformFilter: platformFilter,
+                      sortMode: sortMode,
+                      onPlatformFilterChanged: onPlatformFilterChanged,
+                      onSortModeChanged: onSortModeChanged,
+                    );
+                  },
               rowBuilder:
                   (
                     BuildContext context,
@@ -2144,11 +2150,6 @@ class _ToolOverviewTab extends StatelessWidget {
                   tags: entry.relatedGroups,
                 ),
               ],
-              const SizedBox(height: 14),
-              _ReadOnlyRow(
-                label: 'Catalog path',
-                value: blankAsUnknown(configPath),
-              ),
             ],
           ),
         ),
@@ -2607,11 +2608,6 @@ class _ToolDocumentTab extends StatelessWidget {
               const Text(
                 'This view shows only the selected tool, MCP server, or tool group as YAML. The control plane remains the source of truth for canonical save formatting.',
                 style: TextStyle(color: textMutedColor, height: 1.5),
-              ),
-              const SizedBox(height: 14),
-              AppReadOnlyField(
-                label: 'Catalog path',
-                value: blankAsUnknown(configPath),
               ),
             ],
           ),

@@ -471,8 +471,6 @@ class _AgentOverviewTab extends StatelessWidget {
 
   List<Widget> _buildCatalogOverview() {
     return <Widget>[
-      InfoPanel(title: 'Config path', body: blankAsUnknown(catalog.configPath)),
-      const SizedBox(height: 14),
       Wrap(
         spacing: 12,
         runSpacing: 12,
@@ -1232,6 +1230,77 @@ String _joinNonEmpty(List<String> values) {
       .join(' • ');
 }
 
+class HarnessRulesPage extends StatefulWidget {
+  const HarnessRulesPage({
+    super.key,
+    required this.harnessConfigApi,
+    required this.harnessConfigAvailable,
+    required this.headerActionsController,
+  });
+
+  final HarnessConfigApi harnessConfigApi;
+  final bool harnessConfigAvailable;
+  final ScreenHeaderActionsController headerActionsController;
+
+  @override
+  State<HarnessRulesPage> createState() => _HarnessRulesPageState();
+}
+
+class _HarnessRulesPageState
+    extends HarnessDocumentPageState<HarnessRulesPage, HarnessWorkflowCatalog> {
+  @override
+  ScreenHeaderActionsController get headerActionsController =>
+      widget.headerActionsController;
+
+  @override
+  bool get headerActionsEnabled => widget.harnessConfigAvailable;
+
+  @override
+  String get emptyBody =>
+      'The control plane returned no harness rule document.';
+
+  @override
+  String get emptyTitle => 'No harness rule data';
+
+  @override
+  String get savedMessage => 'Harness rule configuration saved.';
+
+  @override
+  String catalogYaml(HarnessWorkflowCatalog catalog) => catalog.yaml;
+
+  @override
+  Future<HarnessWorkflowCatalog> fetchCatalog() {
+    return widget.harnessConfigApi.getWorkflows();
+  }
+
+  @override
+  Future<HarnessWorkflowCatalog> saveCatalog(String yaml) {
+    return widget.harnessConfigApi.saveWorkflows(yaml);
+  }
+
+  @override
+  Future<HarnessConfigValidationReport> validateCatalog(String yaml) {
+    return widget.harnessConfigApi.validateWorkflows(yaml);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return buildDocumentUnavailable(
+      available: widget.harnessConfigAvailable,
+      unavailableTitle: 'Harness config unavailable',
+      unavailableBody:
+          'This deployment mode disables local harness config management routes. Switch to local mode to manage harness rules.',
+      builder: (HarnessWorkflowCatalog catalog) {
+        return HarnessRulesWorkspace(
+          catalog: catalog,
+          controller: controller,
+          validation: validation,
+        );
+      },
+    );
+  }
+}
+
 class HarnessWorkflowsPage extends StatefulWidget {
   const HarnessWorkflowsPage({
     super.key,
@@ -1312,19 +1381,21 @@ class _HarnessWorkflowsPageState
     }
 
     try {
-      final HarnessAgentCatalog agentCatalog =
-          await widget.harnessConfigApi.getAgents();
+      final HarnessAgentCatalog agentCatalog = await widget.harnessConfigApi
+          .getAgents();
       final HarnessToolCatalog toolCatalog = await widget.harnessConfigApi
           .getTools();
-      final LinkedHashSet<String> options = LinkedHashSet<String>.from(<String>[
-        ...agentCatalog.agents.map((HarnessAgentSummary agent) => agent.name),
-        ...toolCatalog.toolGroups.expand(
-          (HarnessToolGroupSummary group) => group.tools,
-        ),
-        ...toolCatalog.externalTools.map(
-          (HarnessExternalToolSummary tool) => tool.name,
-        ),
-      ]..removeWhere((String value) => value.trim().isEmpty));
+      final LinkedHashSet<String> options = LinkedHashSet<String>.from(
+        <String>[
+          ...agentCatalog.agents.map((HarnessAgentSummary agent) => agent.name),
+          ...toolCatalog.toolGroups.expand(
+            (HarnessToolGroupSummary group) => group.tools,
+          ),
+          ...toolCatalog.externalTools.map(
+            (HarnessExternalToolSummary tool) => tool.name,
+          ),
+        ]..removeWhere((String value) => value.trim().isEmpty),
+      );
       if (!mounted) {
         return;
       }

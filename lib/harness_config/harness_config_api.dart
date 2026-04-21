@@ -586,37 +586,48 @@ class HarnessToolCatalog {
   }
 }
 
+class HarnessWorkflowRuleSummary {
+  HarnessWorkflowRuleSummary({required this.name, this.file = ''});
+
+  factory HarnessWorkflowRuleSummary.fromJson(Map<String, dynamic> json) {
+    return HarnessWorkflowRuleSummary(
+      name: (json['name'] as String? ?? '').trim(),
+      file: (json['file'] as String? ?? '').trim(),
+    );
+  }
+
+  final String name;
+  final String file;
+}
+
 class HarnessWorkflowRuleSetSummary {
   HarnessWorkflowRuleSetSummary({
     required this.name,
-    required this.sourceKind,
-    required this.basePath,
-    required this.patternCount,
-    required this.embeddedRuleCount,
-    required this.knowledgeBaseName,
-    required this.knowledgeBaseVersion,
+    this.rules = const <String>[],
+    this.maxCycle = 0,
+    this.returnErrorOnFailedRuleEvaluation,
+    this.failClosed,
   });
 
   factory HarnessWorkflowRuleSetSummary.fromJson(Map<String, dynamic> json) {
     return HarnessWorkflowRuleSetSummary(
       name: (json['name'] as String? ?? '').trim(),
-      sourceKind: (json['source_kind'] as String? ?? '').trim(),
-      basePath: (json['base_path'] as String? ?? '').trim(),
-      patternCount: json['pattern_count'] as int? ?? 0,
-      embeddedRuleCount: json['embedded_rule_count'] as int? ?? 0,
-      knowledgeBaseName: (json['knowledge_base_name'] as String? ?? '').trim(),
-      knowledgeBaseVersion: (json['knowledge_base_version'] as String? ?? '')
-          .trim(),
+      rules: (json['rules'] as List<dynamic>? ?? const <dynamic>[])
+          .map((dynamic value) => value.toString().trim())
+          .where((String value) => value.isNotEmpty)
+          .toList(),
+      maxCycle: json['max_cycle'] as int? ?? 0,
+      returnErrorOnFailedRuleEvaluation:
+          json['return_error_on_failed_rule_evaluation'] as bool?,
+      failClosed: json['fail_closed'] as bool?,
     );
   }
 
   final String name;
-  final String sourceKind;
-  final String basePath;
-  final int patternCount;
-  final int embeddedRuleCount;
-  final String knowledgeBaseName;
-  final String knowledgeBaseVersion;
+  final List<String> rules;
+  final int maxCycle;
+  final bool? returnErrorOnFailedRuleEvaluation;
+  final bool? failClosed;
 }
 
 class HarnessWorkflowInputMapSummary {
@@ -700,6 +711,9 @@ class HarnessWorkflowNodeSummary {
     required this.treatRetryableAsFail,
     required this.policyGateEnabled,
     required this.policyGateRuleSet,
+    this.policyGateMaxCycle = 0,
+    this.policyGateFailClosed,
+    this.policyGateReturnEvalErrors,
     required this.policyGateFactBindings,
     required this.policyGateRouteHints,
     required this.policyGateOnEvalError,
@@ -798,6 +812,15 @@ class HarnessWorkflowNodeSummary {
                       as String? ??
                   '')
               .trim(),
+      policyGateMaxCycle:
+          ((json['rules_max_cycle'] ?? json['policy_gate_max_cycle']) as int?) ??
+          0,
+      policyGateFailClosed:
+          (json['rules_fail_closed'] ?? json['policy_gate_fail_closed']) as bool?,
+      policyGateReturnEvalErrors:
+          (json['rules_return_error_on_failed_rule_evaluation'] ??
+                  json['policy_gate_return_error_on_failed_rule_evaluation'])
+              as bool?,
       policyGateFactBindings:
           ((json['rules_fact_bindings'] ?? json['policy_gate_fact_bindings'])
                       as List<dynamic>? ??
@@ -864,6 +887,9 @@ class HarnessWorkflowNodeSummary {
   final bool treatRetryableAsFail;
   final bool policyGateEnabled;
   final String policyGateRuleSet;
+  final int policyGateMaxCycle;
+  final bool? policyGateFailClosed;
+  final bool? policyGateReturnEvalErrors;
   final List<String> policyGateFactBindings;
   final List<String> policyGateRouteHints;
   final String policyGateOnEvalError;
@@ -880,7 +906,6 @@ class HarnessWorkflowSummary {
     required this.maxVisitsPerNode,
     required this.maxTotalTransitions,
     required this.duplicateResultCap,
-    required this.ruleSets,
     required this.nodes,
   });
 
@@ -891,10 +916,6 @@ class HarnessWorkflowSummary {
       maxVisitsPerNode: json['max_visits_per_node'] as int? ?? 0,
       maxTotalTransitions: json['max_total_transitions'] as int? ?? 0,
       duplicateResultCap: json['duplicate_result_cap'] as int? ?? 0,
-      ruleSets: (json['rule_sets'] as List<dynamic>? ?? const <dynamic>[])
-          .whereType<Map<String, dynamic>>()
-          .map(HarnessWorkflowRuleSetSummary.fromJson)
-          .toList(),
       nodes: (json['nodes'] as List<dynamic>? ?? const <dynamic>[])
           .whereType<Map<String, dynamic>>()
           .map(HarnessWorkflowNodeSummary.fromJson)
@@ -907,7 +928,6 @@ class HarnessWorkflowSummary {
   final int maxVisitsPerNode;
   final int maxTotalTransitions;
   final int duplicateResultCap;
-  final List<HarnessWorkflowRuleSetSummary> ruleSets;
   final List<HarnessWorkflowNodeSummary> nodes;
 }
 
@@ -915,13 +935,23 @@ class HarnessWorkflowCatalog {
   HarnessWorkflowCatalog({
     required this.configPath,
     required this.yaml,
-    required this.workflows,
+    this.rules = const <HarnessWorkflowRuleSummary>[],
+    this.ruleSets = const <HarnessWorkflowRuleSetSummary>[],
+    this.workflows = const <HarnessWorkflowSummary>[],
   });
 
   factory HarnessWorkflowCatalog.fromJson(Map<String, dynamic> json) {
     return HarnessWorkflowCatalog(
       configPath: (json['config_path'] as String? ?? '').trim(),
       yaml: json['yaml'] as String? ?? '',
+      rules: (json['rules'] as List<dynamic>? ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(HarnessWorkflowRuleSummary.fromJson)
+          .toList(),
+      ruleSets: (json['rule_sets'] as List<dynamic>? ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(HarnessWorkflowRuleSetSummary.fromJson)
+          .toList(),
       workflows: (json['workflows'] as List<dynamic>? ?? const <dynamic>[])
           .whereType<Map<String, dynamic>>()
           .map(HarnessWorkflowSummary.fromJson)
@@ -931,6 +961,8 @@ class HarnessWorkflowCatalog {
 
   final String configPath;
   final String yaml;
+  final List<HarnessWorkflowRuleSummary> rules;
+  final List<HarnessWorkflowRuleSetSummary> ruleSets;
   final List<HarnessWorkflowSummary> workflows;
 }
 

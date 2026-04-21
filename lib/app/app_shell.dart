@@ -19,6 +19,7 @@ enum AppSection {
   controlPlane('Control Plane', Icons.hub_outlined),
   harnessAgents('Agents', Icons.smart_toy_outlined),
   harnessTools('Tools', Icons.build_outlined),
+  harnessRules('Rules', Icons.rule_folder_outlined),
   harnessWorkflows('Workflows', Icons.account_tree_outlined),
   providers('Providers', Icons.cloud_outlined);
 
@@ -39,6 +40,7 @@ extension AppSectionRouting on AppSection {
       AppSection.controlPlane => '/control-plane',
       AppSection.harnessAgents => '/harness/agents',
       AppSection.harnessTools => '/harness/tools',
+      AppSection.harnessRules => '/harness/rules',
       AppSection.harnessWorkflows => '/harness/workflows',
       AppSection.providers => '/providers',
     };
@@ -66,6 +68,8 @@ extension AppSectionRouting on AppSection {
         return AppSection.harnessAgents;
       case '/harness/tools':
         return AppSection.harnessTools;
+      case '/harness/rules':
+        return AppSection.harnessRules;
       case '/harness/workflows':
         return AppSection.harnessWorkflows;
       case '/providers':
@@ -94,6 +98,7 @@ const List<_NavigationGroup> _navigationGroups = <_NavigationGroup>[
   _NavigationGroup('Control Plane', <AppSection>[AppSection.controlPlane]),
   _NavigationGroup('Harness Config', <AppSection>[
     AppSection.harnessWorkflows,
+    AppSection.harnessRules,
     AppSection.harnessAgents,
     AppSection.harnessTools,
     AppSection.providers,
@@ -228,6 +233,12 @@ class _BetaShellState extends State<BetaShell> with WidgetsBindingObserver {
         harnessConfigAvailable: _deploymentMode != 'cloudflare',
         headerActionsController:
             _headerActionControllers[AppSection.harnessTools]!,
+      ),
+      AppSection.harnessRules => HarnessRulesPage(
+        harnessConfigApi: widget.harnessConfigApi,
+        harnessConfigAvailable: _deploymentMode != 'cloudflare',
+        headerActionsController:
+            _headerActionControllers[AppSection.harnessRules]!,
       ),
       AppSection.harnessWorkflows => HarnessWorkflowsPage(
         harnessConfigApi: widget.harnessConfigApi,

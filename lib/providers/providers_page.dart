@@ -16,14 +16,6 @@ enum _ProviderDetailTab { general, connection, models, advanced }
 enum _ProviderRowAction { verify, delete }
 
 extension on _ProviderStatusFilter {
-  String get label {
-    return switch (this) {
-      _ProviderStatusFilter.all => 'All',
-      _ProviderStatusFilter.enabled => 'Enabled',
-      _ProviderStatusFilter.disabled => 'Disabled',
-    };
-  }
-
   String get sectionId {
     return switch (this) {
       _ProviderStatusFilter.all => 'all-providers',
@@ -124,7 +116,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
   String? _previewError;
   String _previewValidationStatus = '';
   String _previewValidationSummary = '';
-  String _configPath = '';
   String _yamlPreview = '';
   List<ProviderConfig> _providers = <ProviderConfig>[];
   ProviderConfig _draft = ProviderConfig.empty();
@@ -186,7 +177,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
         _adapterFilter = '';
       }
       setState(() {
-        _configPath = catalog.configPath;
         _providers = providers;
         _draft = draft;
         _isNew = isNew;
@@ -423,14 +413,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
 
   void _showMessage(String message) {
     showAppMessage(context, message);
-  }
-
-  void _copyCatalogPath() {
-    if (_configPath.trim().isEmpty) {
-      return;
-    }
-    Clipboard.setData(ClipboardData(text: _configPath.trim()));
-    _showMessage('Catalog path copied.');
   }
 
   void _copyYamlPreview() {
@@ -683,7 +665,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
           previewValidationSummary: _previewValidationSummary,
           yamlPreview: _yamlPreview,
           supportedAdapters: _supportedAdapters,
-          configPath: _configPath,
           activeTab: _detailTab,
           onTabChanged: (_ProviderDetailTab value) {
             setState(() => _detailTab = value);
@@ -697,7 +678,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
                   setState(() => _mobileDetailVisible = false);
                 }
               : null,
-          onCopyCatalogPath: _copyCatalogPath,
           onCopyYamlPreview: _copyYamlPreview,
           statusTone: _statusTone(_draft),
           statusLabel: _statusLabel(_draft),
@@ -1155,7 +1135,6 @@ class _ProviderDetailPane extends StatelessWidget {
     required this.previewValidationSummary,
     required this.yamlPreview,
     required this.supportedAdapters,
-    required this.configPath,
     required this.activeTab,
     required this.onTabChanged,
     required this.onChanged,
@@ -1163,7 +1142,6 @@ class _ProviderDetailPane extends StatelessWidget {
     required this.onVerify,
     required this.onDelete,
     required this.onBack,
-    required this.onCopyCatalogPath,
     required this.onCopyYamlPreview,
     required this.statusTone,
     required this.statusLabel,
@@ -1178,7 +1156,6 @@ class _ProviderDetailPane extends StatelessWidget {
   final String previewValidationSummary;
   final String yamlPreview;
   final List<String> supportedAdapters;
-  final String configPath;
   final _ProviderDetailTab activeTab;
   final ValueChanged<_ProviderDetailTab> onTabChanged;
   final VoidCallback onChanged;
@@ -1186,7 +1163,6 @@ class _ProviderDetailPane extends StatelessWidget {
   final Future<void> Function() onVerify;
   final Future<void> Function() onDelete;
   final VoidCallback? onBack;
-  final VoidCallback onCopyCatalogPath;
   final VoidCallback onCopyYamlPreview;
   final Color statusTone;
   final String statusLabel;
@@ -1394,17 +1370,6 @@ class _ProviderDetailPane extends StatelessWidget {
                       ),
                     ],
                   ),
-                const SizedBox(height: 16),
-                AppReadOnlyField(
-                  label: 'Catalog path',
-                  value: configPath.trim().isEmpty
-                      ? 'Catalog path unavailable.'
-                      : configPath,
-                  actionIcon: Icons.copy_all_rounded,
-                  onAction: configPath.trim().isEmpty
-                      ? null
-                      : onCopyCatalogPath,
-                ),
               ],
             );
           },
