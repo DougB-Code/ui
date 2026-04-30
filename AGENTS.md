@@ -26,6 +26,8 @@ ALWAYS give security and bug fixes priority over other coding concerns. Your imp
 
 ALWAYS add a concise doc.go to each package. ALWAYS state what the packages intended use cases and high-level examples to let users know when they are mis-using the package if required.
 
+NEVER use fake fallbacks, fake seed data, fake stubs, or the like, unless explicitly asked. 
+
 ## Build and Test
 
 Task summaries can be provided in the chat window, or in `build/ai`. 

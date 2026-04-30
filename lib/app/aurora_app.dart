@@ -40,6 +40,7 @@ class _AuroraAppState extends State<AuroraApp> {
   @override
   void dispose() {
     controller.removeListener(_watchConfirmation);
+    unawaited(controller.close());
     super.dispose();
   }
 

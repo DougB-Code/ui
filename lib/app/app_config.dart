@@ -10,6 +10,9 @@ class AppConfig {
     required this.tasksMcpUrl,
     required this.agentAppName,
     required this.agentUserId,
+    required this.workspaceRoot,
+    required this.autoStartLocalServices,
+    required this.runtimeProfilePath,
   });
 
   /// Builds configuration from Flutter compile-time environment values.
@@ -35,6 +38,18 @@ class AppConfig {
         'AGENT_USER_ID',
         defaultValue: 'doug',
       ),
+      workspaceRoot: String.fromEnvironment(
+        'AGENTAWESOME_WORKSPACE_ROOT',
+        defaultValue: '/home/doug/dev/agentawesome',
+      ),
+      autoStartLocalServices: bool.fromEnvironment(
+        'AUTO_START_LOCAL_SERVICES',
+        defaultValue: true,
+      ),
+      runtimeProfilePath: String.fromEnvironment(
+        'AGENTAWESOME_RUNTIME_PROFILE',
+        defaultValue: '',
+      ),
     );
   }
 
@@ -52,4 +67,18 @@ class AppConfig {
 
   /// ADK user id used for local sessions.
   final String agentUserId;
+
+  /// Root directory containing the ui, memory, tasks, harness, and pilots repos.
+  final String workspaceRoot;
+
+  /// Whether the UI should start missing local services during initialization.
+  final bool autoStartLocalServices;
+
+  /// Optional JSON runtime profile path for harness and MCP topology.
+  final String runtimeProfilePath;
+
+  /// Directory where managed service logs are written.
+  String get serviceLogDirectory {
+    return '$workspaceRoot/logs';
+  }
 }
