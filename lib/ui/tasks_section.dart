@@ -9,6 +9,7 @@ import '../app/app_controller.dart';
 import '../app/theme.dart';
 import '../domain/models.dart';
 import 'panels/panels.dart';
+import 'task_concept_views.dart';
 
 const List<String> _taskStatuses = <String>[
   'open',
@@ -25,6 +26,18 @@ const List<String> _taskPriorities = <String>[
   'high',
   'normal',
   'low',
+];
+
+const List<String> _taskRelationTypes = <String>[
+  'related_to',
+  'depends_on',
+  'blocks',
+  'part_of',
+  'same_context',
+  'same_location',
+  'same_person',
+  'same_project',
+  'same_source',
 ];
 
 /// TasksQueuePanel renders task navigation, queue, lists, review, and capture.
@@ -45,6 +58,38 @@ class TasksQueuePanel extends StatelessWidget {
           icon: Icons.task_alt_outlined,
           builder: (query) =>
               _TasksQueueContent(controller: controller, query: query),
+        ),
+        SwitcherPanelArea(
+          title: 'Stream',
+          icon: Icons.waves_outlined,
+          builder: (query) => TaskConceptProjectionPanel(
+            controller: controller,
+            kind: TaskConceptKind.stream,
+          ),
+        ),
+        SwitcherPanelArea(
+          title: 'Terrain',
+          icon: Icons.terrain_outlined,
+          builder: (query) => TaskConceptProjectionPanel(
+            controller: controller,
+            kind: TaskConceptKind.terrain,
+          ),
+        ),
+        SwitcherPanelArea(
+          title: 'Constellation',
+          icon: Icons.hub_outlined,
+          builder: (query) => TaskConceptProjectionPanel(
+            controller: controller,
+            kind: TaskConceptKind.constellation,
+          ),
+        ),
+        SwitcherPanelArea(
+          title: 'Weave',
+          icon: Icons.grid_on_outlined,
+          builder: (query) => TaskConceptProjectionPanel(
+            controller: controller,
+            kind: TaskConceptKind.weave,
+          ),
         ),
         SwitcherPanelArea(
           title: 'Lists',
@@ -80,49 +125,127 @@ class TasksInspectorPanel extends StatelessWidget {
   /// Builds the right task inspector surface.
   @override
   Widget build(BuildContext context) {
+    return SwitcherPanel(
+      areas: <SwitcherPanelArea>[
+        SwitcherPanelArea(
+          title: 'Task Inspector',
+          icon: Icons.edit_note_outlined,
+          builder: _buildInspectorArea,
+        ),
+        SwitcherPanelArea(
+          title: 'Memory Links',
+          icon: Icons.link_outlined,
+          builder: _buildMemoryLinksArea,
+        ),
+      ],
+    );
+  }
+
+  /// Builds the right-side inspector area for the selected task or list.
+  Widget _buildInspectorArea(String query) {
     final task = controller.selectedTask;
     final list = controller.selectedTaskList;
-    return ColoredBox(
-      color: AuroraColors.surface,
+    if (task != null) {
+      return _TaskDetailEditor(controller: controller, task: task);
+    }
+    if (list != null) {
+      return _TaskListInspector(controller: controller, list: list);
+    }
+    return const _TaskSelectionEmpty();
+  }
+
+  /// Builds the right-side memory-link area for the selected task or list.
+  Widget _buildMemoryLinksArea(String query) {
+    final task = controller.selectedTask;
+    final list = controller.selectedTaskList;
+    if (task != null) {
+      return _TaskMemoryLinkPanel(
+        controller: controller,
+        task: task,
+        query: query,
+      );
+    }
+    if (list != null) {
+      return _TaskListMemoryLinkPanel(
+        controller: controller,
+        list: list,
+        query: query,
+      );
+    }
+    return const _TaskSelectionEmpty();
+  }
+}
+
+/// _TaskListMemoryLinkPanel links selected memory to a task list.
+class _TaskListMemoryLinkPanel extends StatelessWidget {
+  const _TaskListMemoryLinkPanel({
+    required this.controller,
+    required this.list,
+    required this.query,
+  });
+
+  final AuroraAppController controller;
+  final WorkspaceTaskList list;
+  final String query;
+
+  /// Builds the task-list memory-linking panel.
+  @override
+  Widget build(BuildContext context) {
+    final selectedMemory = controller.selectedMemory;
+    return _TaskMemoryLinkScaffold(
+      selectedMemory: selectedMemory,
+      links: _filteredLinks(list.memoryLinks, query),
+      onLink: controller.tasksBusy || selectedMemory == null
+          ? null
+          : () => unawaited(
+              controller.linkSelectedMemoryToTaskListFromUi(list.id),
+            ),
+      onUnlink: (link) => unawaited(
+        controller.unlinkTaskListMemoryFromUi(listId: list.id, linkId: link.id),
+      ),
+    );
+  }
+}
+
+/// _TaskMemoryLinkScaffold renders selected-memory and linked-memory sections.
+class _TaskMemoryLinkScaffold extends StatelessWidget {
+  const _TaskMemoryLinkScaffold({
+    required this.selectedMemory,
+    required this.links,
+    required this.onLink,
+    required this.onUnlink,
+  });
+
+  final MemoryRecord? selectedMemory;
+  final List<TaskMemoryLink> links;
+  final VoidCallback? onLink;
+  final ValueChanged<TaskMemoryLink> onUnlink;
+
+  /// Builds reusable selected-memory and linked-memory sections.
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
-            child: Row(
-              children: <Widget>[
-                const Expanded(
-                  child: Text(
-                    'TASK INSPECTOR',
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AuroraColors.muted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 3,
-                    ),
-                  ),
+          Row(
+            children: <Widget>[
+              const Expanded(child: _TaskPanelLabel('Selected Memory')),
+              Tooltip(
+                message: 'Link selected memory',
+                child: OutlinedButton.icon(
+                  onPressed: onLink,
+                  icon: const Icon(Icons.link, size: 18),
+                  label: const Text('Link'),
                 ),
-                Tooltip(
-                  message: 'Refresh tasks',
-                  child: IconButton.outlined(
-                    onPressed: controller.tasksBusy
-                        ? null
-                        : () => unawaited(controller.refreshTasksFromUi()),
-                    icon: const Icon(Icons.refresh),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const Divider(height: 1, color: AuroraColors.border),
-          Expanded(
-            child: task != null
-                ? _TaskDetailEditor(controller: controller, task: task)
-                : list != null
-                ? _TaskListInspector(controller: controller, list: list)
-                : const _TaskSelectionEmpty(),
-          ),
+          const SizedBox(height: 10),
+          _TaskSelectedMemoryBlock(memory: selectedMemory),
+          const SizedBox(height: 12),
+          _TaskMemoryLinksBlock(links: links, onUnlink: onUnlink),
         ],
       ),
     );
@@ -146,8 +269,6 @@ class _TasksQueueContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _TaskStatusStrip(controller: controller),
-          const SizedBox(height: 14),
           _TaskFilterBar(controller: controller),
           const SizedBox(height: 14),
           Row(
@@ -174,7 +295,7 @@ class _TasksQueueContent extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (tasks.isEmpty)
-            const _TaskEmptyBlock(label: 'No tasks match this view')
+            const PanelEmptyBlock(label: 'No tasks match this view')
           else
             for (final task in tasks)
               Padding(
@@ -186,6 +307,8 @@ class _TasksQueueContent extends StatelessWidget {
                   onComplete: task.done || task.status == 'canceled'
                       ? null
                       : () => unawaited(controller.completeTaskFromUi(task.id)),
+                  onDelete: () =>
+                      unawaited(controller.deleteTaskFromUi(task.id)),
                 ),
               ),
         ],
@@ -264,7 +387,7 @@ class _TaskFilterBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filters = controller.taskFilters;
-    return _TaskSectionBlock(
+    return PanelSectionBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -403,12 +526,14 @@ class _TaskQueueTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onComplete,
+    required this.onDelete,
   });
 
   final WorkspaceTask task;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback? onComplete;
+  final VoidCallback onDelete;
 
   /// Builds one selectable task row.
   @override
@@ -453,6 +578,24 @@ class _TaskQueueTile extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       _TaskPriorityBadge(priority: task.priority),
+                      const SizedBox(width: 4),
+                      Tooltip(
+                        message: 'Delete task',
+                        child: IconButton(
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 32,
+                            height: 32,
+                          ),
+                          padding: EdgeInsets.zero,
+                          onPressed: onDelete,
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            size: 17,
+                            color: AuroraColors.muted,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   if (task.description.isNotEmpty) ...<Widget>[
@@ -574,7 +717,7 @@ class _TaskListsContent extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (lists.isEmpty)
-            const _TaskEmptyBlock(label: 'No named lists')
+            const PanelEmptyBlock(label: 'No named lists')
           else
             for (final list in lists)
               Padding(
@@ -775,9 +918,9 @@ class _TaskReviewContent extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (report == null)
-            const _TaskEmptyBlock(label: 'No review has run yet')
+            const PanelEmptyBlock(label: 'No review has run yet')
           else ...<Widget>[
-            _TaskSectionBlock(
+            PanelSectionBlock(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
@@ -805,7 +948,7 @@ class _TaskReviewContent extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             if (recommendations.isEmpty)
-              const _TaskEmptyBlock(label: 'No recommendations match')
+              const PanelEmptyBlock(label: 'No recommendations match')
             else
               for (final recommendation in recommendations)
                 Padding(
@@ -943,7 +1086,7 @@ class _TaskCaptureContentState extends State<_TaskCaptureContent> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _TaskSectionBlock(
+          PanelSectionBlock(
             child: Column(
               children: <Widget>[
                 _TaskTextField(controller: _title, label: 'Title'),
@@ -979,14 +1122,14 @@ class _TaskCaptureContentState extends State<_TaskCaptureContent> {
                 Row(
                   children: <Widget>[
                     Expanded(
-                      child: _TaskTextField(
+                      child: _TaskDatePickerField(
                         controller: _dueAt,
                         label: 'Due date',
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: _TaskTextField(
+                      child: _TaskDatePickerField(
                         controller: _scheduledAt,
                         label: 'Scheduled date',
                       ),
@@ -1017,7 +1160,7 @@ class _TaskCaptureContentState extends State<_TaskCaptureContent> {
             label: const Text('Create Task'),
           ),
           const SizedBox(height: 14),
-          _TaskSectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1037,6 +1180,9 @@ class _TaskCaptureContentState extends State<_TaskCaptureContent> {
                         selected: widget.controller.selectedTask?.id == task.id,
                         onTap: () => widget.controller.selectTask(task.id),
                         onComplete: null,
+                        onDelete: () => unawaited(
+                          widget.controller.deleteTaskFromUi(task.id),
+                        ),
                       ),
                     ),
               ],
@@ -1146,9 +1292,7 @@ class _TaskDetailEditorState extends State<_TaskDetailEditor> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _TaskStatusStrip(controller: widget.controller),
-          const SizedBox(height: 14),
-          _TaskSectionBlock(
+          PanelSectionBlock(
             child: Column(
               children: <Widget>[
                 _TaskTextField(controller: _title, label: 'Title'),
@@ -1184,14 +1328,14 @@ class _TaskDetailEditorState extends State<_TaskDetailEditor> {
                 Row(
                   children: <Widget>[
                     Expanded(
-                      child: _TaskTextField(
+                      child: _TaskDatePickerField(
                         controller: _dueAt,
                         label: 'Due date',
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: _TaskTextField(
+                      child: _TaskDatePickerField(
                         controller: _scheduledAt,
                         label: 'Scheduled date',
                       ),
@@ -1232,19 +1376,6 @@ class _TaskDetailEditorState extends State<_TaskDetailEditor> {
                 label: const Text('Cancel'),
               ),
               OutlinedButton.icon(
-                onPressed:
-                    widget.controller.tasksBusy ||
-                        widget.controller.selectedMemory == null
-                    ? null
-                    : () => unawaited(
-                        widget.controller.linkSelectedMemoryToTaskFromUi(
-                          task.id,
-                        ),
-                      ),
-                icon: const Icon(Icons.link),
-                label: const Text('Link Memory'),
-              ),
-              OutlinedButton.icon(
                 onPressed: widget.controller.tasksBusy
                     ? null
                     : () => unawaited(_delete()),
@@ -1254,17 +1385,9 @@ class _TaskDetailEditorState extends State<_TaskDetailEditor> {
             ],
           ),
           const SizedBox(height: 14),
-          _TaskMetadataBlock(task: task),
+          _TaskMetadataBlock(controller: widget.controller, task: task),
           const SizedBox(height: 14),
-          _TaskMemoryLinksBlock(
-            links: task.memoryLinks,
-            onUnlink: (link) => unawaited(
-              widget.controller.unlinkTaskMemoryFromUi(
-                taskId: task.id,
-                linkId: link.id,
-              ),
-            ),
-          ),
+          _TaskGraphDetailsBlock(controller: widget.controller, task: task),
         ],
       ),
     );
@@ -1275,8 +1398,8 @@ class _TaskDetailEditorState extends State<_TaskDetailEditor> {
     _title.text = widget.task.title;
     _description.text = widget.task.description;
     _topics.text = widget.task.topics.join(', ');
-    _dueAt.text = _formatTaskDateTime(widget.task.dueAt);
-    _scheduledAt.text = _formatTaskDateTime(widget.task.scheduledAt);
+    _dueAt.text = _formatTaskDate(widget.task.dueAt);
+    _scheduledAt.text = _formatTaskDate(widget.task.scheduledAt);
     _status = widget.task.status;
     _priority = widget.task.priority;
     _message = '';
@@ -1342,21 +1465,63 @@ class _TaskDetailEditorState extends State<_TaskDetailEditor> {
 }
 
 class _TaskMetadataBlock extends StatelessWidget {
-  const _TaskMetadataBlock({required this.task});
+  const _TaskMetadataBlock({required this.controller, required this.task});
 
+  final AuroraAppController controller;
   final WorkspaceTask task;
 
   /// Builds task metadata details.
   @override
   Widget build(BuildContext context) {
-    return _TaskSectionBlock(
+    return PanelSectionBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _TaskPanelLabel('Metadata'),
+          Row(
+            children: <Widget>[
+              const Expanded(child: _TaskPanelLabel('Metadata')),
+              Tooltip(
+                message: 'Edit graph metadata',
+                child: IconButton(
+                  onPressed: controller.tasksBusy
+                      ? null
+                      : () => unawaited(
+                          _showTaskMetadataDialog(context, controller, task),
+                        ),
+                  icon: const Icon(Icons.tune_outlined, size: 18),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
+          _TaskMetadataRow(
+            label: 'Estimate',
+            value: task.estimateMinutes <= 0
+                ? ''
+                : '${task.estimateMinutes} min',
+          ),
+          _TaskMetadataRow(label: 'Energy', value: task.energyRequired),
+          _TaskMetadataRow(label: 'Context', value: task.context),
+          _TaskMetadataRow(label: 'Domain', value: task.domain),
+          _TaskMetadataRow(label: 'Location', value: task.location),
+          _TaskMetadataRow(label: 'Owner', value: task.owner),
+          _TaskMetadataRow(label: 'Source', value: task.source),
+          _TaskMetadataRow(
+            label: 'Effort',
+            value: _formatTaskScore(task.effort),
+          ),
+          _TaskMetadataRow(label: 'Value', value: _formatTaskScore(task.value)),
+          _TaskMetadataRow(
+            label: 'Urgency',
+            value: _formatTaskScore(task.urgency),
+          ),
+          _TaskMetadataRow(label: 'Risk', value: _formatTaskScore(task.risk)),
+          _TaskMetadataRow(
+            label: 'Confidence',
+            value: _formatTaskScore(task.confidence),
+          ),
           _TaskMetadataRow(label: 'Task id', value: task.id),
-          _TaskMetadataRow(label: 'Source', value: task.sourceLabel),
+          _TaskMetadataRow(label: 'Server', value: task.sourceLabel),
           _TaskMetadataRow(
             label: 'Created',
             value: _formatTaskDateTime(task.createdAt),
@@ -1379,6 +1544,563 @@ class _TaskMetadataBlock extends StatelessWidget {
   }
 }
 
+class _TaskGraphDetailsBlock extends StatelessWidget {
+  const _TaskGraphDetailsBlock({required this.controller, required this.task});
+
+  final AuroraAppController controller;
+  final WorkspaceTask task;
+
+  /// Builds relationship, suggestion, and commitment controls.
+  @override
+  Widget build(BuildContext context) {
+    final relationSuggestions = controller.selectedTaskRelationSuggestions;
+    final metadataSuggestions = controller.selectedTaskMetadataSuggestions;
+    final commitmentSuggestions = controller.selectedTaskCommitmentSuggestions;
+    final relations = controller.selectedTaskRelations;
+    final commitments = controller.selectedTaskCommitments;
+    final suggestionWidgets = <Widget>[
+      for (final suggestion in relationSuggestions)
+        _TaskRelationSuggestionTile(
+          controller: controller,
+          task: task,
+          suggestion: suggestion,
+        ),
+      for (final suggestion in metadataSuggestions)
+        _TaskMetadataSuggestionTile(
+          controller: controller,
+          suggestion: suggestion,
+        ),
+      for (final suggestion in commitmentSuggestions)
+        _TaskCommitmentSuggestionTile(
+          controller: controller,
+          suggestion: suggestion,
+        ),
+    ];
+    return PanelSectionBlock(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Expanded(child: _TaskPanelLabel('Graph')),
+              Tooltip(
+                message: 'Add relation',
+                child: IconButton(
+                  onPressed: controller.tasksBusy
+                      ? null
+                      : () => unawaited(
+                          _showTaskRelationDialog(context, controller, task),
+                        ),
+                  icon: const Icon(Icons.account_tree_outlined, size: 18),
+                ),
+              ),
+              Tooltip(
+                message: 'Add commitment',
+                child: IconButton(
+                  onPressed: controller.tasksBusy
+                      ? null
+                      : () => unawaited(
+                          _showTaskCommitmentDialog(context, controller, task),
+                        ),
+                  icon: const Icon(Icons.handshake_outlined, size: 18),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _TaskGraphSubsection(
+            title: 'Suggestions',
+            emptyLabel: 'No graph suggestions',
+            children: suggestionWidgets,
+          ),
+          const Divider(height: 22),
+          _TaskGraphSubsection(
+            title: 'Relations',
+            emptyLabel: 'No explicit relations',
+            children: <Widget>[
+              for (final relation in relations)
+                _TaskRelationTile(
+                  controller: controller,
+                  task: task,
+                  relation: relation,
+                ),
+            ],
+          ),
+          const Divider(height: 22),
+          _TaskGraphSubsection(
+            title: 'Commitments',
+            emptyLabel: 'No first-class commitments',
+            children: <Widget>[
+              for (final commitment in commitments)
+                _TaskCommitmentTile(
+                  controller: controller,
+                  task: task,
+                  commitment: commitment,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskGraphSubsection extends StatelessWidget {
+  const _TaskGraphSubsection({
+    required this.title,
+    required this.emptyLabel,
+    required this.children,
+  });
+
+  final String title;
+  final String emptyLabel;
+  final List<Widget> children;
+
+  /// Builds one compact graph data subsection.
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+        ),
+        const SizedBox(height: 8),
+        if (children.isEmpty)
+          Text(emptyLabel, style: const TextStyle(color: AuroraColors.muted))
+        else
+          ...children,
+      ],
+    );
+  }
+}
+
+class _TaskMetadataSuggestionTile extends StatelessWidget {
+  const _TaskMetadataSuggestionTile({
+    required this.controller,
+    required this.suggestion,
+  });
+
+  final AuroraAppController controller;
+  final TaskMetadataSuggestion suggestion;
+
+  /// Builds one inferred metadata suggestion row.
+  @override
+  Widget build(BuildContext context) {
+    return _TaskGraphRow(
+      icon: Icons.tune_outlined,
+      title: 'Fill task metadata',
+      subtitle: _metadataSuggestionSummary(suggestion),
+      badges: <String>['Metadata', _formatTaskScore(suggestion.confidence)],
+      actions: <Widget>[
+        Tooltip(
+          message: 'Accept suggestion',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(
+                    controller.applyTaskSuggestionFromUi(suggestion.id),
+                  ),
+            icon: const Icon(Icons.check_circle_outline, size: 18),
+          ),
+        ),
+        Tooltip(
+          message: 'Dismiss suggestion',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(
+                    controller.dismissTaskSuggestionFromUi(suggestion.id),
+                  ),
+            icon: const Icon(Icons.close, size: 18),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskCommitmentSuggestionTile extends StatelessWidget {
+  const _TaskCommitmentSuggestionTile({
+    required this.controller,
+    required this.suggestion,
+  });
+
+  final AuroraAppController controller;
+  final TaskCommitmentSuggestion suggestion;
+
+  /// Builds one inferred commitment suggestion row.
+  @override
+  Widget build(BuildContext context) {
+    return _TaskGraphRow(
+      icon: Icons.handshake_outlined,
+      title: 'Create commitment',
+      subtitle: _commitmentSuggestionSummary(suggestion),
+      badges: <String>[
+        'Commitment',
+        if (suggestion.hardness.isNotEmpty) suggestion.hardness,
+        _formatTaskScore(suggestion.confidence),
+      ],
+      actions: <Widget>[
+        Tooltip(
+          message: 'Accept suggestion',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(
+                    controller.applyTaskSuggestionFromUi(suggestion.id),
+                  ),
+            icon: const Icon(Icons.check_circle_outline, size: 18),
+          ),
+        ),
+        Tooltip(
+          message: 'Dismiss suggestion',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(
+                    controller.dismissTaskSuggestionFromUi(suggestion.id),
+                  ),
+            icon: const Icon(Icons.close, size: 18),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskRelationSuggestionTile extends StatelessWidget {
+  const _TaskRelationSuggestionTile({
+    required this.controller,
+    required this.task,
+    required this.suggestion,
+  });
+
+  final AuroraAppController controller;
+  final WorkspaceTask task;
+  final TaskRelationSuggestion suggestion;
+
+  /// Builds one inferred relation suggestion row.
+  @override
+  Widget build(BuildContext context) {
+    final otherId = suggestion.fromTaskId == task.id
+        ? suggestion.toTaskId
+        : suggestion.fromTaskId;
+    return _TaskGraphRow(
+      icon: Icons.auto_awesome_outlined,
+      title: _taskTitleFor(controller, otherId),
+      subtitle: suggestion.explanation,
+      badges: <String>[
+        _taskLabel(suggestion.relationType),
+        _formatTaskScore(suggestion.confidence),
+      ],
+      actions: <Widget>[
+        Tooltip(
+          message: 'Accept suggestion',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(
+                    controller.applyTaskSuggestionFromUi(suggestion.id),
+                  ),
+            icon: const Icon(Icons.check_circle_outline, size: 18),
+          ),
+        ),
+        Tooltip(
+          message: 'Dismiss suggestion',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(
+                    controller.dismissTaskSuggestionFromUi(suggestion.id),
+                  ),
+            icon: const Icon(Icons.close, size: 18),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskRelationTile extends StatelessWidget {
+  const _TaskRelationTile({
+    required this.controller,
+    required this.task,
+    required this.relation,
+  });
+
+  final AuroraAppController controller;
+  final WorkspaceTask task;
+  final TaskRelationRecord relation;
+
+  /// Builds one explicit relation row.
+  @override
+  Widget build(BuildContext context) {
+    final outgoing = relation.fromTaskId == task.id;
+    final otherId = outgoing ? relation.toTaskId : relation.fromTaskId;
+    final direction = outgoing ? 'To' : 'From';
+    return _TaskGraphRow(
+      icon: outgoing ? Icons.arrow_forward : Icons.arrow_back,
+      title: '$direction ${_taskTitleFor(controller, otherId)}',
+      subtitle: relation.explanation,
+      badges: <String>[
+        _taskLabel(relation.relationType),
+        relation.source.isEmpty ? 'Explicit' : _taskLabel(relation.source),
+        _formatTaskScore(relation.confidence),
+      ],
+      actions: <Widget>[
+        Tooltip(
+          message: 'Delete relation',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(_deleteRelation(context, relation)),
+            icon: const Icon(Icons.delete_outline, size: 18),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _deleteRelation(
+    BuildContext context,
+    TaskRelationRecord relation,
+  ) async {
+    if (!await _confirmTaskWrite(context, 'Delete this task relation?')) {
+      return;
+    }
+    await controller.deleteTaskRelationFromUi(relation);
+  }
+}
+
+class _TaskCommitmentTile extends StatelessWidget {
+  const _TaskCommitmentTile({
+    required this.controller,
+    required this.task,
+    required this.commitment,
+  });
+
+  final AuroraAppController controller;
+  final WorkspaceTask task;
+  final TaskCommitment commitment;
+
+  /// Builds one first-class commitment row.
+  @override
+  Widget build(BuildContext context) {
+    final title = commitment.project.isNotEmpty
+        ? commitment.project
+        : commitment.domain.isNotEmpty
+        ? commitment.domain
+        : task.title;
+    final subtitleParts = <String>[
+      if (commitment.timeWindow.isNotEmpty) commitment.timeWindow,
+      if (commitment.responsibility.isNotEmpty) commitment.responsibility,
+      if (commitment.promiseSource.isNotEmpty) commitment.promiseSource,
+      if (commitment.consequence.isNotEmpty) commitment.consequence,
+    ];
+    return _TaskGraphRow(
+      icon: Icons.handshake_outlined,
+      title: title,
+      subtitle: subtitleParts.join(' • '),
+      badges: <String>[
+        for (final person in commitment.people.take(3)) person,
+        if (commitment.hardness.isNotEmpty) _taskLabel(commitment.hardness),
+      ],
+      actions: <Widget>[
+        Tooltip(
+          message: 'Edit commitment',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(
+                    _showTaskCommitmentDialog(
+                      context,
+                      controller,
+                      task,
+                      commitment: commitment,
+                    ),
+                  ),
+            icon: const Icon(Icons.edit_outlined, size: 18),
+          ),
+        ),
+        Tooltip(
+          message: 'Delete commitment',
+          child: IconButton(
+            onPressed: controller.tasksBusy
+                ? null
+                : () => unawaited(_deleteCommitment(context, commitment)),
+            icon: const Icon(Icons.delete_outline, size: 18),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _deleteCommitment(
+    BuildContext context,
+    TaskCommitment commitment,
+  ) async {
+    if (!await _confirmTaskWrite(context, 'Delete this commitment?')) {
+      return;
+    }
+    await controller.deleteTaskCommitmentFromUi(commitment);
+  }
+}
+
+class _TaskGraphRow extends StatelessWidget {
+  const _TaskGraphRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.badges,
+    required this.actions,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final List<String> badges;
+  final List<Widget> actions;
+
+  /// Builds a compact graph metadata row.
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(icon, size: 18, color: AuroraColors.green),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                if (subtitle.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AuroraColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+                if (badges.where((badge) => badge.isNotEmpty).isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: <Widget>[
+                        for (final badge in badges)
+                          if (badge.isNotEmpty) _TaskBadge(label: badge),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          for (final action in actions) action,
+        ],
+      ),
+    );
+  }
+}
+
+/// _TaskMemoryLinkPanel links selected memory to a task.
+class _TaskMemoryLinkPanel extends StatelessWidget {
+  const _TaskMemoryLinkPanel({
+    required this.controller,
+    required this.task,
+    required this.query,
+  });
+
+  final AuroraAppController controller;
+  final WorkspaceTask task;
+  final String query;
+
+  /// Builds the task memory-linking panel.
+  @override
+  Widget build(BuildContext context) {
+    final selectedMemory = controller.selectedMemory;
+    return _TaskMemoryLinkScaffold(
+      selectedMemory: selectedMemory,
+      links: _filteredLinks(task.memoryLinks, query),
+      onLink: controller.tasksBusy || selectedMemory == null
+          ? null
+          : () => unawaited(controller.linkSelectedMemoryToTaskFromUi(task.id)),
+      onUnlink: (link) => unawaited(
+        controller.unlinkTaskMemoryFromUi(taskId: task.id, linkId: link.id),
+      ),
+    );
+  }
+}
+
+class _TaskSelectedMemoryBlock extends StatelessWidget {
+  const _TaskSelectedMemoryBlock({required this.memory});
+
+  final MemoryRecord? memory;
+
+  /// Builds a compact preview of the memory selected elsewhere in the app.
+  @override
+  Widget build(BuildContext context) {
+    final record = memory;
+    return PanelSectionBlock(
+      child: record == null
+          ? const Text(
+              'No memory selected',
+              style: TextStyle(color: AuroraColors.muted),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    const Icon(
+                      Icons.chat_bubble_outline,
+                      size: 17,
+                      color: AuroraColors.green,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        record.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    if (record.kind.isNotEmpty) _TaskBadge(label: record.kind),
+                  ],
+                ),
+                if (record.summary.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Text(
+                    record.summary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AuroraColors.muted,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
 class _TaskListInspector extends StatelessWidget {
   const _TaskListInspector({required this.controller, required this.list});
 
@@ -1394,9 +2116,7 @@ class _TaskListInspector extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _TaskStatusStrip(controller: controller),
-          const SizedBox(height: 14),
-          _TaskSectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1451,16 +2171,6 @@ class _TaskListInspector extends StatelessWidget {
                 label: const Text('Add Item'),
               ),
               OutlinedButton.icon(
-                onPressed:
-                    controller.tasksBusy || controller.selectedMemory == null
-                    ? null
-                    : () => unawaited(
-                        controller.linkSelectedMemoryToTaskListFromUi(list.id),
-                      ),
-                icon: const Icon(Icons.link),
-                label: const Text('Link Memory'),
-              ),
-              OutlinedButton.icon(
                 onPressed: controller.tasksBusy
                     ? null
                     : () => unawaited(_deleteList(context)),
@@ -1470,17 +2180,7 @@ class _TaskListInspector extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          _TaskMemoryLinksBlock(
-            links: list.memoryLinks,
-            onUnlink: (link) => unawaited(
-              controller.unlinkTaskListMemoryFromUi(
-                listId: list.id,
-                linkId: link.id,
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          _TaskSectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1637,7 +2337,7 @@ class _TaskListItemEditorState extends State<_TaskListItemEditor> {
   /// Builds the selected list item editor.
   @override
   Widget build(BuildContext context) {
-    return _TaskSectionBlock(
+    return PanelSectionBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -1751,12 +2451,10 @@ class _TaskMemoryLinksBlock extends StatelessWidget {
   /// Builds memory link rows for task objects.
   @override
   Widget build(BuildContext context) {
-    return _TaskSectionBlock(
+    return PanelSectionBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _TaskPanelLabel('Memory Links'),
-          const SizedBox(height: 10),
           if (links.isEmpty)
             const Text(
               'No linked memory',
@@ -1809,26 +2507,6 @@ class _TaskMemoryLinksBlock extends StatelessWidget {
   }
 }
 
-class _TaskSectionBlock extends StatelessWidget {
-  const _TaskSectionBlock({required this.child});
-
-  final Widget child;
-
-  /// Builds a compact bordered task work surface.
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xfffffcf8),
-        border: Border.all(color: AuroraColors.border),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: child,
-    );
-  }
-}
-
 class _TaskPanelLabel extends StatelessWidget {
   const _TaskPanelLabel(this.label);
 
@@ -1858,23 +2536,7 @@ class _TaskBadge extends StatelessWidget {
   /// Builds a dense task metadata badge.
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: AuroraColors.panel,
-        border: Border.all(color: AuroraColors.border),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        _taskLabel(label),
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AuroraColors.green,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
+    return PanelBadge(label: _taskLabel(label));
   }
 }
 
@@ -1938,17 +2600,20 @@ class _TaskTextField extends StatelessWidget {
     required this.controller,
     required this.label,
     this.maxLines = 1,
+    this.keyboardType,
   });
 
   final TextEditingController controller;
   final String label;
   final int maxLines;
+  final TextInputType? keyboardType;
 
   /// Builds a compact task form field.
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      keyboardType: keyboardType,
       minLines: maxLines == 1 ? 1 : 3,
       maxLines: maxLines,
       decoration: InputDecoration(
@@ -1966,6 +2631,124 @@ class _TaskTextField extends StatelessWidget {
       ),
     );
   }
+}
+
+/// _TaskDatePickerField renders a task date value with a popup date picker.
+class _TaskDatePickerField extends StatefulWidget {
+  const _TaskDatePickerField({required this.controller, required this.label});
+
+  /// Text controller that stores the formatted date.
+  final TextEditingController controller;
+
+  /// Field label shown in the editor.
+  final String label;
+
+  /// Creates state that can refresh suffix icons after date changes.
+  @override
+  State<_TaskDatePickerField> createState() => _TaskDatePickerFieldState();
+}
+
+/// _TaskDatePickerFieldState owns picker and clear interactions.
+class _TaskDatePickerFieldState extends State<_TaskDatePickerField> {
+  /// Builds a button-like date field backed by a date picker dialog.
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final value = widget.controller.text.trim();
+        final hasValue = value.isNotEmpty;
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: _pickDate,
+            child: InputDecorator(
+              isEmpty: !hasValue,
+              decoration: InputDecoration(
+                labelText: widget.label,
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                filled: true,
+                fillColor: AuroraColors.surface,
+                suffixIcon: IconButton(
+                  tooltip: hasValue
+                      ? 'Clear ${widget.label}'
+                      : 'Pick ${widget.label}',
+                  onPressed: hasValue ? _clearDate : _pickDate,
+                  icon: Icon(
+                    hasValue ? Icons.close : Icons.calendar_today_outlined,
+                    size: 18,
+                  ),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AuroraColors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AuroraColors.border),
+                ),
+              ),
+              child: Text(
+                hasValue ? _datePickerFieldLabel(value) : 'Select date',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: hasValue ? AuroraColors.ink : AuroraColors.muted,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Opens a date picker and writes the selected date into the text controller.
+  Future<void> _pickDate() async {
+    final selectedDate = _parseTaskDateInput(widget.controller.text);
+    final now = DateTime.now();
+    final firstDate = DateTime(2000);
+    final lastDate = DateTime(2100);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _clampDate(selectedDate ?? now, firstDate, lastDate),
+      firstDate: firstDate,
+      lastDate: lastDate,
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    setState(() {
+      widget.controller.text = _formatTaskDate(picked);
+    });
+  }
+
+  /// Clears the selected date.
+  void _clearDate() {
+    setState(() {
+      widget.controller.clear();
+    });
+  }
+}
+
+/// Returns a normalized visible label for a date picker field value.
+String _datePickerFieldLabel(String value) {
+  final parsed = _parseTaskDateInput(value);
+  if (parsed == null) {
+    return value;
+  }
+  return _formatTaskDate(parsed);
+}
+
+/// Returns a date constrained to a picker-supported range.
+DateTime _clampDate(DateTime value, DateTime firstDate, DateTime lastDate) {
+  if (value.isBefore(firstDate)) {
+    return firstDate;
+  }
+  if (value.isAfter(lastDate)) {
+    return lastDate;
+  }
+  return value;
 }
 
 class _TaskMetadataRow extends StatelessWidget {
@@ -2004,25 +2787,6 @@ class _TaskMetadataRow extends StatelessWidget {
   }
 }
 
-class _TaskEmptyBlock extends StatelessWidget {
-  const _TaskEmptyBlock({required this.label});
-
-  final String label;
-
-  /// Builds a compact task empty state.
-  @override
-  Widget build(BuildContext context) {
-    return _TaskSectionBlock(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Text(label, style: const TextStyle(color: AuroraColors.muted)),
-        ),
-      ),
-    );
-  }
-}
-
 class _TaskSelectionEmpty extends StatelessWidget {
   const _TaskSelectionEmpty();
 
@@ -2035,6 +2799,498 @@ class _TaskSelectionEmpty extends StatelessWidget {
         style: TextStyle(color: AuroraColors.muted),
       ),
     );
+  }
+}
+
+/// Shows the graph metadata editing dialog.
+Future<void> _showTaskMetadataDialog(
+  BuildContext context,
+  AuroraAppController controller,
+  WorkspaceTask task,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return _TaskMetadataDialog(controller: controller, task: task);
+    },
+  );
+}
+
+class _TaskMetadataDialog extends StatefulWidget {
+  const _TaskMetadataDialog({required this.controller, required this.task});
+
+  final AuroraAppController controller;
+  final WorkspaceTask task;
+
+  @override
+  State<_TaskMetadataDialog> createState() => _TaskMetadataDialogState();
+}
+
+class _TaskMetadataDialogState extends State<_TaskMetadataDialog> {
+  final TextEditingController _estimate = TextEditingController();
+  final TextEditingController _energy = TextEditingController();
+  final TextEditingController _context = TextEditingController();
+  final TextEditingController _domain = TextEditingController();
+  final TextEditingController _location = TextEditingController();
+  final TextEditingController _owner = TextEditingController();
+  final TextEditingController _source = TextEditingController();
+  final TextEditingController _effort = TextEditingController();
+  final TextEditingController _value = TextEditingController();
+  final TextEditingController _urgency = TextEditingController();
+  final TextEditingController _risk = TextEditingController();
+  final TextEditingController _confidence = TextEditingController();
+  String _message = '';
+
+  /// Initializes metadata fields from the selected task.
+  @override
+  void initState() {
+    super.initState();
+    _estimate.text = widget.task.estimateMinutes <= 0
+        ? ''
+        : widget.task.estimateMinutes.toString();
+    _energy.text = widget.task.energyRequired;
+    _context.text = widget.task.context;
+    _domain.text = widget.task.domain;
+    _location.text = widget.task.location;
+    _owner.text = widget.task.owner;
+    _source.text = widget.task.source;
+    _effort.text = _scoreInputText(widget.task.effort);
+    _value.text = _scoreInputText(widget.task.value);
+    _urgency.text = _scoreInputText(widget.task.urgency);
+    _risk.text = _scoreInputText(widget.task.risk);
+    _confidence.text = _scoreInputText(widget.task.confidence);
+  }
+
+  /// Cleans up metadata field controllers.
+  @override
+  void dispose() {
+    _estimate.dispose();
+    _energy.dispose();
+    _context.dispose();
+    _domain.dispose();
+    _location.dispose();
+    _owner.dispose();
+    _source.dispose();
+    _effort.dispose();
+    _value.dispose();
+    _urgency.dispose();
+    _risk.dispose();
+    _confidence.dispose();
+    super.dispose();
+  }
+
+  /// Builds the metadata editing dialog.
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Graph Metadata'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _TaskTextField(
+                controller: _estimate,
+                label: 'Estimate minutes',
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _energy, label: 'Energy'),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _context, label: 'Context'),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _domain, label: 'Domain'),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _location, label: 'Location'),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _owner, label: 'Owner'),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _source, label: 'Source'),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _TaskTextField(
+                      controller: _effort,
+                      label: 'Effort 0-1',
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _TaskTextField(
+                      controller: _value,
+                      label: 'Value 0-1',
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _TaskTextField(
+                      controller: _urgency,
+                      label: 'Urgency 0-1',
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _TaskTextField(
+                      controller: _risk,
+                      label: 'Risk 0-1',
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _TaskTextField(
+                controller: _confidence,
+                label: 'Confidence 0-1',
+                keyboardType: TextInputType.number,
+              ),
+              if (_message.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 10),
+                Text(
+                  _message,
+                  style: const TextStyle(color: AuroraColors.coral),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
+
+  /// Saves the edited metadata to the task service.
+  Future<void> _save() async {
+    final estimateText = _estimate.text.trim();
+    final estimate = estimateText.isEmpty ? 0 : int.tryParse(estimateText);
+    if (estimate == null || estimate < 0) {
+      setState(() => _message = 'Estimate must be zero or greater');
+      return;
+    }
+    final effort = _parseDialogScore(_effort.text);
+    final value = _parseDialogScore(_value.text);
+    final urgency = _parseDialogScore(_urgency.text);
+    final risk = _parseDialogScore(_risk.text);
+    final confidence = _parseDialogScore(_confidence.text);
+    if (<double?>[effort, value, urgency, risk, confidence].contains(null)) {
+      setState(() => _message = 'Scores must be between 0 and 1');
+      return;
+    }
+    await widget.controller.updateTaskFromUi(
+      taskId: widget.task.id,
+      estimateMinutes: estimate,
+      energyRequired: _energy.text.trim(),
+      effort: effort,
+      value: value,
+      urgency: urgency,
+      risk: risk,
+      context: _context.text.trim(),
+      domain: _domain.text.trim(),
+      location: _location.text.trim(),
+      owner: _owner.text.trim(),
+      source: _source.text.trim(),
+      confidence: confidence,
+    );
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+}
+
+/// Shows the task relation creation dialog.
+Future<void> _showTaskRelationDialog(
+  BuildContext context,
+  AuroraAppController controller,
+  WorkspaceTask task,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return _TaskRelationDialog(controller: controller, task: task);
+    },
+  );
+}
+
+class _TaskRelationDialog extends StatefulWidget {
+  const _TaskRelationDialog({required this.controller, required this.task});
+
+  final AuroraAppController controller;
+  final WorkspaceTask task;
+
+  @override
+  State<_TaskRelationDialog> createState() => _TaskRelationDialogState();
+}
+
+class _TaskRelationDialogState extends State<_TaskRelationDialog> {
+  final TextEditingController _explanation = TextEditingController();
+  String _targetTaskId = '';
+  String _relationType = 'related_to';
+
+  /// Initializes the first available target task.
+  @override
+  void initState() {
+    super.initState();
+    final targets = _relationTargets;
+    if (targets.isNotEmpty) {
+      _targetTaskId = targets.first.id;
+    }
+  }
+
+  /// Cleans up dialog controllers.
+  @override
+  void dispose() {
+    _explanation.dispose();
+    super.dispose();
+  }
+
+  List<WorkspaceTask> get _relationTargets {
+    return widget.controller.workspace.tasks.where((task) {
+      return task.id != widget.task.id;
+    }).toList();
+  }
+
+  /// Builds the task relation creation dialog.
+  @override
+  Widget build(BuildContext context) {
+    final targets = _relationTargets;
+    return AlertDialog(
+      title: const Text('Add Relation'),
+      content: SizedBox(
+        width: 460,
+        child: targets.isEmpty
+            ? const Text('Create another task before adding a relation.')
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  DropdownButtonFormField<String>(
+                    initialValue: _targetTaskId.isEmpty ? null : _targetTaskId,
+                    decoration: _taskDialogDecoration('Related task'),
+                    isExpanded: true,
+                    items: <DropdownMenuItem<String>>[
+                      for (final target in targets)
+                        DropdownMenuItem<String>(
+                          value: target.id,
+                          child: Text(
+                            target.title,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _targetTaskId = value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _TaskDropdown(
+                    value: _relationType,
+                    values: _taskRelationTypes,
+                    tooltip: 'Relation type',
+                    onChanged: (value) => setState(() => _relationType = value),
+                  ),
+                  const SizedBox(height: 10),
+                  _TaskTextField(
+                    controller: _explanation,
+                    label: 'Explanation',
+                    maxLines: 3,
+                  ),
+                ],
+              ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: targets.isEmpty ? null : _save,
+          child: const Text('Add'),
+        ),
+      ],
+    );
+  }
+
+  /// Saves the explicit relation to the task service.
+  Future<void> _save() async {
+    if (_targetTaskId.isEmpty) {
+      return;
+    }
+    await widget.controller.upsertTaskRelationFromUi(
+      fromTaskId: widget.task.id,
+      toTaskId: _targetTaskId,
+      relationType: _relationType,
+      explanation: _explanation.text.trim(),
+    );
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+}
+
+/// Shows the commitment create or edit dialog.
+Future<void> _showTaskCommitmentDialog(
+  BuildContext context,
+  AuroraAppController controller,
+  WorkspaceTask task, {
+  TaskCommitment? commitment,
+}) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return _TaskCommitmentDialog(
+        controller: controller,
+        task: task,
+        commitment: commitment,
+      );
+    },
+  );
+}
+
+class _TaskCommitmentDialog extends StatefulWidget {
+  const _TaskCommitmentDialog({
+    required this.controller,
+    required this.task,
+    this.commitment,
+  });
+
+  final AuroraAppController controller;
+  final WorkspaceTask task;
+  final TaskCommitment? commitment;
+
+  @override
+  State<_TaskCommitmentDialog> createState() => _TaskCommitmentDialogState();
+}
+
+class _TaskCommitmentDialogState extends State<_TaskCommitmentDialog> {
+  final TextEditingController _people = TextEditingController();
+  final TextEditingController _domain = TextEditingController();
+  final TextEditingController _project = TextEditingController();
+  final TextEditingController _timeWindow = TextEditingController();
+  final TextEditingController _responsibility = TextEditingController();
+  final TextEditingController _promiseSource = TextEditingController();
+  final TextEditingController _hardness = TextEditingController();
+  final TextEditingController _consequence = TextEditingController();
+
+  /// Initializes commitment fields from the existing commitment when present.
+  @override
+  void initState() {
+    super.initState();
+    final commitment = widget.commitment;
+    if (commitment == null) {
+      _domain.text = widget.task.domain;
+      _project.text = widget.task.context;
+      _people.text = widget.task.owner;
+      return;
+    }
+    _people.text = commitment.people.join(', ');
+    _domain.text = commitment.domain;
+    _project.text = commitment.project;
+    _timeWindow.text = commitment.timeWindow;
+    _responsibility.text = commitment.responsibility;
+    _promiseSource.text = commitment.promiseSource;
+    _hardness.text = commitment.hardness;
+    _consequence.text = commitment.consequence;
+  }
+
+  /// Cleans up commitment field controllers.
+  @override
+  void dispose() {
+    _people.dispose();
+    _domain.dispose();
+    _project.dispose();
+    _timeWindow.dispose();
+    _responsibility.dispose();
+    _promiseSource.dispose();
+    _hardness.dispose();
+    _consequence.dispose();
+    super.dispose();
+  }
+
+  /// Builds the commitment create or edit dialog.
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(
+        widget.commitment == null ? 'Add Commitment' : 'Edit Commitment',
+      ),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _TaskTextField(controller: _people, label: 'People'),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _domain, label: 'Domain'),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _project, label: 'Project'),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _timeWindow, label: 'Time window'),
+              const SizedBox(height: 10),
+              _TaskTextField(
+                controller: _responsibility,
+                label: 'Responsibility',
+              ),
+              const SizedBox(height: 10),
+              _TaskTextField(
+                controller: _promiseSource,
+                label: 'Promise source',
+              ),
+              const SizedBox(height: 10),
+              _TaskTextField(controller: _hardness, label: 'Hardness'),
+              const SizedBox(height: 10),
+              _TaskTextField(
+                controller: _consequence,
+                label: 'Consequence',
+                maxLines: 3,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
+
+  /// Saves the commitment to the task service.
+  Future<void> _save() async {
+    await widget.controller.upsertTaskCommitmentFromUi(
+      commitmentId: widget.commitment?.id ?? '',
+      taskId: widget.task.id,
+      people: _splitTaskList(_people.text),
+      domain: _domain.text.trim(),
+      project: _project.text.trim(),
+      timeWindow: _timeWindow.text.trim(),
+      responsibility: _responsibility.text.trim(),
+      promiseSource: _promiseSource.text.trim(),
+      hardness: _hardness.text.trim(),
+      consequence: _consequence.text.trim(),
+    );
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
   }
 }
 
@@ -2400,6 +3656,17 @@ bool _matchesTaskList(WorkspaceTaskList list, String query) {
   );
 }
 
+/// Returns memory links filtered by the panel query.
+List<TaskMemoryLink> _filteredLinks(List<TaskMemoryLink> links, String query) {
+  return links.where((link) {
+    return _matchesText(
+      '${link.relationship} ${link.note} ${link.memoryCatalogId} '
+      '${link.memoryEvidenceId}',
+      query,
+    );
+  }).toList();
+}
+
 /// Returns whether a review recommendation matches a panel query.
 bool _matchesRecommendation(
   TaskReviewRecommendation recommendation,
@@ -2446,6 +3713,98 @@ List<String> _splitTaskList(String value) {
       .map((item) => item.trim())
       .where((item) => item.isNotEmpty)
       .toList();
+}
+
+/// Formats a normalized score for inspector display.
+String _formatTaskScore(double value) {
+  if (value <= 0) {
+    return '';
+  }
+  return '${(value * 100).round()}%';
+}
+
+/// Summarizes proposed task metadata fields for the inspector.
+String _metadataSuggestionSummary(TaskMetadataSuggestion suggestion) {
+  final parts = <String>[
+    if (suggestion.estimateMinutes > 0) '${suggestion.estimateMinutes} min',
+    if (suggestion.energyRequired.isNotEmpty) suggestion.energyRequired,
+    if (suggestion.context.isNotEmpty) suggestion.context,
+    if (suggestion.domain.isNotEmpty) suggestion.domain,
+    if (suggestion.location.isNotEmpty) suggestion.location,
+    if (suggestion.effort > 0) 'effort ${_formatTaskScore(suggestion.effort)}',
+    if (suggestion.value > 0) 'value ${_formatTaskScore(suggestion.value)}',
+    if (suggestion.urgency > 0)
+      'urgency ${_formatTaskScore(suggestion.urgency)}',
+    if (suggestion.risk > 0) 'risk ${_formatTaskScore(suggestion.risk)}',
+  ];
+  if (parts.isEmpty) {
+    return suggestion.explanation;
+  }
+  return parts.join(' • ');
+}
+
+/// Summarizes proposed commitment fields for the inspector.
+String _commitmentSuggestionSummary(TaskCommitmentSuggestion suggestion) {
+  final parts = <String>[
+    if (suggestion.domain.isNotEmpty) suggestion.domain,
+    if (suggestion.project.isNotEmpty) suggestion.project,
+    if (suggestion.timeWindow.isNotEmpty) suggestion.timeWindow,
+    if (suggestion.responsibility.isNotEmpty) suggestion.responsibility,
+    if (suggestion.promiseSource.isNotEmpty) suggestion.promiseSource,
+    if (suggestion.consequence.isNotEmpty) suggestion.consequence,
+  ];
+  if (parts.isEmpty) {
+    return suggestion.explanation;
+  }
+  return parts.join(' • ');
+}
+
+/// Formats a normalized score for dialog input.
+String _scoreInputText(double value) {
+  if (value <= 0) {
+    return '';
+  }
+  return value.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+}
+
+/// Parses a dialog score where blank means no explicit signal.
+double? _parseDialogScore(String value) {
+  final text = value.trim();
+  if (text.isEmpty) {
+    return 0;
+  }
+  final score = double.tryParse(text);
+  if (score == null || score < 0 || score > 1) {
+    return null;
+  }
+  return score;
+}
+
+/// Builds dialog field decoration consistent with task text fields.
+InputDecoration _taskDialogDecoration(String label) {
+  return InputDecoration(
+    labelText: label,
+    filled: true,
+    fillColor: AuroraColors.surface,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: AuroraColors.border),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: AuroraColors.border),
+    ),
+  );
+}
+
+/// Resolves a task title for graph rows.
+String _taskTitleFor(AuroraAppController controller, String taskId) {
+  for (final task in controller.workspace.tasks) {
+    if (task.id == taskId) {
+      return task.title;
+    }
+  }
+  return taskId.isEmpty ? 'Unknown task' : taskId;
 }
 
 /// Parses a human-entered task date.

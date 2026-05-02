@@ -11,15 +11,19 @@ void main() {
     final profile = await RuntimeProfileLoader(_testConfig()).load();
 
     expect(profile.harness.toolConfigPath, contains('tool.yaml'));
+    expect(profile.memoryServerConfigPath, contains('/memory/'));
+    expect(profile.taskServerConfigPath, contains('/tasks/'));
+    expect(profile.toJson(), isNot(contains('mcp_servers')));
+    expect(profile.toJson(), isNot(contains('mcp_server_configs')));
     expect(
       profile.harness.arguments,
       containsAllInOrder(<String>[
         'web',
         '--port',
-        '39850',
+        '8080',
         'api',
         '--webui_address',
-        '127.0.0.1:39850',
+        '127.0.0.1:8080',
       ]),
     );
     expect(profile.memoryServers.single.label, 'Personal Memory');
@@ -35,7 +39,8 @@ void main() {
           'id': 'bad-harness',
           'label': 'Bad Harness',
         },
-        'mcp_servers': <Map<String, dynamic>>[],
+        'memory_server_config': '/tmp/memory.json',
+        'task_server_config': '/tmp/tasks.json',
       }),
       throwsFormatException,
     );

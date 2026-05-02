@@ -13,6 +13,8 @@ class RuntimeProfile {
     required this.id,
     required this.label,
     required this.harness,
+    required this.memoryServerConfigPath,
+    required this.taskServerConfigPath,
     required this.mcpServers,
   });
 
@@ -24,6 +26,12 @@ class RuntimeProfile {
 
   /// Harness process and API configuration.
   final HarnessRuntime harness;
+
+  /// Memory server config file referenced by this profile.
+  final String memoryServerConfigPath;
+
+  /// Task server config file referenced by this profile.
+  final String taskServerConfigPath;
 
   /// MCP servers available to the harness and UI.
   final List<McpServerRuntime> mcpServers;
@@ -47,12 +55,17 @@ class RuntimeProfile {
     String? id,
     String? label,
     HarnessRuntime? harness,
+    String? memoryServerConfigPath,
+    String? taskServerConfigPath,
     List<McpServerRuntime>? mcpServers,
   }) {
     return RuntimeProfile(
       id: id ?? this.id,
       label: label ?? this.label,
       harness: harness ?? this.harness,
+      memoryServerConfigPath:
+          memoryServerConfigPath ?? this.memoryServerConfigPath,
+      taskServerConfigPath: taskServerConfigPath ?? this.taskServerConfigPath,
       mcpServers: mcpServers ?? this.mcpServers,
     );
   }
@@ -63,20 +76,20 @@ class RuntimeProfile {
       'id': id,
       'label': label,
       'harness': harness.toJson(),
-      'mcp_servers': mcpServers.map((server) => server.toJson()).toList(),
+      'memory_server_config': memoryServerConfigPath,
+      'task_server_config': taskServerConfigPath,
     };
   }
 
-  /// Parses a runtime profile from decoded JSON.
+  /// Parses a runtime profile shell from decoded JSON.
   factory RuntimeProfile.fromJson(Map<String, dynamic> json) {
     return RuntimeProfile(
       id: _requiredString(json, 'id'),
       label: _requiredString(json, 'label'),
       harness: HarnessRuntime.fromJson(_requiredMap(json, 'harness')),
-      mcpServers: _requiredList(
-        json,
-        'mcp_servers',
-      ).map(McpServerRuntime.fromJson).toList(),
+      memoryServerConfigPath: _requiredString(json, 'memory_server_config'),
+      taskServerConfigPath: _requiredString(json, 'task_server_config'),
+      mcpServers: const <McpServerRuntime>[],
     );
   }
 }
@@ -370,7 +383,13 @@ class RuntimeProfileLoader {
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('Runtime profile must be a JSON object');
     }
-    return RuntimeProfile.fromJson(decoded);
+    final profile = RuntimeProfile.fromJson(decoded);
+    return profile.copyWith(
+      mcpServers: <McpServerRuntime>[
+        await _loadMcpServerConfig(profile.memoryServerConfigPath, 'memory'),
+        await _loadMcpServerConfig(profile.taskServerConfigPath, 'tasks'),
+      ],
+    );
   }
 
   /// Resolves and creates the selected profile file when using defaults.
@@ -426,6 +445,33 @@ class RuntimeProfileLoader {
       'AUTO_START_LOCAL_SERVICES': config.autoStartLocalServices.toString(),
     };
   }
+
+  /// Loads one required app-owned MCP service config referenced by a profile.
+  Future<McpServerRuntime> _loadMcpServerConfig(
+    String path,
+    String expectedKind,
+  ) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      throw FileSystemException(
+        '$expectedKind server config does not exist',
+        path,
+      );
+    }
+    final decoded = jsonDecode(_expandTemplate(await file.readAsString()));
+    if (decoded is! Map<String, dynamic>) {
+      throw FormatException(
+        '$expectedKind server config "$path" must be a JSON object',
+      );
+    }
+    final server = McpServerRuntime.fromJson(decoded);
+    if (server.kind != expectedKind) {
+      throw FormatException(
+        '$expectedKind server config "$path" must have kind "$expectedKind"',
+      );
+    }
+    return server;
+  }
 }
 
 /// Returns the Aurora app config directory for this operating system.
@@ -479,10 +525,26 @@ String toolConfigsDirectoryPath() {
   return '${auroraConfigDirectoryPath()}/tools';
 }
 
+/// Returns the directory where editable memory server config files live.
+String memoryServerConfigsDirectoryPath() {
+  return '${auroraConfigDirectoryPath()}/memory';
+}
+
+/// Returns the directory where editable task server config files live.
+String taskServerConfigsDirectoryPath() {
+  return '${auroraConfigDirectoryPath()}/tasks';
+}
+
 /// Encodes a runtime profile as stable, human-editable JSON.
 String encodeRuntimeProfileJson(RuntimeProfile profile) {
   const encoder = JsonEncoder.withIndent('  ');
   return '${encoder.convert(profile.toJson())}\n';
+}
+
+/// Encodes an MCP server runtime config as stable, human-editable JSON.
+String encodeMcpServerRuntimeJson(McpServerRuntime server) {
+  const encoder = JsonEncoder.withIndent('  ');
+  return '${encoder.convert(server.toJson())}\n';
 }
 
 String _healthUrl(String endpoint) {
@@ -503,17 +565,6 @@ Map<String, dynamic> _requiredMap(Map<String, dynamic> json, String field) {
     return value;
   }
   throw FormatException('Runtime profile field "$field" must be an object');
-}
-
-List<Map<String, dynamic>> _requiredList(
-  Map<String, dynamic> json,
-  String field,
-) {
-  final value = json[field];
-  if (value is List && value.every((item) => item is Map<String, dynamic>)) {
-    return value.cast<Map<String, dynamic>>();
-  }
-  throw FormatException('Runtime profile field "$field" must be a list');
 }
 
 String _requiredString(Map<String, dynamic> json, String field) {

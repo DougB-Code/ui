@@ -44,6 +44,109 @@ class ChatSession {
   final DateTime updatedAt;
 }
 
+/// ChatCatalogEntry stores app-owned chat metadata across profiles.
+class ChatCatalogEntry {
+  /// Creates a local chat catalog entry.
+  const ChatCatalogEntry({
+    required this.profilePath,
+    required this.profileId,
+    required this.profileLabel,
+    required this.sessionId,
+    required this.title,
+    required this.updatedAt,
+    this.createdAt,
+    this.titleStatus = 'session',
+    this.titleError = '',
+  });
+
+  /// Runtime profile path that owns the ADK session.
+  final String profilePath;
+
+  /// Runtime profile id captured when the chat was cataloged.
+  final String profileId;
+
+  /// Runtime profile label captured when the chat was cataloged.
+  final String profileLabel;
+
+  /// ADK session id inside the owning profile.
+  final String sessionId;
+
+  /// App-visible chat title.
+  final String title;
+
+  /// Chat creation timestamp when known.
+  final DateTime? createdAt;
+
+  /// Last update timestamp.
+  final DateTime updatedAt;
+
+  /// Title generation state such as session, manual, pending, generated, or failed.
+  final String titleStatus;
+
+  /// Last title generation error.
+  final String titleError;
+
+  /// Stable app-local key for profile/session lookup.
+  String get key {
+    return '$profilePath::$sessionId';
+  }
+
+  /// Returns a copy with selected metadata changed.
+  ChatCatalogEntry copyWith({
+    String? profilePath,
+    String? profileId,
+    String? profileLabel,
+    String? sessionId,
+    String? title,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    String? titleStatus,
+    String? titleError,
+  }) {
+    return ChatCatalogEntry(
+      profilePath: profilePath ?? this.profilePath,
+      profileId: profileId ?? this.profileId,
+      profileLabel: profileLabel ?? this.profileLabel,
+      sessionId: sessionId ?? this.sessionId,
+      title: title ?? this.title,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      titleStatus: titleStatus ?? this.titleStatus,
+      titleError: titleError ?? this.titleError,
+    );
+  }
+
+  /// Encodes this catalog entry to JSON.
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'profile_path': profilePath,
+      'profile_id': profileId,
+      'profile_label': profileLabel,
+      'session_id': sessionId,
+      'title': title,
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+      'title_status': titleStatus,
+      'title_error': titleError,
+    };
+  }
+
+  /// Parses a catalog entry from decoded JSON.
+  factory ChatCatalogEntry.fromJson(Map<String, dynamic> json) {
+    return ChatCatalogEntry(
+      profilePath: _modelString(json['profile_path']),
+      profileId: _modelString(json['profile_id']),
+      profileLabel: _modelString(json['profile_label']),
+      sessionId: _modelString(json['session_id']),
+      title: _modelString(json['title'], fallback: 'Untitled chat'),
+      createdAt: _modelDateTime(json['created_at']),
+      updatedAt: _modelDateTime(json['updated_at']) ?? DateTime.now(),
+      titleStatus: _modelString(json['title_status'], fallback: 'session'),
+      titleError: _modelString(json['title_error']),
+    );
+  }
+}
+
 /// ChatMessage represents one normalized message or activity row.
 class ChatMessage {
   /// Creates a normalized chat message.
@@ -602,6 +705,18 @@ class WorkspaceTask {
     this.dueAt,
     this.scheduledAt,
     this.topics = const <String>[],
+    this.estimateMinutes = 0,
+    this.energyRequired = '',
+    this.effort = 0,
+    this.value = 0,
+    this.urgency = 0,
+    this.risk = 0,
+    this.context = '',
+    this.domain = '',
+    this.location = '',
+    this.owner = '',
+    this.source = '',
+    this.confidence = 0,
     this.overdue = false,
     this.memoryLinks = const <TaskMemoryLink>[],
     this.createdAt,
@@ -609,6 +724,7 @@ class WorkspaceTask {
     this.completedAt,
     this.canceledAt,
     this.active = false,
+    this.idempotencyKey = '',
     this.sourceId = '',
     this.sourceLabel = '',
   });
@@ -643,6 +759,42 @@ class WorkspaceTask {
   /// Organization topics.
   final List<String> topics;
 
+  /// Estimated task duration in minutes.
+  final int estimateMinutes;
+
+  /// Required energy mode.
+  final String energyRequired;
+
+  /// Effort score from 0 to 1.
+  final double effort;
+
+  /// Value score from 0 to 1.
+  final double value;
+
+  /// Urgency score from 0 to 1.
+  final double urgency;
+
+  /// Risk score from 0 to 1.
+  final double risk;
+
+  /// Execution context.
+  final String context;
+
+  /// Life or work domain.
+  final String domain;
+
+  /// Location requirement.
+  final String location;
+
+  /// Task owner.
+  final String owner;
+
+  /// Task source.
+  final String source;
+
+  /// Metadata confidence from 0 to 1.
+  final double confidence;
+
   /// Whether the task is past due.
   final bool overdue;
 
@@ -664,6 +816,9 @@ class WorkspaceTask {
   /// Whether the task is currently active.
   final bool active;
 
+  /// Backend idempotency key, used to associate agent-created tasks with chats.
+  final String idempotencyKey;
+
   /// Runtime profile server id that returned this task.
   final String sourceId;
 
@@ -683,6 +838,18 @@ class WorkspaceTask {
       dueAt: dueAt,
       scheduledAt: scheduledAt,
       topics: topics,
+      estimateMinutes: estimateMinutes,
+      energyRequired: energyRequired,
+      effort: effort,
+      value: value,
+      urgency: urgency,
+      risk: risk,
+      context: context,
+      domain: domain,
+      location: location,
+      owner: owner,
+      source: source,
+      confidence: confidence,
       overdue: overdue,
       memoryLinks: memoryLinks,
       createdAt: createdAt,
@@ -690,6 +857,7 @@ class WorkspaceTask {
       completedAt: completedAt,
       canceledAt: canceledAt,
       active: active,
+      idempotencyKey: idempotencyKey,
       sourceId: sourceId ?? this.sourceId,
       sourceLabel: sourceLabel ?? this.sourceLabel,
     );
@@ -921,6 +1089,759 @@ class TaskFilterState {
   }
 }
 
+/// TaskRelationRecord stores one explicit or inferred relation edge.
+class TaskRelationRecord {
+  /// Creates a task relation record.
+  const TaskRelationRecord({
+    required this.id,
+    required this.fromTaskId,
+    required this.toTaskId,
+    required this.relationType,
+    this.confidence = 0,
+    this.source = '',
+    this.explanation = '',
+    this.actor = '',
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  /// Stable relation id.
+  final String id;
+
+  /// Source task id.
+  final String fromTaskId;
+
+  /// Target task id.
+  final String toTaskId;
+
+  /// Relationship type.
+  final String relationType;
+
+  /// Relation confidence from 0 to 1.
+  final double confidence;
+
+  /// Relation source.
+  final String source;
+
+  /// Human-readable explanation.
+  final String explanation;
+
+  /// Last actor.
+  final String actor;
+
+  /// Creation timestamp.
+  final DateTime? createdAt;
+
+  /// Last update timestamp.
+  final DateTime? updatedAt;
+}
+
+/// TaskRelationSuggestion stores one inferred relation recommendation.
+class TaskRelationSuggestion {
+  /// Creates a task relation suggestion.
+  const TaskRelationSuggestion({
+    required this.id,
+    required this.fromTaskId,
+    required this.toTaskId,
+    required this.relationType,
+    this.confidence = 0,
+    this.explanation = '',
+  });
+
+  /// Stable suggestion id.
+  final String id;
+
+  /// Source task id.
+  final String fromTaskId;
+
+  /// Target task id.
+  final String toTaskId;
+
+  /// Relationship type.
+  final String relationType;
+
+  /// Suggestion confidence.
+  final double confidence;
+
+  /// Suggestion explanation.
+  final String explanation;
+}
+
+/// TaskMetadataSuggestion stores one inferred metadata recommendation.
+class TaskMetadataSuggestion {
+  /// Creates a task metadata suggestion.
+  const TaskMetadataSuggestion({
+    required this.id,
+    required this.taskId,
+    this.estimateMinutes = 0,
+    this.energyRequired = '',
+    this.effort = 0,
+    this.value = 0,
+    this.urgency = 0,
+    this.risk = 0,
+    this.context = '',
+    this.domain = '',
+    this.location = '',
+    this.owner = '',
+    this.source = '',
+    this.confidence = 0,
+    this.explanation = '',
+  });
+
+  /// Stable suggestion id.
+  final String id;
+
+  /// Task receiving metadata.
+  final String taskId;
+
+  /// Estimated task duration.
+  final int estimateMinutes;
+
+  /// Suggested energy mode.
+  final String energyRequired;
+
+  /// Suggested effort score.
+  final double effort;
+
+  /// Suggested value score.
+  final double value;
+
+  /// Suggested urgency score.
+  final double urgency;
+
+  /// Suggested risk score.
+  final double risk;
+
+  /// Suggested execution context.
+  final String context;
+
+  /// Suggested domain.
+  final String domain;
+
+  /// Suggested location.
+  final String location;
+
+  /// Suggested owner.
+  final String owner;
+
+  /// Suggested source.
+  final String source;
+
+  /// Suggestion confidence.
+  final double confidence;
+
+  /// Human-readable explanation.
+  final String explanation;
+}
+
+/// TaskCommitmentSuggestion stores one inferred commitment recommendation.
+class TaskCommitmentSuggestion {
+  /// Creates a task commitment suggestion.
+  const TaskCommitmentSuggestion({
+    required this.id,
+    required this.taskId,
+    this.people = const <String>[],
+    this.domain = '',
+    this.project = '',
+    this.timeWindow = '',
+    this.responsibility = '',
+    this.promiseSource = '',
+    this.hardness = '',
+    this.consequence = '',
+    this.confidence = 0,
+    this.explanation = '',
+  });
+
+  /// Stable suggestion id.
+  final String id;
+
+  /// Task represented by this suggested commitment.
+  final String taskId;
+
+  /// Suggested affected people.
+  final List<String> people;
+
+  /// Suggested life or work domain.
+  final String domain;
+
+  /// Suggested project.
+  final String project;
+
+  /// Suggested time window.
+  final String timeWindow;
+
+  /// Suggested responsibility state.
+  final String responsibility;
+
+  /// Suggested promise source.
+  final String promiseSource;
+
+  /// Suggested soft or hard commitment.
+  final String hardness;
+
+  /// Suggested consequence if ignored.
+  final String consequence;
+
+  /// Suggestion confidence.
+  final double confidence;
+
+  /// Human-readable explanation.
+  final String explanation;
+}
+
+/// TaskCommitment stores one first-class task commitment.
+class TaskCommitment {
+  /// Creates a task commitment.
+  const TaskCommitment({
+    required this.id,
+    required this.taskId,
+    this.people = const <String>[],
+    this.domain = '',
+    this.project = '',
+    this.timeWindow = '',
+    this.responsibility = '',
+    this.promiseSource = '',
+    this.hardness = '',
+    this.consequence = '',
+    this.actor = '',
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  /// Stable commitment id.
+  final String id;
+
+  /// Referenced task id.
+  final String taskId;
+
+  /// Affected people.
+  final List<String> people;
+
+  /// Life or work domain.
+  final String domain;
+
+  /// Project name.
+  final String project;
+
+  /// Time window label.
+  final String timeWindow;
+
+  /// Responsibility state.
+  final String responsibility;
+
+  /// Source of promise.
+  final String promiseSource;
+
+  /// Soft or hard commitment.
+  final String hardness;
+
+  /// Consequence if ignored.
+  final String consequence;
+
+  /// Last actor.
+  final String actor;
+
+  /// Creation timestamp.
+  final DateTime? createdAt;
+
+  /// Last update timestamp.
+  final DateTime? updatedAt;
+}
+
+/// TaskStreamProjection groups tasks into time lanes with attention-flow links.
+class TaskStreamProjection {
+  /// Creates a task stream projection.
+  const TaskStreamProjection({
+    this.generatedAt,
+    this.lanes = const <TaskStreamLane>[],
+    this.links = const <TaskStreamLink>[],
+  });
+
+  /// Projection generation timestamp.
+  final DateTime? generatedAt;
+
+  /// Ordered stream lanes.
+  final List<TaskStreamLane> lanes;
+
+  /// Visible relation links between projected stream cards.
+  final List<TaskStreamLink> links;
+}
+
+/// TaskStreamLane stores one stream time column.
+class TaskStreamLane {
+  /// Creates a task stream lane.
+  const TaskStreamLane({
+    required this.id,
+    required this.title,
+    this.subtitle = '',
+    this.cards = const <TaskStreamCard>[],
+  });
+
+  /// Stable lane id.
+  final String id;
+
+  /// Display title.
+  final String title;
+
+  /// Secondary display text.
+  final String subtitle;
+
+  /// Projected task cards.
+  final List<TaskStreamCard> cards;
+}
+
+/// TaskStreamCard stores one projected task card.
+class TaskStreamCard {
+  /// Creates a task stream card.
+  const TaskStreamCard({
+    required this.taskId,
+    required this.title,
+    required this.status,
+    required this.priority,
+    this.dueAt,
+    this.scheduledAt,
+    this.context = '',
+    this.domain = '',
+    this.project = '',
+    this.owner = '',
+    this.flowLane = '',
+    this.streamId = '',
+    this.readyNow = false,
+    this.nextBestAction = '',
+    this.batchScore = 0,
+    this.contextSwitchCost = 0,
+    this.costLabel = '',
+    this.costScore = 0,
+    this.bottleneckScore = 0,
+    this.confidence = 0,
+    this.explanation = '',
+    this.relatedTaskCount = 0,
+    this.estimateMinutes = 0,
+  });
+
+  /// Referenced task id.
+  final String taskId;
+
+  /// Display task title.
+  final String title;
+
+  /// Backend task status.
+  final String status;
+
+  /// Backend task priority.
+  final String priority;
+
+  /// Optional due timestamp.
+  final DateTime? dueAt;
+
+  /// Optional scheduled timestamp.
+  final DateTime? scheduledAt;
+
+  /// Best inferred context.
+  final String context;
+
+  /// Life or work domain when supplied by the task stream backend.
+  final String domain;
+
+  /// Owning project when supplied by the task stream backend.
+  final String project;
+
+  /// Responsible person when supplied by the task stream backend.
+  final String owner;
+
+  /// Broad attention-mode swimlane.
+  final String flowLane;
+
+  /// Stable route identifier for coloring related flow edges.
+  final String streamId;
+
+  /// Whether the task can be acted on now.
+  final bool readyNow;
+
+  /// Suggested next action.
+  final String nextBestAction;
+
+  /// Batching score from 0 to 1.
+  final double batchScore;
+
+  /// Context-switch cost from 0 to 1.
+  final double contextSwitchCost;
+
+  /// Human-readable cost label when supplied by the backend.
+  final String costLabel;
+
+  /// Normalized cost score from 0 to 1 when supplied by the backend.
+  final double costScore;
+
+  /// Bottleneck score from 0 to 1.
+  final double bottleneckScore;
+
+  /// Projection confidence from 0 to 1.
+  final double confidence;
+
+  /// Human-readable placement explanation.
+  final String explanation;
+
+  /// Number of related task edges.
+  final int relatedTaskCount;
+
+  /// Estimated duration in minutes.
+  final int estimateMinutes;
+}
+
+/// TaskStreamLink stores a relation that can be drawn across stream rows.
+class TaskStreamLink {
+  /// Creates a stream relation link.
+  const TaskStreamLink({
+    required this.fromTaskId,
+    required this.toTaskId,
+    required this.relationType,
+    this.transitionType = '',
+    this.streamId = '',
+    this.confidence = 0,
+    this.explanation = '',
+  });
+
+  /// Source projected task id.
+  final String fromTaskId;
+
+  /// Target projected task id.
+  final String toTaskId;
+
+  /// Relation type from the task graph.
+  final String relationType;
+
+  /// Attention-flow transition type.
+  final String transitionType;
+
+  /// Stable route identifier for coloring this transition.
+  final String streamId;
+
+  /// Relation confidence from 0 to 1.
+  final double confidence;
+
+  /// Human-readable relation explanation.
+  final String explanation;
+}
+
+/// PriorityTerrainProjection stores priority terrain points.
+class PriorityTerrainProjection {
+  /// Creates a priority terrain projection.
+  const PriorityTerrainProjection({
+    this.generatedAt,
+    this.points = const <PriorityTerrainPoint>[],
+    this.bands = const <PriorityTerrainBand>[],
+  });
+
+  /// Projection generation timestamp.
+  final DateTime? generatedAt;
+
+  /// Projected task points.
+  final List<PriorityTerrainPoint> points;
+
+  /// Named terrain bands.
+  final List<PriorityTerrainBand> bands;
+}
+
+/// PriorityTerrainPoint stores one task's terrain placement.
+class PriorityTerrainPoint {
+  /// Creates a priority terrain point.
+  const PriorityTerrainPoint({
+    required this.taskId,
+    required this.title,
+    required this.status,
+    required this.priority,
+    this.dueAt,
+    this.urgencyScore = 0,
+    this.valueScore = 0,
+    this.effortScore = 0,
+    this.riskScore = 0,
+    this.x = 0,
+    this.y = 0,
+    this.elevation = 0,
+    this.recommendedNextStep = '',
+    this.confidence = 0,
+    this.explanation = '',
+  });
+
+  /// Referenced task id.
+  final String taskId;
+
+  /// Display title.
+  final String title;
+
+  /// Backend task status.
+  final String status;
+
+  /// Backend task priority.
+  final String priority;
+
+  /// Optional due timestamp.
+  final DateTime? dueAt;
+
+  /// Normalized urgency score.
+  final double urgencyScore;
+
+  /// Normalized value score.
+  final double valueScore;
+
+  /// Normalized effort score.
+  final double effortScore;
+
+  /// Normalized risk score.
+  final double riskScore;
+
+  /// Normalized x coordinate.
+  final double x;
+
+  /// Normalized y coordinate.
+  final double y;
+
+  /// Combined priority score.
+  final double elevation;
+
+  /// Suggested next step.
+  final String recommendedNextStep;
+
+  /// Projection confidence from 0 to 1.
+  final double confidence;
+
+  /// Placement explanation.
+  final String explanation;
+}
+
+/// PriorityTerrainBand describes one terrain region.
+class PriorityTerrainBand {
+  /// Creates a priority terrain band.
+  const PriorityTerrainBand({
+    required this.id,
+    required this.title,
+    this.description = '',
+  });
+
+  /// Stable band id.
+  final String id;
+
+  /// Display title.
+  final String title;
+
+  /// Region explanation.
+  final String description;
+}
+
+/// TaskConstellationProjection stores spatial task graph nodes and edges.
+class TaskConstellationProjection {
+  /// Creates a task constellation projection.
+  const TaskConstellationProjection({
+    this.generatedAt,
+    this.nodes = const <TaskConstellationNode>[],
+    this.edges = const <TaskConstellationEdge>[],
+  });
+
+  /// Projection generation timestamp.
+  final DateTime? generatedAt;
+
+  /// Spatial task nodes.
+  final List<TaskConstellationNode> nodes;
+
+  /// Visual relation edges.
+  final List<TaskConstellationEdge> edges;
+}
+
+/// TaskConstellationNode stores one spatial task node.
+class TaskConstellationNode {
+  /// Creates a task constellation node.
+  const TaskConstellationNode({
+    required this.taskId,
+    required this.title,
+    required this.status,
+    this.category = '',
+    this.timeHorizon = '',
+    this.x = 0,
+    this.y = 0,
+    this.size = 0,
+    this.urgency = 0,
+    this.confidence = 0,
+    this.explanation = '',
+  });
+
+  /// Referenced task id.
+  final String taskId;
+
+  /// Display title.
+  final String title;
+
+  /// Backend task status.
+  final String status;
+
+  /// Context or category label.
+  final String category;
+
+  /// Time horizon label.
+  final String timeHorizon;
+
+  /// Normalized x coordinate.
+  final double x;
+
+  /// Normalized y coordinate.
+  final double y;
+
+  /// Normalized node size.
+  final double size;
+
+  /// Normalized urgency.
+  final double urgency;
+
+  /// Projection confidence.
+  final double confidence;
+
+  /// Placement explanation.
+  final String explanation;
+}
+
+/// TaskConstellationEdge stores one task relation edge.
+class TaskConstellationEdge {
+  /// Creates a task constellation edge.
+  const TaskConstellationEdge({
+    required this.fromTaskId,
+    required this.toTaskId,
+    required this.relationType,
+    this.confidence = 0,
+    this.source = '',
+    this.explanation = '',
+  });
+
+  /// Source task id.
+  final String fromTaskId;
+
+  /// Target task id.
+  final String toTaskId;
+
+  /// Relationship type.
+  final String relationType;
+
+  /// Edge confidence.
+  final double confidence;
+
+  /// Edge source.
+  final String source;
+
+  /// Edge explanation.
+  final String explanation;
+}
+
+/// CommitmentWeaveProjection stores commitment density rows and items.
+class CommitmentWeaveProjection {
+  /// Creates a commitment weave projection.
+  const CommitmentWeaveProjection({
+    this.generatedAt,
+    this.columns = const <CommitmentWeaveColumn>[],
+    this.rows = const <CommitmentWeaveRow>[],
+    this.items = const <CommitmentWeaveItem>[],
+  });
+
+  /// Projection generation timestamp.
+  final DateTime? generatedAt;
+
+  /// Time columns.
+  final List<CommitmentWeaveColumn> columns;
+
+  /// People, project, or domain rows.
+  final List<CommitmentWeaveRow> rows;
+
+  /// Task placements.
+  final List<CommitmentWeaveItem> items;
+}
+
+/// CommitmentWeaveColumn stores one time column.
+class CommitmentWeaveColumn {
+  /// Creates a commitment weave column.
+  const CommitmentWeaveColumn({
+    required this.id,
+    required this.title,
+    this.subtitle = '',
+  });
+
+  /// Stable column id.
+  final String id;
+
+  /// Display title.
+  final String title;
+
+  /// Secondary display text.
+  final String subtitle;
+}
+
+/// CommitmentWeaveRow stores one commitment row.
+class CommitmentWeaveRow {
+  /// Creates a commitment weave row.
+  const CommitmentWeaveRow({
+    required this.id,
+    required this.title,
+    required this.group,
+    this.density = 0,
+    this.conflict = false,
+  });
+
+  /// Stable row id.
+  final String id;
+
+  /// Display title.
+  final String title;
+
+  /// Row group label.
+  final String group;
+
+  /// Normalized density.
+  final double density;
+
+  /// Whether row contains conflicts.
+  final bool conflict;
+}
+
+/// CommitmentWeaveItem stores one task placement in the weave.
+class CommitmentWeaveItem {
+  /// Creates a commitment weave item.
+  const CommitmentWeaveItem({
+    required this.taskId,
+    required this.title,
+    required this.rowId,
+    required this.columnId,
+    required this.status,
+    required this.priority,
+    this.density = 0,
+    this.conflict = false,
+    this.explanation = '',
+  });
+
+  /// Referenced task id.
+  final String taskId;
+
+  /// Display title.
+  final String title;
+
+  /// Row id placement.
+  final String rowId;
+
+  /// Column id placement.
+  final String columnId;
+
+  /// Backend task status.
+  final String status;
+
+  /// Backend task priority.
+  final String priority;
+
+  /// Normalized item density.
+  final double density;
+
+  /// Whether the item marks a conflict.
+  final bool conflict;
+
+  /// Placement explanation.
+  final String explanation;
+}
+
 /// TaskReviewReport summarizes task steward review output.
 class TaskReviewReport {
   /// Creates a task review report.
@@ -1058,4 +1979,22 @@ class EndpointStatus {
 
   /// Optional status detail.
   final String message;
+}
+
+/// Converts a decoded model value to a display string.
+String _modelString(dynamic value, {String fallback = ''}) {
+  if (value == null) {
+    return fallback;
+  }
+  final text = value.toString();
+  return text.isEmpty ? fallback : text;
+}
+
+/// Converts a decoded model value to an optional timestamp.
+DateTime? _modelDateTime(dynamic value) {
+  final text = _modelString(value);
+  if (text.isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(text);
 }

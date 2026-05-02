@@ -67,6 +67,28 @@ class McpJsonRpcClient {
     return content;
   }
 
+  /// Lists tool names exposed by this MCP endpoint.
+  Future<List<String>> listToolNames() async {
+    final id = _nextId++;
+    final payload = <String, dynamic>{
+      'jsonrpc': '2.0',
+      'id': id,
+      'method': 'tools/list',
+      'params': <String, dynamic>{},
+    };
+    await _log('POST $endpoint tools/list id=$id');
+    final response = await _http.post(
+      Uri.parse(endpoint),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+    await _log('POST $endpoint tools/list id=$id -> ${response.statusCode}');
+    if (response.statusCode != 200) {
+      throw McpException('HTTP ${response.statusCode} from $endpoint');
+    }
+    return parseToolNames(jsonDecode(response.body));
+  }
+
   /// Closes the underlying HTTP client.
   void close() {
     _http.close();
@@ -95,6 +117,29 @@ dynamic parseToolStructuredContent(dynamic decoded) {
   return result['structuredContent'];
 }
 
+/// Extracts tool names from a MCP tools/list response.
+List<String> parseToolNames(dynamic decoded) {
+  if (decoded is! Map<String, dynamic>) {
+    throw const McpException('MCP response was not an object');
+  }
+  if (decoded['error'] != null) {
+    throw McpException('JSON-RPC error: ${decoded['error']}');
+  }
+  final result = decoded['result'];
+  if (result is! Map<String, dynamic>) {
+    throw const McpException('MCP tools/list result was not an object');
+  }
+  final tools = result['tools'];
+  if (tools is! List) {
+    return const <String>[];
+  }
+  return tools
+      .whereType<Map<String, dynamic>>()
+      .map((tool) => stringValue(tool['name']))
+      .where((name) => name.isNotEmpty)
+      .toList();
+}
+
 /// MemoryClient wraps the user-facing memory MCP tools.
 class MemoryClient {
   /// Creates a memory tool client.
@@ -104,6 +149,11 @@ class MemoryClient {
 
   /// MCP endpoint used by this client.
   String get endpoint => _rpc.endpoint;
+
+  /// Lists MCP tool names for compatibility checks.
+  Future<List<String>> listToolNames() {
+    return _rpc.listToolNames();
+  }
 
   /// Searches catalog records for the memory panel and source list.
   Future<List<MemoryRecord>> searchCatalog({
@@ -300,6 +350,11 @@ class TasksClient {
   /// MCP endpoint used by this client.
   String get endpoint => _rpc.endpoint;
 
+  /// Lists task MCP tool names for compatibility checks.
+  Future<List<String>> listToolNames() {
+    return _rpc.listToolNames();
+  }
+
   /// Lists operational tasks.
   Future<List<WorkspaceTask>> listTasks({
     TaskFilterState filters = const TaskFilterState(),
@@ -359,6 +414,18 @@ class TasksClient {
     DateTime? dueAt,
     DateTime? scheduledAt,
     List<String> topics = const <String>[],
+    int estimateMinutes = 0,
+    String energyRequired = '',
+    double effort = 0,
+    double value = 0,
+    double urgency = 0,
+    double risk = 0,
+    String context = '',
+    String domain = '',
+    String location = '',
+    String owner = '',
+    String source = '',
+    double confidence = 0,
     List<TaskMemoryLinkDraft> memoryLinks = const <TaskMemoryLinkDraft>[],
     String actor = 'aurora-ui',
   }) async {
@@ -378,6 +445,21 @@ class TasksClient {
     if (topics.isNotEmpty) {
       arguments['topics'] = topics;
     }
+    _addTaskMetadataArguments(
+      arguments,
+      estimateMinutes: estimateMinutes,
+      energyRequired: energyRequired,
+      effort: effort,
+      value: value,
+      urgency: urgency,
+      risk: risk,
+      context: context,
+      domain: domain,
+      location: location,
+      owner: owner,
+      source: source,
+      confidence: confidence,
+    );
     if (memoryLinks.isNotEmpty) {
       arguments['memory_links'] = memoryLinks
           .map(_memoryLinkDraftPayload)
@@ -400,6 +482,18 @@ class TasksClient {
     bool clearScheduledAt = false,
     List<String>? topics,
     bool replaceTopics = false,
+    int? estimateMinutes,
+    String? energyRequired,
+    double? effort,
+    double? value,
+    double? urgency,
+    double? risk,
+    String? context,
+    String? domain,
+    String? location,
+    String? owner,
+    String? source,
+    double? confidence,
     String actor = 'aurora-ui',
   }) async {
     final arguments = <String, dynamic>{'task_id': taskId, 'actor': actor};
@@ -431,6 +525,21 @@ class TasksClient {
       arguments['topics'] = topics;
       arguments['replace_topics'] = replaceTopics;
     }
+    _addOptionalTaskMetadataArguments(
+      arguments,
+      estimateMinutes: estimateMinutes,
+      energyRequired: energyRequired,
+      effort: effort,
+      value: value,
+      urgency: urgency,
+      risk: risk,
+      context: context,
+      domain: domain,
+      location: location,
+      owner: owner,
+      source: source,
+      confidence: confidence,
+    );
     final content = await _rpc.callTool('update_task', arguments);
     return parseWorkspaceTask(content);
   }
@@ -658,6 +767,160 @@ class TasksClient {
     return parseTaskReviewReport(content);
   }
 
+  /// Lists explicit task relation records.
+  Future<List<TaskRelationRecord>> listTaskRelations() async {
+    final content = await _rpc.callTool('list_task_relations');
+    return parseTaskRelations(content);
+  }
+
+  /// Creates or updates one task relation.
+  Future<TaskRelationRecord> upsertTaskRelation({
+    required String fromTaskId,
+    required String toTaskId,
+    String relationType = 'related_to',
+    double confidence = 1,
+    String source = 'explicit',
+    String explanation = '',
+    String actor = 'aurora-ui',
+  }) async {
+    final content = await _rpc
+        .callTool('upsert_task_relation', <String, dynamic>{
+          'from_task_id': fromTaskId,
+          'to_task_id': toTaskId,
+          'relation_type': relationType,
+          'confidence': confidence,
+          'source': source,
+          'explanation': explanation,
+          'actor': actor,
+        });
+    return parseTaskRelation(content);
+  }
+
+  /// Deletes one task relation.
+  Future<void> deleteTaskRelation(
+    String relationId, {
+    String actor = 'aurora-ui',
+  }) async {
+    await _rpc.callTool('delete_task_relation', <String, dynamic>{
+      'relation_id': relationId,
+      'actor': actor,
+    });
+  }
+
+  /// Lists first-class task commitments.
+  Future<List<TaskCommitment>> listCommitments() async {
+    final content = await _rpc.callTool('list_commitments');
+    return parseTaskCommitments(content);
+  }
+
+  /// Creates or updates one first-class task commitment.
+  Future<TaskCommitment> upsertCommitment({
+    String commitmentId = '',
+    required String taskId,
+    List<String> people = const <String>[],
+    String domain = '',
+    String project = '',
+    String timeWindow = '',
+    String responsibility = '',
+    String promiseSource = '',
+    String hardness = '',
+    String consequence = '',
+    String actor = 'aurora-ui',
+  }) async {
+    final arguments = <String, dynamic>{
+      'task_id': taskId,
+      'people': people,
+      'domain': domain,
+      'project': project,
+      'time_window': timeWindow,
+      'responsibility': responsibility,
+      'promise_source': promiseSource,
+      'hardness': hardness,
+      'consequence': consequence,
+      'actor': actor,
+    };
+    if (commitmentId.isNotEmpty) {
+      arguments['commitment_id'] = commitmentId;
+    }
+    final content = await _rpc.callTool('upsert_commitment', arguments);
+    return parseTaskCommitment(content);
+  }
+
+  /// Deletes one first-class task commitment.
+  Future<void> deleteCommitment(
+    String commitmentId, {
+    String actor = 'aurora-ui',
+  }) async {
+    await _rpc.callTool('delete_commitment', <String, dynamic>{
+      'commitment_id': commitmentId,
+      'actor': actor,
+    });
+  }
+
+  /// Lists inferred task relation suggestions.
+  Future<List<TaskRelationSuggestion>> suggestTaskRelationships() async {
+    final content = await _rpc.callTool('suggest_task_relationships');
+    return parseTaskRelationSuggestions(content);
+  }
+
+  /// Lists inferred task metadata suggestions.
+  Future<List<TaskMetadataSuggestion>> suggestTaskMetadata() async {
+    final content = await _rpc.callTool('suggest_task_metadata');
+    return parseTaskMetadataSuggestions(content);
+  }
+
+  /// Lists inferred task commitment suggestions.
+  Future<List<TaskCommitmentSuggestion>> suggestCommitments() async {
+    final content = await _rpc.callTool('suggest_commitments');
+    return parseTaskCommitmentSuggestions(content);
+  }
+
+  /// Accepts one inferred task suggestion.
+  Future<void> applyTaskSuggestion(
+    String suggestionId, {
+    String actor = 'aurora-ui',
+  }) async {
+    await _rpc.callTool('apply_task_suggestion', <String, dynamic>{
+      'suggestion_id': suggestionId,
+      'actor': actor,
+    });
+  }
+
+  /// Dismisses one inferred task suggestion.
+  Future<void> dismissTaskSuggestion(
+    String suggestionId, {
+    String actor = 'aurora-ui',
+  }) async {
+    await _rpc.callTool('dismiss_task_suggestion', <String, dynamic>{
+      'suggestion_id': suggestionId,
+      'actor': actor,
+    });
+  }
+
+  /// Projects tasks into attention-flow lanes.
+  Future<TaskStreamProjection> projectTaskStream() async {
+    final content = await _rpc.callTool('project_task_stream');
+    return parseTaskStreamProjection(content);
+  }
+
+  /// Projects tasks into a priority terrain.
+  Future<PriorityTerrainProjection> projectPriorityTerrain() async {
+    final content = await _rpc.callTool('project_priority_terrain');
+    return parsePriorityTerrainProjection(content);
+  }
+
+  /// Projects tasks into a relationship constellation.
+  Future<TaskConstellationProjection> projectTaskConstellation() async {
+    final content = await _rpc.callTool('project_task_constellation');
+    return parseTaskConstellationProjection(content);
+  }
+
+  /// Projects tasks into a commitment density weave.
+  Future<CommitmentWeaveProjection> projectCommitmentWeave() async {
+    final content = await _rpc.callTool('project_commitment_weave');
+    return parseCommitmentWeaveProjection(content);
+  }
+
   /// Closes the underlying JSON-RPC HTTP client.
   void close() {
     _rpc.close();
@@ -801,11 +1064,24 @@ WorkspaceTask parseWorkspaceTask(dynamic content) {
     topics: stringList(task['topics']),
     overdue: boolValue(task['overdue']),
     memoryLinks: parseTaskMemoryLinks(task['memory_links']),
+    estimateMinutes: intValue(task['estimate_minutes']),
+    energyRequired: stringValue(task['energy_required']),
+    effort: doubleValue(task['effort']),
+    value: doubleValue(task['value']),
+    urgency: doubleValue(task['urgency']),
+    risk: doubleValue(task['risk']),
+    context: stringValue(task['context']),
+    domain: stringValue(task['domain']),
+    location: stringValue(task['location']),
+    owner: stringValue(task['owner']),
+    source: stringValue(task['source']),
+    confidence: doubleValue(task['confidence']),
     createdAt: parseOptionalDateTime(task['created_at']),
     updatedAt: parseOptionalDateTime(task['updated_at']),
     completedAt: parseOptionalDateTime(task['completed_at']),
     canceledAt: parseOptionalDateTime(task['canceled_at']),
     active: status == 'open' || status == 'waiting' || status == 'blocked',
+    idempotencyKey: stringValue(task['idempotency_key']),
   );
 }
 
@@ -927,6 +1203,389 @@ List<TaskReviewRecommendation> parseTaskReviewRecommendations(dynamic content) {
   }).toList();
 }
 
+/// Parses explicit task relation records.
+List<TaskRelationRecord> parseTaskRelations(dynamic content) {
+  if (content is! List) {
+    return const <TaskRelationRecord>[];
+  }
+  return content
+      .whereType<Map<String, dynamic>>()
+      .map(parseTaskRelation)
+      .toList();
+}
+
+/// Parses one explicit task relation record.
+TaskRelationRecord parseTaskRelation(dynamic content) {
+  final relation = content is Map<String, dynamic>
+      ? content
+      : <String, dynamic>{};
+  return TaskRelationRecord(
+    id: stringValue(relation['id']),
+    fromTaskId: stringValue(relation['from_task_id']),
+    toTaskId: stringValue(relation['to_task_id']),
+    relationType: stringValue(
+      relation['relation_type'],
+      fallback: 'related_to',
+    ),
+    confidence: doubleValue(relation['confidence']),
+    source: stringValue(relation['source']),
+    explanation: stringValue(relation['explanation']),
+    actor: stringValue(relation['actor']),
+    createdAt: parseOptionalDateTime(relation['created_at']),
+    updatedAt: parseOptionalDateTime(relation['updated_at']),
+  );
+}
+
+/// Parses inferred task relation suggestions.
+List<TaskRelationSuggestion> parseTaskRelationSuggestions(dynamic content) {
+  if (content is! List) {
+    return const <TaskRelationSuggestion>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((suggestion) {
+    return TaskRelationSuggestion(
+      id: stringValue(suggestion['id']),
+      fromTaskId: stringValue(suggestion['from_task_id']),
+      toTaskId: stringValue(suggestion['to_task_id']),
+      relationType: stringValue(
+        suggestion['relation_type'],
+        fallback: 'related_to',
+      ),
+      confidence: doubleValue(suggestion['confidence']),
+      explanation: stringValue(suggestion['explanation']),
+    );
+  }).toList();
+}
+
+/// Parses inferred task metadata suggestions.
+List<TaskMetadataSuggestion> parseTaskMetadataSuggestions(dynamic content) {
+  if (content is! List) {
+    return const <TaskMetadataSuggestion>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((suggestion) {
+    return TaskMetadataSuggestion(
+      id: stringValue(suggestion['id']),
+      taskId: stringValue(suggestion['task_id']),
+      estimateMinutes: intValue(suggestion['estimate_minutes']),
+      energyRequired: stringValue(suggestion['energy_required']),
+      effort: doubleValue(suggestion['effort']),
+      value: doubleValue(suggestion['value']),
+      urgency: doubleValue(suggestion['urgency']),
+      risk: doubleValue(suggestion['risk']),
+      context: stringValue(suggestion['context']),
+      domain: stringValue(suggestion['domain']),
+      location: stringValue(suggestion['location']),
+      owner: stringValue(suggestion['owner']),
+      source: stringValue(suggestion['source']),
+      confidence: doubleValue(suggestion['confidence']),
+      explanation: stringValue(suggestion['explanation']),
+    );
+  }).toList();
+}
+
+/// Parses inferred task commitment suggestions.
+List<TaskCommitmentSuggestion> parseTaskCommitmentSuggestions(dynamic content) {
+  if (content is! List) {
+    return const <TaskCommitmentSuggestion>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((suggestion) {
+    return TaskCommitmentSuggestion(
+      id: stringValue(suggestion['id']),
+      taskId: stringValue(suggestion['task_id']),
+      people: stringList(suggestion['people']),
+      domain: stringValue(suggestion['domain']),
+      project: stringValue(suggestion['project']),
+      timeWindow: stringValue(suggestion['time_window']),
+      responsibility: stringValue(suggestion['responsibility']),
+      promiseSource: stringValue(suggestion['promise_source']),
+      hardness: stringValue(suggestion['hardness']),
+      consequence: stringValue(suggestion['consequence']),
+      confidence: doubleValue(suggestion['confidence']),
+      explanation: stringValue(suggestion['explanation']),
+    );
+  }).toList();
+}
+
+/// Parses stored task commitments.
+List<TaskCommitment> parseTaskCommitments(dynamic content) {
+  if (content is! List) {
+    return const <TaskCommitment>[];
+  }
+  return content
+      .whereType<Map<String, dynamic>>()
+      .map(parseTaskCommitment)
+      .toList();
+}
+
+/// Parses one stored task commitment.
+TaskCommitment parseTaskCommitment(dynamic content) {
+  final commitment = content is Map<String, dynamic>
+      ? content
+      : <String, dynamic>{};
+  return TaskCommitment(
+    id: stringValue(commitment['id']),
+    taskId: stringValue(commitment['task_id']),
+    people: stringList(commitment['people']),
+    domain: stringValue(commitment['domain']),
+    project: stringValue(commitment['project']),
+    timeWindow: stringValue(commitment['time_window']),
+    responsibility: stringValue(commitment['responsibility']),
+    promiseSource: stringValue(commitment['promise_source']),
+    hardness: stringValue(commitment['hardness']),
+    consequence: stringValue(commitment['consequence']),
+    actor: stringValue(commitment['actor']),
+    createdAt: parseOptionalDateTime(commitment['created_at']),
+    updatedAt: parseOptionalDateTime(commitment['updated_at']),
+  );
+}
+
+/// Parses a task stream projection.
+TaskStreamProjection parseTaskStreamProjection(dynamic content) {
+  final projection = content is Map<String, dynamic>
+      ? content
+      : <String, dynamic>{};
+  return TaskStreamProjection(
+    generatedAt: parseOptionalDateTime(projection['generated_at']),
+    lanes: parseTaskStreamLanes(projection['lanes']),
+    links: parseTaskStreamLinks(projection['links']),
+  );
+}
+
+/// Parses task stream lanes.
+List<TaskStreamLane> parseTaskStreamLanes(dynamic content) {
+  if (content is! List) {
+    return const <TaskStreamLane>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((lane) {
+    return TaskStreamLane(
+      id: stringValue(lane['id']),
+      title: stringValue(lane['title'], fallback: 'Lane'),
+      subtitle: stringValue(lane['subtitle']),
+      cards: parseTaskStreamCards(lane['cards']),
+    );
+  }).toList();
+}
+
+/// Parses task stream cards.
+List<TaskStreamCard> parseTaskStreamCards(dynamic content) {
+  if (content is! List) {
+    return const <TaskStreamCard>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((card) {
+    return TaskStreamCard(
+      taskId: stringValue(card['task_id']),
+      title: stringValue(card['title'], fallback: 'Untitled task'),
+      status: stringValue(card['status'], fallback: 'open'),
+      priority: stringValue(card['priority'], fallback: 'normal'),
+      dueAt: parseOptionalDateTime(card['due_at']),
+      scheduledAt: parseOptionalDateTime(card['scheduled_at']),
+      context: stringValue(card['context']),
+      domain: stringValue(card['domain']),
+      project: stringValue(card['project']),
+      owner: stringValue(card['owner']),
+      flowLane: stringValue(card['flow_lane']),
+      streamId: stringValue(card['stream_id']),
+      readyNow: boolValue(card['ready_now']),
+      nextBestAction: stringValue(card['next_best_action']),
+      batchScore: doubleValue(card['batch_score']),
+      contextSwitchCost: doubleValue(card['context_switch_cost']),
+      costLabel: stringValue(
+        card['cost_label'],
+        fallback: stringValue(card['cost']),
+      ),
+      costScore: doubleValue(card['cost_score']),
+      bottleneckScore: doubleValue(card['bottleneck_score']),
+      confidence: doubleValue(card['confidence']),
+      explanation: stringValue(card['explanation']),
+      relatedTaskCount: intValue(card['related_task_count']),
+      estimateMinutes: intValue(card['estimate_minutes']),
+    );
+  }).toList();
+}
+
+/// Parses task stream relation links.
+List<TaskStreamLink> parseTaskStreamLinks(dynamic content) {
+  if (content is! List) {
+    return const <TaskStreamLink>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((link) {
+    return TaskStreamLink(
+      fromTaskId: stringValue(link['from_task_id']),
+      toTaskId: stringValue(link['to_task_id']),
+      relationType: stringValue(link['relation_type']),
+      transitionType: stringValue(link['transition_type']),
+      streamId: stringValue(link['stream_id']),
+      confidence: doubleValue(link['confidence']),
+      explanation: stringValue(link['explanation']),
+    );
+  }).toList();
+}
+
+/// Parses a priority terrain projection.
+PriorityTerrainProjection parsePriorityTerrainProjection(dynamic content) {
+  final projection = content is Map<String, dynamic>
+      ? content
+      : <String, dynamic>{};
+  return PriorityTerrainProjection(
+    generatedAt: parseOptionalDateTime(projection['generated_at']),
+    points: parsePriorityTerrainPoints(projection['points']),
+    bands: parsePriorityTerrainBands(projection['bands']),
+  );
+}
+
+/// Parses priority terrain points.
+List<PriorityTerrainPoint> parsePriorityTerrainPoints(dynamic content) {
+  if (content is! List) {
+    return const <PriorityTerrainPoint>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((point) {
+    return PriorityTerrainPoint(
+      taskId: stringValue(point['task_id']),
+      title: stringValue(point['title'], fallback: 'Untitled task'),
+      status: stringValue(point['status'], fallback: 'open'),
+      priority: stringValue(point['priority'], fallback: 'normal'),
+      dueAt: parseOptionalDateTime(point['due_at']),
+      urgencyScore: doubleValue(point['urgency_score']),
+      valueScore: doubleValue(point['value_score']),
+      effortScore: doubleValue(point['effort_score']),
+      riskScore: doubleValue(point['risk_score']),
+      x: doubleValue(point['x']),
+      y: doubleValue(point['y']),
+      elevation: doubleValue(point['elevation']),
+      recommendedNextStep: stringValue(point['recommended_next_step']),
+      confidence: doubleValue(point['confidence']),
+      explanation: stringValue(point['explanation']),
+    );
+  }).toList();
+}
+
+/// Parses priority terrain bands.
+List<PriorityTerrainBand> parsePriorityTerrainBands(dynamic content) {
+  if (content is! List) {
+    return const <PriorityTerrainBand>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((band) {
+    return PriorityTerrainBand(
+      id: stringValue(band['id']),
+      title: stringValue(band['title'], fallback: 'Band'),
+      description: stringValue(band['description']),
+    );
+  }).toList();
+}
+
+/// Parses a task constellation projection.
+TaskConstellationProjection parseTaskConstellationProjection(dynamic content) {
+  final projection = content is Map<String, dynamic>
+      ? content
+      : <String, dynamic>{};
+  return TaskConstellationProjection(
+    generatedAt: parseOptionalDateTime(projection['generated_at']),
+    nodes: parseTaskConstellationNodes(projection['nodes']),
+    edges: parseTaskConstellationEdges(projection['edges']),
+  );
+}
+
+/// Parses task constellation nodes.
+List<TaskConstellationNode> parseTaskConstellationNodes(dynamic content) {
+  if (content is! List) {
+    return const <TaskConstellationNode>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((node) {
+    return TaskConstellationNode(
+      taskId: stringValue(node['task_id']),
+      title: stringValue(node['title'], fallback: 'Untitled task'),
+      status: stringValue(node['status'], fallback: 'open'),
+      category: stringValue(node['category']),
+      timeHorizon: stringValue(node['time_horizon']),
+      x: doubleValue(node['x']),
+      y: doubleValue(node['y']),
+      size: doubleValue(node['size']),
+      urgency: doubleValue(node['urgency']),
+      confidence: doubleValue(node['confidence']),
+      explanation: stringValue(node['explanation']),
+    );
+  }).toList();
+}
+
+/// Parses task constellation edges.
+List<TaskConstellationEdge> parseTaskConstellationEdges(dynamic content) {
+  if (content is! List) {
+    return const <TaskConstellationEdge>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((edge) {
+    return TaskConstellationEdge(
+      fromTaskId: stringValue(edge['from_task_id']),
+      toTaskId: stringValue(edge['to_task_id']),
+      relationType: stringValue(edge['relation_type']),
+      confidence: doubleValue(edge['confidence']),
+      source: stringValue(edge['source']),
+      explanation: stringValue(edge['explanation']),
+    );
+  }).toList();
+}
+
+/// Parses a commitment weave projection.
+CommitmentWeaveProjection parseCommitmentWeaveProjection(dynamic content) {
+  final projection = content is Map<String, dynamic>
+      ? content
+      : <String, dynamic>{};
+  return CommitmentWeaveProjection(
+    generatedAt: parseOptionalDateTime(projection['generated_at']),
+    columns: parseCommitmentWeaveColumns(projection['columns']),
+    rows: parseCommitmentWeaveRows(projection['rows']),
+    items: parseCommitmentWeaveItems(projection['items']),
+  );
+}
+
+/// Parses commitment weave columns.
+List<CommitmentWeaveColumn> parseCommitmentWeaveColumns(dynamic content) {
+  if (content is! List) {
+    return const <CommitmentWeaveColumn>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((column) {
+    return CommitmentWeaveColumn(
+      id: stringValue(column['id']),
+      title: stringValue(column['title'], fallback: 'Time'),
+      subtitle: stringValue(column['subtitle']),
+    );
+  }).toList();
+}
+
+/// Parses commitment weave rows.
+List<CommitmentWeaveRow> parseCommitmentWeaveRows(dynamic content) {
+  if (content is! List) {
+    return const <CommitmentWeaveRow>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((row) {
+    return CommitmentWeaveRow(
+      id: stringValue(row['id']),
+      title: stringValue(row['title'], fallback: 'Row'),
+      group: stringValue(row['group'], fallback: 'Domain'),
+      density: doubleValue(row['density']),
+      conflict: boolValue(row['conflict']),
+    );
+  }).toList();
+}
+
+/// Parses commitment weave items.
+List<CommitmentWeaveItem> parseCommitmentWeaveItems(dynamic content) {
+  if (content is! List) {
+    return const <CommitmentWeaveItem>[];
+  }
+  return content.whereType<Map<String, dynamic>>().map((item) {
+    return CommitmentWeaveItem(
+      taskId: stringValue(item['task_id']),
+      title: stringValue(item['title'], fallback: 'Untitled task'),
+      rowId: stringValue(item['row_id']),
+      columnId: stringValue(item['column_id']),
+      status: stringValue(item['status'], fallback: 'open'),
+      priority: stringValue(item['priority'], fallback: 'normal'),
+      density: doubleValue(item['density']),
+      conflict: boolValue(item['conflict']),
+      explanation: stringValue(item['explanation']),
+    );
+  }).toList();
+}
+
 /// Converts a dynamic value to a display string.
 String stringValue(dynamic value, {String fallback = ''}) {
   if (value == null) {
@@ -965,6 +1624,23 @@ int intValue(dynamic value, {int fallback = 0}) {
   }
   if (value is String) {
     return int.tryParse(value) ?? fallback;
+  }
+  return fallback;
+}
+
+/// Converts a dynamic value to a double.
+double doubleValue(dynamic value, {double fallback = 0}) {
+  if (value is double) {
+    return value;
+  }
+  if (value is int) {
+    return value.toDouble();
+  }
+  if (value is num) {
+    return value.toDouble();
+  }
+  if (value is String) {
+    return double.tryParse(value) ?? fallback;
   }
   return fallback;
 }
@@ -1044,6 +1720,114 @@ Map<String, dynamic> _taskQueryArguments({
     arguments['overdue_only'] = true;
   }
   return arguments;
+}
+
+/// Adds non-empty task graph metadata arguments to a create payload.
+void _addTaskMetadataArguments(
+  Map<String, dynamic> arguments, {
+  required int estimateMinutes,
+  required String energyRequired,
+  required double effort,
+  required double value,
+  required double urgency,
+  required double risk,
+  required String context,
+  required String domain,
+  required String location,
+  required String owner,
+  required String source,
+  required double confidence,
+}) {
+  if (estimateMinutes > 0) {
+    arguments['estimate_minutes'] = estimateMinutes;
+  }
+  if (energyRequired.trim().isNotEmpty) {
+    arguments['energy_required'] = energyRequired.trim();
+  }
+  if (effort > 0) {
+    arguments['effort'] = effort;
+  }
+  if (value > 0) {
+    arguments['value'] = value;
+  }
+  if (urgency > 0) {
+    arguments['urgency'] = urgency;
+  }
+  if (risk > 0) {
+    arguments['risk'] = risk;
+  }
+  if (context.trim().isNotEmpty) {
+    arguments['context'] = context.trim();
+  }
+  if (domain.trim().isNotEmpty) {
+    arguments['domain'] = domain.trim();
+  }
+  if (location.trim().isNotEmpty) {
+    arguments['location'] = location.trim();
+  }
+  if (owner.trim().isNotEmpty) {
+    arguments['owner'] = owner.trim();
+  }
+  if (source.trim().isNotEmpty) {
+    arguments['source'] = source.trim();
+  }
+  if (confidence > 0) {
+    arguments['confidence'] = confidence;
+  }
+}
+
+/// Adds nullable task graph metadata arguments to an update payload.
+void _addOptionalTaskMetadataArguments(
+  Map<String, dynamic> arguments, {
+  required int? estimateMinutes,
+  required String? energyRequired,
+  required double? effort,
+  required double? value,
+  required double? urgency,
+  required double? risk,
+  required String? context,
+  required String? domain,
+  required String? location,
+  required String? owner,
+  required String? source,
+  required double? confidence,
+}) {
+  if (estimateMinutes != null) {
+    arguments['estimate_minutes'] = estimateMinutes;
+  }
+  if (energyRequired != null) {
+    arguments['energy_required'] = energyRequired.trim();
+  }
+  if (effort != null) {
+    arguments['effort'] = effort;
+  }
+  if (value != null) {
+    arguments['value'] = value;
+  }
+  if (urgency != null) {
+    arguments['urgency'] = urgency;
+  }
+  if (risk != null) {
+    arguments['risk'] = risk;
+  }
+  if (context != null) {
+    arguments['context'] = context.trim();
+  }
+  if (domain != null) {
+    arguments['domain'] = domain.trim();
+  }
+  if (location != null) {
+    arguments['location'] = location.trim();
+  }
+  if (owner != null) {
+    arguments['owner'] = owner.trim();
+  }
+  if (source != null) {
+    arguments['source'] = source.trim();
+  }
+  if (confidence != null) {
+    arguments['confidence'] = confidence;
+  }
 }
 
 /// Formats a timestamp for task MCP arguments.

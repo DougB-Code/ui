@@ -4,6 +4,8 @@ library;
 import 'package:agentawesome_ui/clients/assistant_client.dart';
 import 'package:agentawesome_ui/clients/mcp_client.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 /// Runs parser coverage for client helpers.
 void main() {
@@ -23,6 +25,24 @@ void main() {
       expect(event.id, 'event-1');
       expect(event.text, 'Hello');
       expect(event.partial, isTrue);
+    });
+
+    test('deletes sessions through the ADK endpoint', () async {
+      final client = AssistantClient(
+        baseUrl: 'http://127.0.0.1:1',
+        appName: 'test-app',
+        userId: 'user-1',
+        httpClient: MockClient((request) async {
+          expect(request.method, 'DELETE');
+          expect(
+            request.url.path,
+            '/apps/test-app/users/user-1/sessions/session-1',
+          );
+          return http.Response('', 204);
+        }),
+      );
+
+      await client.deleteSession('session-1');
     });
 
     test('parses SSE error events', () {
@@ -148,6 +168,22 @@ void main() {
         },
       });
       expect(hidden.text, isEmpty);
+
+      final sessionScoped = messageTextWithRuntimePolicy(
+        'Create a task.',
+        sessionId: 'session-live',
+      );
+      expect(sessionScoped, contains('personal_pilot:session-live:'));
+      final visibleSessionScoped = parseAssistantEvent(<String, dynamic>{
+        'id': 'event-session-policy',
+        'author': 'user',
+        'content': <String, dynamic>{
+          'parts': <Map<String, dynamic>>[
+            <String, dynamic>{'text': sessionScoped},
+          ],
+        },
+      });
+      expect(visibleSessionScoped.text, 'Create a task.');
     });
   });
 
@@ -236,7 +272,20 @@ void main() {
           'title': 'Draft brief',
           'status': 'open',
           'priority': 'high',
+          'idempotency_key': 'personal_pilot:session-live:draft-brief',
           'topics': <String>['brief'],
+          'estimate_minutes': 45,
+          'energy_required': 'deep',
+          'effort': 0.6,
+          'value': 0.8,
+          'urgency': 0.7,
+          'risk': 0.2,
+          'context': 'Focus',
+          'domain': 'Work',
+          'location': 'Desk',
+          'owner': 'Doug',
+          'source': 'Personal Tasks',
+          'confidence': 0.9,
           'memory_links': <Map<String, dynamic>>[
             <String, dynamic>{
               'id': 'link-1',
@@ -255,8 +304,144 @@ void main() {
       expect(tasks.length, 2);
       expect(tasks.first.active, isTrue);
       expect(tasks.first.priority, 'high');
+      expect(tasks.first.estimateMinutes, 45);
+      expect(tasks.first.context, 'Focus');
+      expect(tasks.first.confidence, 0.9);
+      expect(tasks.first.idempotencyKey, contains('session-live'));
       expect(tasks.first.memoryLinks.single.memoryCatalogId, 'cat-1');
       expect(tasks.last.done, isTrue);
+    });
+
+    test('parses task graph corrections', () {
+      final relations = parseTaskRelations(<Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'relation-1',
+          'from_task_id': 'task-1',
+          'to_task_id': 'task-2',
+          'relation_type': 'depends_on',
+          'confidence': 0.75,
+          'source': 'explicit',
+          'explanation': 'Draft before review.',
+        },
+      ]);
+      final suggestions = parseTaskRelationSuggestions(<Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'suggestion-1',
+          'from_task_id': 'task-1',
+          'to_task_id': 'task-3',
+          'relation_type': 'same_context',
+          'confidence': 0.65,
+          'explanation': 'Both are focus work.',
+        },
+      ]);
+      final metadataSuggestions = parseTaskMetadataSuggestions(
+        <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'suggestion-metadata-1',
+            'task_id': 'task-1',
+            'estimate_minutes': 45,
+            'energy_required': 'deep',
+            'context': 'Focus',
+            'domain': 'Work',
+            'confidence': 0.72,
+            'explanation': 'Inferred from task text.',
+          },
+        ],
+      );
+      final commitmentSuggestions = parseTaskCommitmentSuggestions(
+        <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'suggestion-commitment-1',
+            'task_id': 'task-1',
+            'people': <String>['Doug'],
+            'domain': 'Work',
+            'project': 'Proposal',
+            'time_window': 'This week',
+            'responsibility': 'owned',
+            'promise_source': 'Task',
+            'hardness': 'soft',
+            'consequence': 'Commitment may be forgotten.',
+            'confidence': 0.64,
+            'explanation': 'Inferred from due date.',
+          },
+        ],
+      );
+      final commitments = parseTaskCommitments(<Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'commitment-1',
+          'task_id': 'task-1',
+          'people': <String>['Doug', 'Family'],
+          'domain': 'Errands',
+          'project': 'Groceries',
+          'time_window': 'This week',
+          'responsibility': 'owned',
+          'promise_source': 'Personal Tasks',
+          'hardness': 'soft',
+          'consequence': 'No breakfast.',
+        },
+      ]);
+
+      expect(relations.single.relationType, 'depends_on');
+      expect(relations.single.confidence, 0.75);
+      expect(suggestions.single.id, 'suggestion-1');
+      expect(suggestions.single.relationType, 'same_context');
+      expect(metadataSuggestions.single.context, 'Focus');
+      expect(metadataSuggestions.single.estimateMinutes, 45);
+      expect(commitmentSuggestions.single.project, 'Proposal');
+      expect(commitmentSuggestions.single.confidence, 0.64);
+      expect(commitments.single.people, <String>['Doug', 'Family']);
+      expect(commitments.single.project, 'Groceries');
+    });
+
+    test('parses task stream links', () {
+      final projection = parseTaskStreamProjection(<String, dynamic>{
+        'lanes': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'now',
+            'title': 'Now',
+            'cards': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'task_id': 'task-1',
+                'title': 'Draft brief',
+                'status': 'open',
+                'priority': 'high',
+                'flow_lane': 'Deep Work',
+                'stream_id': 'pilot',
+                'domain': 'Work',
+                'project': 'Pilot',
+                'owner': 'Doug',
+                'cost_label': 'High switch',
+                'cost_score': 0.71,
+              },
+            ],
+          },
+        ],
+        'links': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'from_task_id': 'task-1',
+            'to_task_id': 'task-2',
+            'relation_type': 'depends_on',
+            'transition_type': 'enables',
+            'stream_id': 'pilot',
+            'confidence': 0.82,
+            'explanation': 'Draft before review.',
+          },
+        ],
+      });
+
+      expect(projection.lanes.single.cards.single.taskId, 'task-1');
+      expect(projection.lanes.single.cards.single.flowLane, 'Deep Work');
+      expect(projection.lanes.single.cards.single.streamId, 'pilot');
+      expect(projection.lanes.single.cards.single.domain, 'Work');
+      expect(projection.lanes.single.cards.single.project, 'Pilot');
+      expect(projection.lanes.single.cards.single.owner, 'Doug');
+      expect(projection.lanes.single.cards.single.costLabel, 'High switch');
+      expect(projection.lanes.single.cards.single.costScore, 0.71);
+      expect(projection.links.single.toTaskId, 'task-2');
+      expect(projection.links.single.relationType, 'depends_on');
+      expect(projection.links.single.transitionType, 'enables');
+      expect(projection.links.single.streamId, 'pilot');
+      expect(projection.links.single.confidence, 0.82);
     });
 
     test('parses task lists and review reports', () {

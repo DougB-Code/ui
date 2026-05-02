@@ -1,0 +1,19 @@
+{
+  "id": "tasks-personal",
+  "label": "Personal Tasks",
+  "kind": "tasks",
+  "endpoint": "${TASKS_MCP_URL}",
+  "health_url": "${TASKS_HEALTH_URL}",
+  "working_directory": "${AGENTAWESOME_WORKSPACE_ROOT}/tasks",
+  "package_path": "./cmd/tasksd",
+  "arguments": [
+    "--addr",
+    "${TASKS_MCP_ADDR}",
+    "--db",
+    "${AGENTAWESOME_WORKSPACE_ROOT}/harness/build/pilot/personal-assistant/data/tasks.db",
+    "--memory-mcp",
+    "${MEMORY_MCP_URL}"
+  ],
+  "auto_start": ${AUTO_START_LOCAL_SERVICES},
+  "enabled": true
+}

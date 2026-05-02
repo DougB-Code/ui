@@ -34,6 +34,27 @@ class ServiceProcessStatus {
   final String message;
 }
 
+/// ManagedServiceProcess stores an owned process and its cleanup strategy.
+class ManagedServiceProcess {
+  /// Creates an owned process handle.
+  const ManagedServiceProcess({
+    required this.process,
+    required this.ownsProcessGroup,
+  });
+
+  /// Root process started by the supervisor.
+  final Process process;
+
+  /// Whether the process was started as a process-group leader.
+  final bool ownsProcessGroup;
+
+  /// Operating system process id.
+  int get pid => process.pid;
+
+  /// Completes when the root process exits.
+  Future<int> get exitCode => process.exitCode;
+}
+
 /// LocalServiceSupervisor starts missing local services and owns their lifetime.
 class LocalServiceSupervisor {
   /// Creates a supervisor for services described by the app configuration.
@@ -44,7 +65,8 @@ class LocalServiceSupervisor {
   final AppConfig config;
 
   final http.Client _http;
-  final Map<String, Process> _started = <String, Process>{};
+  final Map<String, ManagedServiceProcess> _started =
+      <String, ManagedServiceProcess>{};
   final Map<String, StringBuffer> _logs = <String, StringBuffer>{};
   Future<void> _logWrite = Future<void>.value();
 
@@ -172,7 +194,7 @@ class LocalServiceSupervisor {
   }
 
   /// Builds and starts one service binary with captured output.
-  Future<Process> _startProcess({
+  Future<ManagedServiceProcess> _startProcess({
     required RuntimeProfile profile,
     required String name,
     required String workingDirectory,
@@ -194,16 +216,27 @@ class LocalServiceSupervisor {
     );
 
     await _writeLogLine(name, 'starting $executable ${arguments.join(' ')}');
+    final processGroup = await _canStartProcessGroup();
+    final launchExecutable = processGroup ? 'setsid' : executable;
+    final launchArguments = processGroup
+        ? <String>[executable, ...arguments]
+        : arguments;
     final process = await Process.start(
-      executable,
-      arguments,
+      launchExecutable,
+      launchArguments,
       workingDirectory: workingDirectory,
       environment: env,
     );
-    await _writeLogLine(name, 'pid ${process.pid}; log $logPath');
+    await _writeLogLine(
+      name,
+      'pid ${process.pid}; process_group=$processGroup; log $logPath',
+    );
     _captureOutput(name, process.stdout, 'stdout');
     _captureOutput(name, process.stderr, 'stderr');
-    return process;
+    return ManagedServiceProcess(
+      process: process,
+      ownsProcessGroup: processGroup,
+    );
   }
 
   /// Builds a Go command binary into the pilot build directory.
@@ -235,14 +268,36 @@ class LocalServiceSupervisor {
   }
 
   /// Terminates one owned process gracefully before forcing it closed.
-  Future<void> _terminateProcess(Process process) async {
-    process.kill(ProcessSignal.sigterm);
+  Future<void> _terminateProcess(ManagedServiceProcess process) async {
+    await _signalManagedProcess(process, ProcessSignal.sigterm);
     try {
       await process.exitCode.timeout(const Duration(seconds: 3));
     } on TimeoutException {
-      process.kill(ProcessSignal.sigkill);
+      await _signalManagedProcess(process, ProcessSignal.sigkill);
       await process.exitCode.timeout(const Duration(seconds: 2));
     }
+  }
+
+  /// Sends a signal to the owned process group with a process-level fallback.
+  Future<void> _signalManagedProcess(
+    ManagedServiceProcess process,
+    ProcessSignal signal,
+  ) async {
+    if (process.ownsProcessGroup && !Platform.isWindows) {
+      final signalName = signal == ProcessSignal.sigkill ? 'KILL' : 'TERM';
+      final result = await Process.run('kill', <String>[
+        '-$signalName',
+        '-${process.pid}',
+      ]);
+      if (result.exitCode == 0) {
+        return;
+      }
+      await _writeLogLine(
+        'supervisor',
+        'process-group signal $signalName failed for ${process.pid}: ${result.stderr}',
+      );
+    }
+    process.process.kill(signal);
   }
 
   /// Captures process output for concise readiness failure messages.
@@ -260,7 +315,7 @@ class LocalServiceSupervisor {
   Future<ServiceProcessStatus> _waitForProcessHealth(
     String name,
     Uri health,
-    Process process, {
+    ManagedServiceProcess process, {
     required String logPath,
   }) async {
     for (var attempt = 0; attempt < 100; attempt++) {
@@ -292,11 +347,24 @@ class LocalServiceSupervisor {
   }
 
   /// Returns the exit code when the process has already stopped.
-  Future<int?> _hasExited(Process process) async {
+  Future<int?> _hasExited(ManagedServiceProcess process) async {
     try {
       return await process.exitCode.timeout(Duration.zero);
     } on TimeoutException {
       return null;
+    }
+  }
+
+  /// Reports whether local services can be launched as killable process groups.
+  Future<bool> _canStartProcessGroup() async {
+    if (Platform.isWindows) {
+      return false;
+    }
+    try {
+      final result = await Process.run('which', <String>['setsid']);
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -361,22 +429,9 @@ class LocalServiceSupervisor {
     );
   }
 
-  /// Removes legacy log files so the directory contains only managed logs.
+  /// Ensures the managed service log directory exists.
   Future<void> _prepareLogDirectory() async {
     await Directory(config.serviceLogDirectory).create(recursive: true);
-    final allowed = <String>{
-      'ui.log',
-      'memory.log',
-      'harness.log',
-      'tasks.log',
-    };
-    await for (final entity in Directory(config.serviceLogDirectory).list()) {
-      if (entity is File &&
-          entity.path.endsWith('.log') &&
-          !allowed.contains(entity.uri.pathSegments.last)) {
-        await entity.delete();
-      }
-    }
   }
 
   /// Returns the persistent UI log path.

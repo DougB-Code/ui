@@ -3,10 +3,12 @@ library;
 
 import 'package:agentawesome_ui/app/app_config.dart';
 import 'package:agentawesome_ui/app/app_controller.dart';
-import 'package:agentawesome_ui/app/local_services.dart';
+import 'package:agentawesome_ui/app/config_files.dart';
+import 'package:agentawesome_ui/app/model_config.dart';
 import 'package:agentawesome_ui/app/runtime_profile.dart';
 import 'package:agentawesome_ui/domain/models.dart';
 import 'package:agentawesome_ui/ui/aurora_shell.dart';
+import 'package:agentawesome_ui/ui/panels/panels.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,42 +34,181 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final controller = AuroraAppController(config: _testConfig());
     controller.runtimeProfile = _settingsProfile();
-    controller.endpointStatuses = const <EndpointStatus>[
-      EndpointStatus(
-        name: 'Agent API',
-        url: 'http://127.0.0.1:1/api',
-        state: ConnectionStateKind.disconnected,
-      ),
-      EndpointStatus(
-        name: 'Memory MCP',
-        url: 'http://127.0.0.1:1/mcp',
-        state: ConnectionStateKind.disconnected,
-      ),
-      EndpointStatus(
-        name: 'Tasks MCP',
-        url: 'http://127.0.0.1:1/mcp',
-        state: ConnectionStateKind.disconnected,
+    controller.runtimeProfilePath = '/tmp/personal.json';
+    controller.availableProfiles = const <RuntimeProfileFileEntry>[
+      RuntimeProfileFileEntry(
+        path: '/tmp/personal.json',
+        id: 'personal',
+        label: 'Personal',
+        active: true,
       ),
     ];
-    controller.localProcessStatuses = const <ServiceProcessStatus>[
-      ServiceProcessStatus(
-        name: 'Memory Service',
-        url: 'http://127.0.0.1:1/healthz',
-        state: ConnectionStateKind.connected,
-        message: 'Started locally',
+    controller.availableModelConfigs = const <ConfigFileEntry>[
+      ConfigFileEntry(
+        path: '/tmp/summary-model.yaml',
+        kind: ConfigFileKind.model,
+        assigned: false,
+        displayName: 'Summary Mini',
+        modelChoices: <ModelConfigChoice>[
+          ModelConfigChoice(
+            providerId: 'openai',
+            providerName: 'openai',
+            modelId: 'gpt-mini',
+            modelName: 'gpt-5.4-mini',
+            isDefault: true,
+          ),
+        ],
       ),
     ];
-
+    controller.availableToolConfigs = const <ConfigFileEntry>[
+      ConfigFileEntry(
+        path: '/tmp/tool.yaml',
+        kind: ConfigFileKind.tool,
+        assigned: true,
+        displayName: 'Personal Tools',
+      ),
+    ];
     await tester.pumpWidget(
       MaterialApp(home: AuroraShell(controller: controller)),
     );
     await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
 
     expect(find.text('Settings'), findsWidgets);
     expect(find.text('Profiles'), findsWidgets);
-    expect(find.text('Details'), findsOneWidget);
+    expect(find.text('App'), findsWidgets);
+    expect(find.text('APP SETTINGS'), findsNothing);
+    expect(find.text('CHAT DEFAULTS'), findsOneWidget);
+    expect(find.text('Default profile'), findsOneWidget);
     expect(find.text('Personal'), findsWidgets);
+    expect(find.text('APPLICATION MODELS'), findsOneWidget);
+    expect(find.text('Summarize titles with a model.'), findsOneWidget);
+    expect(find.text('Summary model'), findsOneWidget);
+    expect(find.text('openai / gpt-mini'), findsOneWidget);
+
+    await tester.tap(find.text('Profiles').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('ASSIGNMENTS'), findsOneWidget);
+    expect(find.text('Model'), findsWidgets);
+    expect(find.text('Agent'), findsWidgets);
+    expect(find.text('Tools'), findsWidgets);
+    expect(find.text('Memory'), findsWidgets);
+    expect(find.text('Tasks'), findsWidgets);
+    expect(find.text('Personal Memory'), findsOneWidget);
+    expect(find.text('Personal Tasks'), findsOneWidget);
+
+    await tester.tap(find.text('Tools').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('OS Tools'), findsOneWidget);
+    await tester.tap(find.text('TOOLS'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('MCP Server'), findsOneWidget);
+  });
+
+  testWidgets('keeps selectors for editable single-item collection panels', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CollectionSwitcherPanel<String>(
+            title: 'Agents',
+            selectedId: 'agent',
+            items: const <CollectionPanelItem<String>>[
+              CollectionPanelItem<String>(
+                id: 'agent',
+                label: 'Agent Config',
+                icon: Icons.psychology_outlined,
+                value: 'agent',
+              ),
+            ],
+            onSelect: (_) {},
+            onCreate: () {},
+            onDuplicate: (_) {},
+            onDelete: (_) {},
+            builder: (value, query) => Text('Selected $value'),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Agent Config'), findsOneWidget);
+    expect(find.byTooltip('Agent Config'), findsOneWidget);
+    expect(find.byTooltip('Add'), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CollectionSwitcherPanel<String>(
+            title: 'Memory',
+            selectedId: 'memory',
+            items: const <CollectionPanelItem<String>>[
+              CollectionPanelItem<String>(
+                id: 'memory',
+                label: 'Memory Binding',
+                icon: Icons.hub_outlined,
+                value: 'memory',
+              ),
+            ],
+            onSelect: (_) {},
+            builder: (value, query) => Text('Selected $value'),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Memory Binding'), findsNothing);
+    expect(find.byTooltip('Memory Binding'), findsNothing);
+    expect(find.byTooltip('Add'), findsNothing);
+  });
+
+  testWidgets('cycles multi-item collection panels from the title', (
+    tester,
+  ) async {
+    var selected = 'first';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              return CollectionSwitcherPanel<String>(
+                title: 'Tools',
+                selectedId: selected,
+                items: const <CollectionPanelItem<String>>[
+                  CollectionPanelItem<String>(
+                    id: 'first',
+                    label: 'OS Tools',
+                    icon: Icons.terminal,
+                    value: 'os-tools',
+                  ),
+                  CollectionPanelItem<String>(
+                    id: 'second',
+                    label: 'MCP Server',
+                    icon: Icons.hub_outlined,
+                    value: 'mcp-server',
+                  ),
+                ],
+                onSelect: (id) => setState(() => selected = id),
+                builder: (value, query) => Text('Selected $value'),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Selected os-tools'), findsOneWidget);
+    await tester.tap(find.text('TOOLS'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Selected mcp-server'), findsOneWidget);
   });
 
   testWidgets('opens dedicated chat command shell', (tester) async {
@@ -76,11 +217,26 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final controller = AuroraAppController(config: _testConfig());
+    controller.runtimeProfile = _settingsProfile();
+    controller.runtimeProfilePath = '/tmp/personal.json';
+    controller.availableProfiles = const <RuntimeProfileFileEntry>[
+      RuntimeProfileFileEntry(
+        path: '/tmp/personal.json',
+        id: 'personal',
+        label: 'Personal',
+        active: true,
+      ),
+    ];
     controller.sessions = <ChatSession>[
       ChatSession(
         id: 'session-live',
         title: 'Live chat',
         updatedAt: DateTime(2026, 4, 29, 9, 30),
+      ),
+      ChatSession(
+        id: 'session-alt',
+        title: 'Alternate planning chat',
+        updatedAt: DateTime(2026, 4, 30, 7, 15),
       ),
     ];
     controller.selectedSessionId = 'session-live';
@@ -89,11 +245,50 @@ void main() {
         id: 'message-1',
         role: ChatRole.assistant,
         author: 'Aurora',
-        text: 'Connected chat message.',
+        text: 'Connected chat message. Done - created Follow up report.',
         createdAt: DateTime(2026, 4, 29, 9, 31),
       ),
     ];
-    controller.workspace = _memoryWorkspace();
+    controller.workspace = const ProjectWorkspace(
+      title: 'Workspace',
+      subtitle: 'Live connected workspace',
+      tasks: <WorkspaceTask>[
+        WorkspaceTask(
+          id: 'task-associated',
+          title: 'Associated chat task',
+          detail: 'Open',
+          done: false,
+          idempotencyKey: 'personal_pilot:session-live:associated-chat-task',
+        ),
+        WorkspaceTask(
+          id: 'task-unrelated',
+          title: 'Unrelated chat task',
+          detail: 'Open',
+          done: false,
+          idempotencyKey: 'personal_pilot:other-session:unrelated-chat-task',
+        ),
+        WorkspaceTask(
+          id: 'task-mentioned',
+          title: 'Follow up report',
+          detail: 'Open',
+          done: false,
+        ),
+      ],
+      sources: <SourceItem>[],
+      memoryRecords: <MemoryRecord>[
+        MemoryRecord(
+          id: 'cat-1',
+          evidenceId: 'ev-1',
+          title: 'Preference',
+          summary: 'User prefers direct connected data.',
+          kind: 'profile_fact',
+          topics: <String>['ui'],
+          sourceLabel: 'chat:1',
+          sourceSystem: 'chat',
+          sourceId: '1',
+        ),
+      ],
+    );
 
     await tester.pumpWidget(
       MaterialApp(home: AuroraShell(controller: controller)),
@@ -104,14 +299,71 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('CONVERSATION'), findsOneWidget);
     expect(find.text('CONTEXT'), findsOneWidget);
-    expect(find.byTooltip('Chats'), findsWidgets);
+    expect(find.byTooltip('Select chat'), findsOneWidget);
+    expect(find.byTooltip('Delete selected chat'), findsOneWidget);
+    expect(find.byTooltip('New chat with profile'), findsNothing);
+    expect(find.byTooltip('Chats'), findsNothing);
     expect(find.byTooltip('Sessions'), findsNothing);
+    expect(find.text('Live chat'), findsOneWidget);
     expect(find.byType(SelectableText), findsWidgets);
-    expect(find.text('Connected chat message.'), findsOneWidget);
+    expect(
+      find.text('Connected chat message. Done - created Follow up report.'),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Copy message'), findsOneWidget);
+    expect(find.text('Message Aurora in this chat...'), findsOneWidget);
+    expect(
+      find.text('Start a new chat or give Aurora a command...'),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('global-command-input')),
+    );
+    await tester.pump();
+    expect(find.text('PROFILES'), findsOneWidget);
+    expect(find.text('RECENT CHATS'), findsOneWidget);
+    expect(find.text('WORKSPACES'), findsOneWidget);
+    expect(find.text('SETTINGS'), findsOneWidget);
+    expect(find.text('Personal'), findsWidgets);
+    await tester.tap(find.text('Personal').first);
+    await tester.pump();
+    expect(find.text('PROFILES'), findsOneWidget);
+    expect(find.text('Selected for new chat'), findsOneWidget);
+    final globalInput = tester.widget<TextField>(
+      find.byKey(const ValueKey<String>('global-command-input')),
+    );
+    expect(globalInput.focusNode?.hasFocus, isTrue);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('global-command-input')),
+      'Start from selected profile',
+    );
+    await tester.pump();
+    expect(find.text('PROFILES'), findsNothing);
     expect(find.text('Preference'), findsWidgets);
-    await tester.tap(find.byTooltip('Chats').first);
+    expect(find.text('Associated chat task'), findsOneWidget);
+    expect(find.text('Follow up report'), findsOneWidget);
+    expect(find.text('Unrelated chat task'), findsNothing);
+    await tester.tap(find.byTooltip('Select chat'));
     await tester.pumpAndSettle();
-    expect(find.text('CHATS'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('search-picker-filter')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Delete chat'), findsWidgets);
+    expect(find.text('Alternate planning chat'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('search-picker-filter')),
+      'alt',
+    );
+    await tester.pump();
+    expect(find.text('Alternate planning chat'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text('Live chat'),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('opens memory stewardship workspace', (tester) async {
@@ -172,6 +424,41 @@ void main() {
         ],
       ),
     ];
+    controller.taskStreamProjection = const TaskStreamProjection(
+      lanes: <TaskStreamLane>[
+        TaskStreamLane(
+          id: 'now',
+          title: 'Now',
+          subtitle: 'Ready work',
+          cards: <TaskStreamCard>[
+            TaskStreamCard(
+              taskId: 'task-brief',
+              title: 'Analyze stream layout',
+              status: 'open',
+              priority: 'high',
+              context: 'Focus',
+              readyNow: true,
+              estimateMinutes: 45,
+            ),
+          ],
+        ),
+        TaskStreamLane(
+          id: 'next',
+          title: 'Next',
+          subtitle: 'Soon',
+          cards: <TaskStreamCard>[
+            TaskStreamCard(
+              taskId: 'task-follow-up',
+              title: 'Review canvas polish',
+              status: 'open',
+              priority: 'normal',
+              context: 'Admin',
+              estimateMinutes: 20,
+            ),
+          ],
+        ),
+      ],
+    );
 
     await tester.pumpWidget(
       MaterialApp(home: AuroraShell(controller: controller)),
@@ -183,9 +470,48 @@ void main() {
     expect(find.text('QUEUE'), findsOneWidget);
     expect(find.text('TASK INSPECTOR'), findsOneWidget);
     expect(find.text('Draft task brief'), findsWidgets);
+    expect(find.byTooltip('Delete task'), findsWidgets);
+    expect(find.text('Task Stream'), findsNothing);
+    expect(find.byTooltip('Stream'), findsOneWidget);
+    expect(find.byTooltip('Terrain'), findsOneWidget);
+    expect(find.byTooltip('Constellation'), findsOneWidget);
+    expect(find.byTooltip('Weave'), findsOneWidget);
+    await tester.tap(find.byTooltip('Stream'));
+    await tester.pumpAndSettle();
+    expect(find.text('STREAM'), findsOneWidget);
+    expect(find.text('Focus'), findsOneWidget);
+    expect(find.text('Analyze stream layout'), findsOneWidget);
+    expect(find.text('Task Stream'), findsNothing);
+    expect(find.text('Workload'), findsNothing);
+    await tester.tap(find.byTooltip('Queue'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Memory Links'), findsOneWidget);
+    await tester.tap(find.byTooltip('Memory Links'));
+    await tester.pumpAndSettle();
+    expect(find.text('MEMORY LINKS'), findsOneWidget);
+    expect(find.text('No memory selected'), findsOneWidget);
+    expect(find.text('No linked memory'), findsOneWidget);
+    await tester.tap(find.byTooltip('Task Inspector').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Draft task brief').first);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Pick Due date'), findsOneWidget);
+    expect(find.byTooltip('Pick Scheduled date'), findsOneWidget);
     await tester.tap(find.byTooltip('Lists'));
     await tester.pumpAndSettle();
     expect(find.text('Errands'), findsOneWidget);
+    expect(find.byTooltip('Collapse panel'), findsNWidgets(2));
+    await tester.tap(find.byTooltip('Collapse panel').first);
+    await tester.pumpAndSettle();
+    expect(find.text('LISTS'), findsNothing);
+    expect(find.byTooltip('Expand panel'), findsOneWidget);
+    expect(find.byTooltip('Stream'), findsOneWidget);
+    await tester.tap(find.byTooltip('Stream'));
+    await tester.pumpAndSettle();
+    expect(find.text('STREAM'), findsNothing);
+    await tester.tap(find.byTooltip('Expand panel'));
+    await tester.pumpAndSettle();
+    expect(find.text('STREAM'), findsOneWidget);
   });
 
   testWidgets('loads workflow content inside the persistent app shell', (
@@ -357,6 +683,8 @@ RuntimeProfile _settingsProfile() {
       port: 1,
       autoStart: false,
     ),
+    memoryServerConfigPath: '/tmp/memory.json',
+    taskServerConfigPath: '/tmp/tasks.json',
     mcpServers: <McpServerRuntime>[
       McpServerRuntime(
         id: 'memory',

@@ -1,6 +1,8 @@
 /// Provides reusable panel primitives for Aurora section workspaces.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
@@ -40,6 +42,106 @@ class SectionLayout {
   final Widget right;
 }
 
+/// PanelCollapseDirection identifies which edge a panel collapses toward.
+enum PanelCollapseDirection {
+  /// Collapse toward the left edge.
+  left,
+
+  /// Collapse toward the right edge.
+  right,
+}
+
+/// PanelCollapseButton renders the shared sidebar and command-panel toggle.
+class PanelCollapseButton extends StatelessWidget {
+  /// Creates a compact collapse or expand button.
+  const PanelCollapseButton({
+    super.key,
+    required this.expanded,
+    required this.onPressed,
+    this.direction = PanelCollapseDirection.left,
+    this.expandedTooltip = 'Collapse panel',
+    this.collapsedTooltip = 'Expand panel',
+  });
+
+  /// Whether the controlled surface is currently expanded.
+  final bool expanded;
+
+  /// Collapse or expand callback.
+  final VoidCallback onPressed;
+
+  /// Edge the surface collapses toward.
+  final PanelCollapseDirection direction;
+
+  /// Tooltip shown while the surface is expanded.
+  final String expandedTooltip;
+
+  /// Tooltip shown while the surface is collapsed.
+  final String collapsedTooltip;
+
+  /// Builds the shared icon-only collapse affordance.
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: expanded ? expandedTooltip : collapsedTooltip,
+      child: IconButton(
+        alignment: Alignment.topCenter,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+        onPressed: onPressed,
+        icon: Icon(_icon, color: AuroraColors.muted, size: 20),
+      ),
+    );
+  }
+
+  IconData get _icon {
+    if (!expanded) {
+      return Icons.menu;
+    }
+    return switch (direction) {
+      PanelCollapseDirection.left => Icons.keyboard_double_arrow_left,
+      PanelCollapseDirection.right => Icons.keyboard_double_arrow_right,
+    };
+  }
+}
+
+enum _SplitPaneSide {
+  left,
+  right;
+
+  PanelCollapseDirection get direction {
+    return switch (this) {
+      _SplitPaneSide.left => PanelCollapseDirection.left,
+      _SplitPaneSide.right => PanelCollapseDirection.right,
+    };
+  }
+}
+
+class _SplitPaneCollapseScope extends InheritedWidget {
+  const _SplitPaneCollapseScope({
+    required this.side,
+    required this.collapsed,
+    required this.onToggle,
+    required super.child,
+  });
+
+  final _SplitPaneSide side;
+  final bool collapsed;
+  final VoidCallback onToggle;
+
+  /// Returns the closest split-pane collapse state, if present.
+  static _SplitPaneCollapseScope? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_SplitPaneCollapseScope>();
+  }
+
+  @override
+  bool updateShouldNotify(covariant _SplitPaneCollapseScope oldWidget) {
+    return side != oldWidget.side ||
+        collapsed != oldWidget.collapsed ||
+        onToggle != oldWidget.onToggle;
+  }
+}
+
 /// SplitPanelShell renders a reusable resizable two-panel workspace.
 class SplitPanelShell extends StatefulWidget {
   /// Creates a two-panel workspace shell.
@@ -64,16 +166,24 @@ class SplitPanelShell extends StatefulWidget {
 }
 
 class _SplitPanelShellState extends State<SplitPanelShell> {
+  static const double _collapsedPaneWidth = 72;
   static const double _handleHitWidth = 12;
 
   late double _leftPaneFraction = widget.split.left;
+  bool _leftPaneCollapsed = false;
+  bool _rightPaneCollapsed = false;
 
   /// Updates the initial split when switching section layouts.
   @override
   void didUpdateWidget(covariant SplitPanelShell oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.split.left != widget.split.left) {
+    final sectionChanged =
+        oldWidget.left.runtimeType != widget.left.runtimeType ||
+        oldWidget.right.runtimeType != widget.right.runtimeType;
+    if (oldWidget.split.left != widget.split.left || sectionChanged) {
       _leftPaneFraction = widget.split.left;
+      _leftPaneCollapsed = false;
+      _rightPaneCollapsed = false;
     }
   }
 
@@ -94,8 +204,13 @@ class _SplitPanelShellState extends State<SplitPanelShell> {
           );
         }
         final totalWidth = constraints.maxWidth;
-        final leftWidth = totalWidth * _leftPaneFraction;
+        final leftWidth = _leftPaneCollapsed
+            ? _collapsedPaneWidth
+            : _rightPaneCollapsed
+            ? totalWidth - _collapsedPaneWidth
+            : totalWidth * _leftPaneFraction;
         final rightWidth = totalWidth - leftWidth;
+        final canResize = !_leftPaneCollapsed && !_rightPaneCollapsed;
         return Stack(
           children: <Widget>[
             Positioned(
@@ -103,23 +218,36 @@ class _SplitPanelShellState extends State<SplitPanelShell> {
               top: 0,
               bottom: 0,
               width: leftWidth,
-              child: widget.left,
+              child: _SplitPaneCollapseScope(
+                side: _SplitPaneSide.left,
+                collapsed: _leftPaneCollapsed,
+                onToggle: _toggleLeftPane,
+                child: widget.left,
+              ),
             ),
             Positioned(
               left: leftWidth,
               top: 0,
               bottom: 0,
               width: rightWidth,
-              child: widget.right,
+              child: _SplitPaneCollapseScope(
+                side: _SplitPaneSide.right,
+                collapsed: _rightPaneCollapsed,
+                onToggle: _toggleRightPane,
+                child: widget.right,
+              ),
             ),
             Positioned(
               left: leftWidth - (_handleHitWidth / 2),
               top: 0,
               bottom: 0,
               width: _handleHitWidth,
-              child: _SplitPanelHandle(
-                onDragUpdate: (details) => _resizePanes(details, totalWidth),
-              ),
+              child: canResize
+                  ? _SplitPanelHandle(
+                      onDragUpdate: (details) =>
+                          _resizePanes(details, totalWidth),
+                    )
+                  : const _SplitPanelDivider(),
             ),
           ],
         );
@@ -136,6 +264,40 @@ class _SplitPanelShellState extends State<SplitPanelShell> {
           ((_leftPaneFraction * paneWidth + details.delta.dx) / paneWidth)
               .clamp(widget.split.min, widget.split.max);
     });
+  }
+
+  void _toggleLeftPane() {
+    setState(() {
+      _leftPaneCollapsed = !_leftPaneCollapsed;
+      if (_leftPaneCollapsed) {
+        _rightPaneCollapsed = false;
+      }
+    });
+  }
+
+  void _toggleRightPane() {
+    setState(() {
+      _rightPaneCollapsed = !_rightPaneCollapsed;
+      if (_rightPaneCollapsed) {
+        _leftPaneCollapsed = false;
+      }
+    });
+  }
+}
+
+class _SplitPanelDivider extends StatelessWidget {
+  const _SplitPanelDivider();
+
+  /// Builds the fixed divider shown next to a collapsed pane.
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: VerticalDivider(
+        width: 1,
+        thickness: 1,
+        color: AuroraColors.border,
+      ),
+    );
   }
 }
 
@@ -217,140 +379,54 @@ class SwitcherPanelArea {
 /// SwitcherPanel is a high-density command panel with area and filter controls.
 class SwitcherPanel extends StatefulWidget {
   /// Creates a switchable high-density panel.
-  const SwitcherPanel({super.key, required this.areas});
+  const SwitcherPanel({
+    super.key,
+    required this.areas,
+    this.titleControl,
+    this.showAreaQuickSelect = true,
+  });
 
   /// Selectable content areas.
   final List<SwitcherPanelArea> areas;
+
+  /// Optional control shown beside the active panel title.
+  final Widget? titleControl;
+
+  /// Whether to show compact icon buttons for the selectable areas.
+  final bool showAreaQuickSelect;
 
   @override
   State<SwitcherPanel> createState() => _SwitcherPanelState();
 }
 
 class _SwitcherPanelState extends State<SwitcherPanel> {
-  final TextEditingController _filterController = TextEditingController();
   int _selectedIndex = 0;
-  String _query = '';
-
-  /// Cleans up search field state.
-  @override
-  void dispose() {
-    _filterController.dispose();
-    super.dispose();
-  }
 
   /// Builds a dense command content panel with area selection and filtering.
   @override
   Widget build(BuildContext context) {
     final areas = widget.areas;
-    final selectedArea = areas[_selectedIndex.clamp(0, areas.length - 1)];
-    return ColoredBox(
-      color: const Color(0xfffffcf8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
-            child: Column(
-              children: <Widget>[
-                SizedBox(
-                  height: 38,
-                  child: Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: _selectNextArea,
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              selectedArea.title.toUpperCase(),
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: AuroraColors.muted,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 3,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      _SwitcherPanelSelect(
-                        areas: areas,
-                        selectedIndex: _selectedIndex,
-                        onChanged: _selectArea,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 8,
-                    children: <Widget>[
-                      for (var index = 0; index < areas.length; index++)
-                        _SwitcherPanelQuickSelect(
-                          icon: areas[index].icon,
-                          selected: index == _selectedIndex,
-                          tooltip: areas[index].title,
-                          onPressed: () => _selectArea(index),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 38,
-                  child: TextField(
-                    key: ValueKey<String>(
-                      'command-panel-filter-${selectedArea.title}',
-                    ),
-                    controller: _filterController,
-                    onChanged: (value) {
-                      setState(() {
-                        _query = value;
-                      });
-                    },
-                    decoration: InputDecoration(
-                      isDense: true,
-                      prefixIcon: const Icon(
-                        Icons.search,
-                        size: 18,
-                        color: AuroraColors.muted,
-                      ),
-                      prefixIconConstraints: const BoxConstraints(minWidth: 36),
-                      hintText: 'Filter...',
-                      hintStyle: const TextStyle(color: AuroraColors.muted),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      filled: true,
-                      fillColor: AuroraColors.surface,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(
-                          color: AuroraColors.border,
-                        ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(
-                          color: AuroraColors.border,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    final boundedIndex = _selectedIndex.clamp(0, areas.length - 1);
+    return CollectionSwitcherPanel<SwitcherPanelArea>(
+      title: areas[boundedIndex].title,
+      selectedId: boundedIndex.toString(),
+      items: <CollectionPanelItem<SwitcherPanelArea>>[
+        for (var index = 0; index < areas.length; index++)
+          CollectionPanelItem<SwitcherPanelArea>(
+            id: index.toString(),
+            label: areas[index].title,
+            icon: areas[index].icon,
+            value: areas[index],
           ),
-          const Divider(height: 1, color: AuroraColors.border),
-          Expanded(child: selectedArea.builder(_query)),
-        ],
-      ),
+      ],
+      onSelect: (id) => _selectArea(int.parse(id)),
+      builder: (area, query) => area.builder(query),
+      titleControl: widget.titleControl,
+      onTitleTap: areas.length > 1 ? _selectNextArea : null,
+      showQuickSelect: widget.showAreaQuickSelect,
+      selectionWidth: 150,
+      filterHint: 'Filter...',
+      filterKeyBuilder: (item) => 'command-panel-filter-${item?.label}',
     );
   }
 
@@ -359,113 +435,356 @@ class _SwitcherPanelState extends State<SwitcherPanel> {
   }
 
   void _selectArea(int index) {
-    setState(() {
-      _selectedIndex = index;
-      _query = '';
-      _filterController.clear();
-    });
+    setState(() => _selectedIndex = index);
   }
 }
 
-class _SwitcherPanelSelect extends StatelessWidget {
-  const _SwitcherPanelSelect({
-    required this.areas,
-    required this.selectedIndex,
-    required this.onChanged,
+/// SearchPickerOption describes one searchable dropdown item.
+class SearchPickerOption<T> {
+  /// Creates a typed option for searchable picker dropdowns.
+  const SearchPickerOption({
+    required this.value,
+    required this.title,
+    this.subtitle = '',
+    this.searchText = '',
+    this.icon = Icons.circle_outlined,
   });
 
-  final List<SwitcherPanelArea> areas;
-  final int selectedIndex;
-  final ValueChanged<int> onChanged;
+  /// Typed value returned when the option is selected.
+  final T value;
 
-  /// Builds the compact area dropdown beside the panel title.
+  /// Primary visible label.
+  final String title;
+
+  /// Secondary visible label.
+  final String subtitle;
+
+  /// Extra text used by the fuzzy search matcher.
+  final String searchText;
+
+  /// Leading icon for the option.
+  final IconData icon;
+}
+
+/// SearchPickerDropdown opens a reusable fuzzy-search dropdown menu.
+class SearchPickerDropdown<T> extends StatelessWidget {
+  /// Creates a searchable picker button.
+  const SearchPickerDropdown({
+    super.key,
+    required this.label,
+    required this.options,
+    required this.selectedValue,
+    required this.onSelected,
+    this.tooltip = 'Select',
+    this.emptyLabel = 'No items found',
+    this.width = 220,
+    this.onDelete,
+    this.deleteTooltip = 'Delete',
+  });
+
+  /// Button label for the current selection.
+  final String label;
+
+  /// Options shown inside the popup.
+  final List<SearchPickerOption<T>> options;
+
+  /// Current selected value.
+  final T? selectedValue;
+
+  /// Called when the user selects an option.
+  final ValueChanged<T> onSelected;
+
+  /// Tooltip for the button.
+  final String tooltip;
+
+  /// Empty-state text for filtered results.
+  final String emptyLabel;
+
+  /// Button width.
+  final double width;
+
+  /// Optional trailing delete action for each option.
+  final FutureOr<void> Function(T value)? onDelete;
+
+  /// Tooltip shown for the optional trailing delete action.
+  final String deleteTooltip;
+
+  /// Builds a compact button that launches the search menu.
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 150,
-      height: 38,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: AuroraColors.surface,
-          border: Border.all(color: AuroraColors.border),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<int>(
-            value: selectedIndex,
-            isDense: true,
-            isExpanded: true,
-            icon: const Icon(Icons.expand_more, size: 18),
-            selectedItemBuilder: (context) {
-              return <Widget>[
-                for (final area in areas)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(area.title, overflow: TextOverflow.ellipsis),
-                  ),
-              ];
-            },
-            items: <DropdownMenuItem<int>>[
-              for (var index = 0; index < areas.length; index++)
-                DropdownMenuItem<int>(
-                  value: index,
-                  child: Text(
-                    areas[index].title,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        width: width,
+        height: 38,
+        child: OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            alignment: Alignment.centerLeft,
+            backgroundColor: AuroraColors.surface,
+            foregroundColor: AuroraColors.ink,
+            side: const BorderSide(color: AuroraColors.border),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          onPressed: () => _showPicker(context),
+          child: Row(
+            children: <Widget>[
+              Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
+              const SizedBox(width: 8),
+              const Icon(Icons.expand_more, size: 18),
             ],
-            onChanged: (value) {
-              if (value != null) {
-                onChanged(value);
-              }
-            },
           ),
         ),
       ),
     );
   }
+
+  /// Opens the searchable picker overlay and emits a selected value.
+  Future<void> _showPicker(BuildContext context) async {
+    final selected = await showDialog<T>(
+      context: context,
+      builder: (dialogContext) {
+        return _SearchPickerDialog<T>(
+          options: options,
+          selectedValue: selectedValue,
+          emptyLabel: emptyLabel,
+          onDelete: onDelete,
+          deleteTooltip: deleteTooltip,
+        );
+      },
+    );
+    if (selected != null) {
+      onSelected(selected);
+    }
+  }
 }
 
-class _SwitcherPanelQuickSelect extends StatelessWidget {
-  const _SwitcherPanelQuickSelect({
-    required this.icon,
-    required this.selected,
-    required this.tooltip,
-    required this.onPressed,
+class _SearchPickerDialog<T> extends StatefulWidget {
+  const _SearchPickerDialog({
+    required this.options,
+    required this.selectedValue,
+    required this.emptyLabel,
+    required this.onDelete,
+    required this.deleteTooltip,
   });
 
-  final IconData icon;
-  final bool selected;
-  final String tooltip;
-  final VoidCallback onPressed;
+  final List<SearchPickerOption<T>> options;
+  final T? selectedValue;
+  final String emptyLabel;
+  final FutureOr<void> Function(T value)? onDelete;
+  final String deleteTooltip;
 
-  /// Builds one compact icon selector for a switcher panel area.
+  /// Creates dialog state for filtering picker options.
+  @override
+  State<_SearchPickerDialog<T>> createState() => _SearchPickerDialogState<T>();
+}
+
+class _SearchPickerDialogState<T> extends State<_SearchPickerDialog<T>> {
+  final TextEditingController _controller = TextEditingController();
+  late List<SearchPickerOption<T>> _options = widget.options.toList();
+  final List<T> _deleting = <T>[];
+  String _query = '';
+
+  /// Keeps dialog options synchronized when the picker is rebuilt.
+  @override
+  void didUpdateWidget(covariant _SearchPickerDialog<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.options != widget.options) {
+      _options = widget.options.toList();
+    }
+  }
+
+  /// Cleans up the search field.
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// Builds the fuzzy-search picker popup.
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onPressed,
-        child: Container(
-          height: 36,
-          width: 36,
-          decoration: BoxDecoration(
-            color: selected ? AuroraColors.greenSoft : AuroraColors.panel,
-            border: Border.all(
-              color: selected ? AuroraColors.green : AuroraColors.border,
+    final options = _options.where(_matchesQuery).toList();
+    return Dialog(
+      alignment: Alignment.topCenter,
+      insetPadding: const EdgeInsets.only(top: 90, left: 24, right: 24),
+      backgroundColor: AuroraColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 560),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: TextField(
+                key: const ValueKey<String>('search-picker-filter'),
+                controller: _controller,
+                autofocus: true,
+                onChanged: (value) => setState(() {
+                  _query = value;
+                }),
+                decoration: InputDecoration(
+                  isDense: true,
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    size: 18,
+                    color: AuroraColors.muted,
+                  ),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 36),
+                  hintText: 'Search...',
+                  hintStyle: const TextStyle(color: AuroraColors.muted),
+                  filled: true,
+                  fillColor: const Color(0xfffffcf8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: AuroraColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: AuroraColors.border),
+                  ),
+                ),
+              ),
             ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            icon,
-            size: 18,
-            color: selected ? AuroraColors.green : AuroraColors.muted,
-          ),
+            const Divider(height: 1, color: AuroraColors.border),
+            Flexible(
+              child: options.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Text(
+                          widget.emptyLabel,
+                          style: const TextStyle(color: AuroraColors.muted),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: options.length,
+                      itemBuilder: (context, index) {
+                        final option = options[index];
+                        return _SearchPickerOptionTile<T>(
+                          option: option,
+                          selected: option.value == widget.selectedValue,
+                          deleting: _deleting.contains(option.value),
+                          onDelete: widget.onDelete == null
+                              ? null
+                              : () => _deleteOption(option),
+                          deleteTooltip: widget.deleteTooltip,
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  /// Reports whether an option matches the current fuzzy query.
+  bool _matchesQuery(SearchPickerOption<T> option) {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) {
+      return true;
+    }
+    final target = '${option.title} ${option.subtitle} ${option.searchText}'
+        .toLowerCase();
+    var position = 0;
+    for (final unit in query.codeUnits) {
+      position = target.indexOf(String.fromCharCode(unit), position);
+      if (position == -1) {
+        return false;
+      }
+      position++;
+    }
+    return true;
+  }
+
+  /// Deletes an option through the picker callback and removes it locally.
+  Future<void> _deleteOption(SearchPickerOption<T> option) async {
+    final onDelete = widget.onDelete;
+    if (onDelete == null || _deleting.contains(option.value)) {
+      return;
+    }
+    setState(() {
+      _deleting.add(option.value);
+    });
+    var deleted = false;
+    try {
+      await onDelete(option.value);
+      deleted = true;
+    } catch (_) {
+      deleted = false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _deleting.remove(option.value);
+        });
+      }
+    }
+    if (!mounted || !deleted) {
+      return;
+    }
+    setState(() {
+      _options = _options
+          .where((candidate) => candidate.value != option.value)
+          .toList();
+    });
+  }
+}
+
+class _SearchPickerOptionTile<T> extends StatelessWidget {
+  const _SearchPickerOptionTile({
+    required this.option,
+    required this.selected,
+    required this.deleting,
+    required this.onDelete,
+    required this.deleteTooltip,
+  });
+
+  final SearchPickerOption<T> option;
+  final bool selected;
+  final bool deleting;
+  final VoidCallback? onDelete;
+  final String deleteTooltip;
+
+  /// Builds one selectable row in the search picker.
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(
+        selected ? Icons.check_circle : option.icon,
+        color: selected ? AuroraColors.green : AuroraColors.muted,
+      ),
+      title: Text(
+        option.title,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w900),
+      ),
+      subtitle: option.subtitle.isEmpty
+          ? null
+          : Text(
+              option.subtitle,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AuroraColors.muted),
+            ),
+      trailing: onDelete == null
+          ? null
+          : IconButton(
+              tooltip: deleteTooltip,
+              onPressed: deleting ? null : onDelete,
+              icon: deleting
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline),
+            ),
+      onTap: () => Navigator.of(context).pop(option.value),
     );
   }
 }
@@ -511,10 +830,16 @@ class CollectionSwitcherPanel<T> extends StatefulWidget {
     required this.selectedId,
     required this.onSelect,
     required this.builder,
+    this.titleControl,
+    this.onTitleTap,
     this.onCreate,
     this.onDuplicate,
     this.onDelete,
     this.emptyLabel = 'No items configured',
+    this.showQuickSelect = true,
+    this.selectionWidth = 210,
+    this.filterHint = 'Filter selected...',
+    this.filterKeyBuilder,
   });
 
   /// Panel title.
@@ -532,6 +857,12 @@ class CollectionSwitcherPanel<T> extends StatefulWidget {
   /// Selected item content builder.
   final Widget Function(T value, String query) builder;
 
+  /// Optional control shown instead of the item dropdown.
+  final Widget? titleControl;
+
+  /// Optional callback when the title label is clicked.
+  final VoidCallback? onTitleTap;
+
   /// Optional create callback.
   final VoidCallback? onCreate;
 
@@ -544,6 +875,18 @@ class CollectionSwitcherPanel<T> extends StatefulWidget {
   /// Empty collection label.
   final String emptyLabel;
 
+  /// Whether to show quick icon selectors for items.
+  final bool showQuickSelect;
+
+  /// Width for the compact dropdown selector.
+  final double selectionWidth;
+
+  /// Placeholder text for the filter field.
+  final String filterHint;
+
+  /// Optional stable key builder for the filter field.
+  final String Function(CollectionPanelItem<T>? selectedItem)? filterKeyBuilder;
+
   @override
   State<CollectionSwitcherPanel<T>> createState() =>
       _CollectionSwitcherPanelState<T>();
@@ -553,6 +896,16 @@ class _CollectionSwitcherPanelState<T>
     extends State<CollectionSwitcherPanel<T>> {
   final TextEditingController _filterController = TextEditingController();
   String _query = '';
+
+  /// Clears filter text when the selected item changes externally.
+  @override
+  void didUpdateWidget(covariant CollectionSwitcherPanel<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedId != widget.selectedId) {
+      _query = '';
+      _filterController.clear();
+    }
+  }
 
   /// Cleans up filter input state.
   @override
@@ -565,6 +918,27 @@ class _CollectionSwitcherPanelState<T>
   @override
   Widget build(BuildContext context) {
     final selectedItem = _selectedItem();
+    final collapseScope = _SplitPaneCollapseScope.maybeOf(context);
+    final hasMultipleItems = widget.items.length > 1;
+    final hasCollectionActions =
+        widget.onCreate != null ||
+        widget.onDuplicate != null ||
+        widget.onDelete != null;
+    final canSelectItems =
+        widget.items.isNotEmpty && (hasMultipleItems || hasCollectionActions);
+    final showQuickSelect = widget.showQuickSelect && canSelectItems;
+    final titleTap =
+        widget.onTitleTap ?? (hasMultipleItems ? _selectNextItem : null);
+    final titleText = widget.title.toUpperCase();
+    if (collapseScope?.collapsed ?? false) {
+      return _CollectionCollapsedRail<T>(
+        items: widget.items,
+        selectedId: selectedItem?.id,
+        onSelect: _selectItem,
+        onExpand: collapseScope!.onToggle,
+        onCreate: widget.onCreate,
+      );
+    }
     return ColoredBox(
       color: const Color(0xfffffcf8),
       child: Column(
@@ -579,76 +953,142 @@ class _CollectionSwitcherPanelState<T>
                   child: Row(
                     children: <Widget>[
                       Expanded(
-                        child: Text(
-                          widget.title.toUpperCase(),
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AuroraColors.muted,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 3,
-                          ),
-                        ),
+                        child: titleTap == null
+                            ? Text(
+                                titleText,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AuroraColors.muted,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 3,
+                                ),
+                              )
+                            : InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: titleTap,
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    titleText,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: AuroraColors.muted,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 3,
+                                    ),
+                                  ),
+                                ),
+                              ),
                       ),
                       const SizedBox(width: 10),
-                      if (widget.items.isNotEmpty)
+                      if (widget.titleControl != null)
+                        widget.titleControl!
+                      else if (canSelectItems)
                         _CollectionPanelSelect<T>(
                           items: widget.items,
                           selectedId: selectedItem?.id,
+                          width: widget.selectionWidth,
                           onChanged: _selectItem,
                         ),
+                      if (collapseScope != null) ...<Widget>[
+                        const SizedBox(width: 8),
+                        PanelCollapseButton(
+                          expanded: true,
+                          direction: collapseScope.side.direction,
+                          onPressed: collapseScope.onToggle,
+                        ),
+                      ],
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: <Widget>[
-                            for (final item in widget.items)
-                              _CollectionQuickSelect(
-                                icon: item.icon,
-                                selected: item.id == selectedItem?.id,
-                                tooltip: item.label,
-                                onPressed: () => _selectItem(item.id),
-                              ),
-                          ],
+                if (showQuickSelect) ...<Widget>[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: <Widget>[
+                              for (final item in widget.items)
+                                _CollectionQuickSelect(
+                                  icon: item.icon,
+                                  selected: item.id == selectedItem?.id,
+                                  tooltip: item.label,
+                                  onPressed: () => _selectItem(item.id),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
+                      if (widget.onCreate != null)
+                        _CollectionActionButton(
+                          icon: Icons.add,
+                          tooltip: 'Add',
+                          onPressed: widget.onCreate,
+                        ),
+                      if (widget.onDuplicate != null)
+                        _CollectionActionButton(
+                          icon: Icons.content_copy,
+                          tooltip: 'Duplicate',
+                          onPressed: selectedItem == null
+                              ? null
+                              : () => widget.onDuplicate!(selectedItem.value),
+                        ),
+                      if (widget.onDelete != null)
+                        _CollectionActionButton(
+                          icon: Icons.delete_outline,
+                          tooltip: 'Remove',
+                          onPressed: selectedItem == null
+                              ? null
+                              : () => widget.onDelete!(selectedItem.value),
+                        ),
+                    ],
+                  ),
+                ] else if (hasCollectionActions) ...<Widget>[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Wrap(
+                      spacing: 8,
+                      children: <Widget>[
+                        if (widget.onCreate != null)
+                          _CollectionActionButton(
+                            icon: Icons.add,
+                            tooltip: 'Add',
+                            onPressed: widget.onCreate,
+                          ),
+                        if (widget.onDuplicate != null)
+                          _CollectionActionButton(
+                            icon: Icons.content_copy,
+                            tooltip: 'Duplicate',
+                            onPressed: selectedItem == null
+                                ? null
+                                : () => widget.onDuplicate!(selectedItem.value),
+                          ),
+                        if (widget.onDelete != null)
+                          _CollectionActionButton(
+                            icon: Icons.delete_outline,
+                            tooltip: 'Remove',
+                            onPressed: selectedItem == null
+                                ? null
+                                : () => widget.onDelete!(selectedItem.value),
+                          ),
+                      ],
                     ),
-                    _CollectionActionButton(
-                      icon: Icons.add,
-                      tooltip: 'Add',
-                      onPressed: widget.onCreate,
-                    ),
-                    _CollectionActionButton(
-                      icon: Icons.content_copy,
-                      tooltip: 'Duplicate',
-                      onPressed:
-                          selectedItem == null || widget.onDuplicate == null
-                          ? null
-                          : () => widget.onDuplicate!(selectedItem.value),
-                    ),
-                    _CollectionActionButton(
-                      icon: Icons.delete_outline,
-                      tooltip: 'Remove',
-                      onPressed: selectedItem == null || widget.onDelete == null
-                          ? null
-                          : () => widget.onDelete!(selectedItem.value),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 38,
                   child: TextField(
                     key: ValueKey<String>(
-                      'collection-panel-filter-${widget.title}',
+                      widget.filterKeyBuilder?.call(selectedItem) ??
+                          'collection-panel-filter-${widget.title}',
                     ),
                     controller: _filterController,
                     onChanged: (value) {
@@ -664,7 +1104,7 @@ class _CollectionSwitcherPanelState<T>
                         color: AuroraColors.muted,
                       ),
                       prefixIconConstraints: const BoxConstraints(minWidth: 36),
-                      hintText: 'Filter selected...',
+                      hintText: widget.filterHint,
                       hintStyle: const TextStyle(color: AuroraColors.muted),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -726,24 +1166,101 @@ class _CollectionSwitcherPanelState<T>
     });
     widget.onSelect(id);
   }
+
+  /// Selects the next item when the command title is clicked.
+  void _selectNextItem() {
+    final items = widget.items;
+    if (items.length < 2) {
+      return;
+    }
+    final selectedItem = _selectedItem();
+    final selectedIndex = selectedItem == null
+        ? -1
+        : items.indexWhere((item) => item.id == selectedItem.id);
+    final nextIndex = (selectedIndex + 1) % items.length;
+    _selectItem(items[nextIndex].id);
+  }
+}
+
+class _CollectionCollapsedRail<T> extends StatelessWidget {
+  const _CollectionCollapsedRail({
+    required this.items,
+    required this.selectedId,
+    required this.onSelect,
+    required this.onExpand,
+    this.onCreate,
+  });
+
+  final List<CollectionPanelItem<T>> items;
+  final String? selectedId;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onExpand;
+  final VoidCallback? onCreate;
+
+  /// Builds the collapsed command-panel rail with vertical quick selectors.
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xfffffcf8),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            PanelCollapseButton(expanded: false, onPressed: onExpand),
+            const SizedBox(height: 14),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: <Widget>[
+                  for (final item in items)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _CollectionQuickSelect(
+                        icon: item.icon,
+                        selected: item.id == selectedId,
+                        tooltip: item.label,
+                        onPressed: () => onSelect(item.id),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (onCreate != null) ...<Widget>[
+              const SizedBox(height: 10),
+              Tooltip(
+                message: 'Add',
+                child: IconButton.outlined(
+                  onPressed: onCreate,
+                  icon: const Icon(Icons.add, size: 18),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _CollectionPanelSelect<T> extends StatelessWidget {
   const _CollectionPanelSelect({
     required this.items,
     required this.selectedId,
+    required this.width,
     required this.onChanged,
   });
 
   final List<CollectionPanelItem<T>> items;
   final String? selectedId;
+  final double width;
   final ValueChanged<String> onChanged;
 
   /// Builds the compact item dropdown beside a collection title.
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 210,
+      width: width,
       height: 38,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1083,90 +1600,109 @@ class _MenuPanelTile extends StatelessWidget {
   }
 }
 
-/// DetailPanel renders a right-side header and content area.
-class DetailPanel extends StatelessWidget {
-  /// Creates a reusable details panel.
-  const DetailPanel({
-    super.key,
-    required this.title,
-    required this.subtitle,
-    required this.child,
-  });
+/// PanelSectionBlock renders a reusable bordered workspace surface.
+class PanelSectionBlock extends StatelessWidget {
+  /// Creates a compact reusable section block.
+  const PanelSectionBlock({super.key, required this.child});
 
-  /// Panel title.
-  final String title;
-
-  /// Supporting subtitle.
-  final String subtitle;
-
-  /// Panel body.
+  /// Content shown inside the block.
   final Widget child;
 
-  /// Builds the detail panel.
+  /// Builds the shared bordered panel surface.
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: AuroraColors.surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 18, 24, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AuroraColors.green,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 3,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: AuroraColors.muted),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: AuroraColors.border),
-          Expanded(child: child),
-        ],
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xfffffcf8),
+        border: Border.all(color: AuroraColors.border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// PanelSectionLabel renders a compact uppercase section label.
+class PanelSectionLabel extends StatelessWidget {
+  /// Creates a reusable uppercase section label.
+  const PanelSectionLabel(this.label, {super.key});
+
+  final String label;
+
+  /// Builds the uppercase label shared by panel section cards.
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label.toUpperCase(),
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        color: AuroraColors.muted,
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 3,
       ),
     );
   }
 }
 
-/// FormPanel renders grouped form content with standard padding.
-class FormPanel extends StatelessWidget {
-  /// Creates a reusable form panel.
-  const FormPanel({super.key, required this.children});
+/// PanelBadge renders a compact metadata/status badge.
+class PanelBadge extends StatelessWidget {
+  /// Creates a reusable status badge.
+  const PanelBadge({super.key, required this.label});
 
-  /// Form children.
-  final List<Widget> children;
+  /// Badge text.
+  final String label;
 
-  /// Builds a scrollable form body.
+  /// Builds a dense bordered badge.
   @override
   Widget build(BuildContext context) {
-    return ListView(padding: const EdgeInsets.all(24), children: children);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: AuroraColors.panel,
+        border: Border.all(color: AuroraColors.border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: AuroraColors.green,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
   }
 }
 
-/// StatusPanel renders process and endpoint status rows.
-class StatusPanel extends StatelessWidget {
-  /// Creates a reusable status panel.
-  const StatusPanel({super.key, required this.children});
+/// PanelEmptyBlock renders a bordered empty state block.
+class PanelEmptyBlock extends StatelessWidget {
+  /// Creates a reusable empty state block.
+  const PanelEmptyBlock({super.key, required this.label});
 
-  /// Status row widgets.
-  final List<Widget> children;
+  /// Empty-state text.
+  final String label;
 
-  /// Builds a status panel body.
+  /// Builds a compact bordered empty block.
   @override
   Widget build(BuildContext context) {
-    return ListView(padding: const EdgeInsets.all(24), children: children);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xfffffcf8),
+        border: Border.all(color: AuroraColors.border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Text(label, style: const TextStyle(color: AuroraColors.muted)),
+        ),
+      ),
+    );
   }
 }
 

@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'model_config.dart';
 import 'runtime_profile.dart';
 
 /// ConfigFileKind identifies a managed configuration file collection.
@@ -26,6 +27,7 @@ class ConfigFileEntry {
     required this.kind,
     required this.assigned,
     this.displayName = '',
+    this.modelChoices = const <ModelConfigChoice>[],
   });
 
   /// Absolute or configured file path.
@@ -39,6 +41,9 @@ class ConfigFileEntry {
 
   /// Human-readable name derived from the config content when available.
   final String displayName;
+
+  /// Selectable model choices parsed from model config files.
+  final List<ModelConfigChoice> modelChoices;
 
   /// Stable item identifier.
   String get id {
@@ -92,6 +97,7 @@ class ConfigFileStore {
             kind: kind,
             assigned: file.path == assignedPath,
             displayName: await _displayName(file.path, kind),
+            modelChoices: await _modelChoices(file.path, kind),
           ),
         );
       }
@@ -105,6 +111,7 @@ class ConfigFileStore {
           kind: kind,
           assigned: true,
           displayName: await _displayName(assignedPath, kind),
+          modelChoices: await _modelChoices(assignedPath, kind),
         ),
       );
     }
@@ -194,6 +201,25 @@ class ConfigFileStore {
   }
 }
 
+/// Returns selectable model choices for model config files.
+Future<List<ModelConfigChoice>> _modelChoices(
+  String path,
+  ConfigFileKind kind,
+) async {
+  if (kind != ConfigFileKind.model) {
+    return const <ModelConfigChoice>[];
+  }
+  final file = File(path);
+  if (!await file.exists()) {
+    return const <ModelConfigChoice>[];
+  }
+  try {
+    return modelConfigChoices(await file.readAsString());
+  } on FileSystemException {
+    return const <ModelConfigChoice>[];
+  }
+}
+
 /// Returns a config-content display name without changing harness schemas.
 Future<String> _displayName(String path, ConfigFileKind kind) async {
   final file = File(path);
@@ -207,8 +233,7 @@ Future<String> _displayName(String path, ConfigFileKind kind) async {
     return '';
   }
   return switch (kind) {
-    ConfigFileKind.model =>
-      _configScalar(content, 'name') ?? _configScalar(content, 'default') ?? '',
+    ConfigFileKind.model => modelConfigDisplayName(content),
     ConfigFileKind.agent => _configScalar(content, 'name') ?? '',
     ConfigFileKind.tool => _configScalar(content, 'name') ?? '',
   };

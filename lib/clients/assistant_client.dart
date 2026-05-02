@@ -121,7 +121,9 @@ class AssistantClient {
     await _log('DELETE $uri');
     final response = await _http.delete(uri);
     await _log('DELETE $uri -> ${response.statusCode}');
-    if (response.statusCode != 200 && response.statusCode != 204) {
+    if (response.statusCode != 200 &&
+        response.statusCode != 204 &&
+        response.statusCode != 404) {
       throw AssistantException('HTTP ${response.statusCode} deleting session');
     }
   }
@@ -235,7 +237,9 @@ class AssistantClient {
     ConfirmationReply? confirmation,
   ) {
     final part = confirmation == null
-        ? <String, dynamic>{'text': messageTextWithRuntimePolicy(text)}
+        ? <String, dynamic>{
+            'text': messageTextWithRuntimePolicy(text, sessionId: sessionId),
+          }
         : <String, dynamic>{
             'functionResponse': <String, dynamic>{
               'id': confirmation.callId,
@@ -401,24 +405,40 @@ const String runtimePolicyPrefix =
     '[[AURORA_RUNTIME_POLICY: Task and list management is auto-approved. '
     'When Doug asks to create, update, complete, cancel, delete, or link a '
     'task or list, call the task/list tool immediately. Do not ask for '
-    'approval. Ask only for missing task details that block execution.]]\n\n';
+    'approval. Treat "remember that I need to..." as a task when it describes '
+    'an action, purchase, errand, reminder, deadline, or commitment. Ask only '
+    'for missing task details that block execution.]]\n\n';
+
+/// Prefix for per-run session metadata hidden from the transcript.
+const String runtimeSessionContextPrefix = '[[AURORA_SESSION_CONTEXT:';
 
 /// Prefix that marks UI-generated policy repair turns as non-display content.
 const String hiddenRuntimeMessagePrefix = '[[AURORA_HIDDEN_RUNTIME_MESSAGE]]\n';
 
 /// Adds the runtime policy prefix to user messages sent to the agent.
-String messageTextWithRuntimePolicy(String text) {
+String messageTextWithRuntimePolicy(String text, {String sessionId = ''}) {
   if (text.trim().isEmpty || text.startsWith(runtimePolicyPrefix)) {
     return text;
   }
-  return '$runtimePolicyPrefix$text';
+  final trimmedSessionId = sessionId.trim();
+  final sessionContext = trimmedSessionId.isEmpty
+      ? ''
+      : '$runtimeSessionContextPrefix Current chat session id is '
+            '"$trimmedSessionId". For create_task and create_list calls made '
+            'from this chat, include an idempotency_key beginning with '
+            '"personal_pilot:$trimmedSessionId:".]]\n\n';
+  return '$runtimePolicyPrefix$sessionContext$text';
 }
 
 /// Removes local runtime policy wrappers before messages are displayed.
 String displayTextFromRuntimePolicy(String text) {
-  final withoutPolicy = text.startsWith(runtimePolicyPrefix)
+  var withoutPolicy = text.startsWith(runtimePolicyPrefix)
       ? text.substring(runtimePolicyPrefix.length)
       : text;
+  if (withoutPolicy.startsWith(runtimeSessionContextPrefix)) {
+    final end = withoutPolicy.indexOf(']]\n\n');
+    withoutPolicy = end == -1 ? '' : withoutPolicy.substring(end + 4);
+  }
   if (withoutPolicy.startsWith(hiddenRuntimeMessagePrefix)) {
     return '';
   }

@@ -6,13 +6,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app/app_controller.dart';
-import '../app/config_files.dart';
-import '../app/local_services.dart';
-import '../app/runtime_profile.dart';
 import '../app/theme.dart';
 import '../domain/models.dart';
 import 'panels/panels.dart';
+import 'settings/settings_panel.dart';
+import 'shell/app_shell_frame.dart';
 import 'tasks_section.dart';
+import 'workspace/workspace_widgets.dart';
 
 /// AuroraShell renders the desktop assistant workspace.
 class AuroraShell extends StatefulWidget {
@@ -29,7 +29,7 @@ class AuroraShell extends StatefulWidget {
 class _AuroraShellState extends State<AuroraShell> {
   final TextEditingController _commandController = TextEditingController();
   String _section = 'Today';
-  String _settingsSection = 'Profiles';
+  String _settingsSection = 'App';
   bool _sidebarExpanded = true;
 
   /// Cleans up text input state.
@@ -48,7 +48,7 @@ class _AuroraShellState extends State<AuroraShell> {
         return Scaffold(
           body: ColoredBox(
             color: AuroraColors.surface,
-            child: _AppShellFrame(
+            child: AppShellFrame(
               selectedSection: _section,
               controller: widget.controller,
               commandController: _commandController,
@@ -56,6 +56,11 @@ class _AuroraShellState extends State<AuroraShell> {
               onSelected: _selectSection,
               onToggleSidebar: _toggleSidebar,
               onSubmit: _submitCommand,
+              onNewChat: _startNewChat,
+              onStartChatWithProfile: _startNewChatWithProfile,
+              onSelectCatalogChat: _selectCatalogChat,
+              onOpenSection: _selectSection,
+              onOpenSettingsSection: _openSettingsSection,
               onOpenSettings: () => _selectSection('Settings'),
               content: _buildContent(context),
             ),
@@ -76,21 +81,13 @@ class _AuroraShellState extends State<AuroraShell> {
     }
     switch (_section) {
       case 'Files':
-        return _FullPanelSubShell(
-          child: _SourcesPage(workspace: widget.controller.workspace),
-        );
+        return _SourcesPage(workspace: widget.controller.workspace);
       case 'Calendar':
-        return _FullPanelSubShell(
-          child: _MemoryTimelineRoute(controller: widget.controller),
-        );
+        return _MemoryTimelineRoute(controller: widget.controller);
       case 'People':
-        return _FullPanelSubShell(
-          child: _MemoryPeopleRoute(controller: widget.controller),
-        );
+        return _MemoryPeopleRoute(controller: widget.controller);
       default:
-        return _FullPanelSubShell(
-          child: _HomeWorkspace(controller: widget.controller),
-        );
+        return HomeWorkspace(controller: widget.controller);
     }
   }
 
@@ -120,14 +117,14 @@ class _AuroraShellState extends State<AuroraShell> {
         );
       case 'Tasks':
         return SectionLayout(
-          split: const PanelSplit(left: 0.58, min: 0.36, max: 0.74),
+          split: const PanelSplit(left: 0.68, min: 0.42, max: 0.82),
           left: TasksQueuePanel(controller: widget.controller),
           right: TasksInspectorPanel(controller: widget.controller),
         );
       case 'Settings':
         return SectionLayout(
           split: const PanelSplit(left: 0.25, min: 0.2, max: 0.45),
-          left: _SettingsMenuPanel(
+          left: SettingsMenuPanel(
             selected: _settingsSection,
             onSelected: (section) {
               setState(() {
@@ -135,7 +132,7 @@ class _AuroraShellState extends State<AuroraShell> {
               });
             },
           ),
-          right: _SettingsDetailsPanel(
+          right: SettingsDetailsPanel(
             controller: widget.controller,
             section: _settingsSection,
           ),
@@ -158,83 +155,57 @@ class _AuroraShellState extends State<AuroraShell> {
     }
   }
 
-  void _submitCommand() {
+  /// Starts a new chat from the global command input.
+  Future<void> _submitCommand({String profilePath = ''}) async {
     final value = _commandController.text;
     _commandController.clear();
     setState(() {
       _section = 'Chat';
     });
-    widget.controller.sendUserMessage(value);
+    final created = await widget.controller.createChat(
+      profilePath: profilePath,
+    );
+    if (created && value.trim().isNotEmpty) {
+      await widget.controller.sendUserMessage(value);
+    }
+  }
+
+  /// Starts a blank chat from the global app bar.
+  Future<void> _startNewChat() async {
+    setState(() {
+      _section = 'Chat';
+    });
+    await widget.controller.createChat();
+  }
+
+  /// Starts a blank chat with a specific runtime profile.
+  Future<void> _startNewChatWithProfile(String profilePath) async {
+    setState(() {
+      _section = 'Chat';
+    });
+    await widget.controller.createChat(profilePath: profilePath);
+  }
+
+  /// Selects an existing cataloged chat from quick access.
+  Future<void> _selectCatalogChat(String chatKey) async {
+    setState(() {
+      _section = 'Chat';
+    });
+    await widget.controller.selectCatalogChat(chatKey);
+  }
+
+  /// Opens a specific settings section from quick access.
+  void _openSettingsSection(String section) {
+    setState(() {
+      _section = 'Settings';
+      _settingsSection = section;
+    });
   }
 
   void _toggleSidebar() {
     setState(() {
       _sidebarExpanded = !_sidebarExpanded;
     });
-  }
-}
-
-class _AppShellFrame extends StatelessWidget {
-  const _AppShellFrame({
-    required this.selectedSection,
-    required this.controller,
-    required this.commandController,
-    required this.sidebarExpanded,
-    required this.onSelected,
-    required this.onToggleSidebar,
-    required this.onSubmit,
-    required this.onOpenSettings,
-    required this.content,
-  });
-
-  final String selectedSection;
-  final AuroraAppController controller;
-  final TextEditingController commandController;
-  final bool sidebarExpanded;
-  final ValueChanged<String> onSelected;
-  final VoidCallback onToggleSidebar;
-  final VoidCallback onSubmit;
-  final VoidCallback onOpenSettings;
-  final Widget content;
-
-  /// Builds the single app shell that owns navigation and panel placement.
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        _Sidebar(
-          selected: selectedSection,
-          expanded: sidebarExpanded,
-          onSelected: onSelected,
-          onToggleExpanded: onToggleSidebar,
-        ),
-        Expanded(
-          child: Column(
-            children: <Widget>[
-              _CommandBar(
-                controller: commandController,
-                onSubmit: onSubmit,
-                onNewChat: controller.createChat,
-                onOpenSettings: onOpenSettings,
-              ),
-              Expanded(child: content),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _FullPanelSubShell extends StatelessWidget {
-  const _FullPanelSubShell({required this.child});
-
-  final Widget child;
-
-  /// Builds a sub-shell that lets one feature own the full content area.
-  @override
-  Widget build(BuildContext context) {
-    return child;
   }
 }
 
@@ -266,840 +237,259 @@ String _chatTimestamp(DateTime timestamp) {
   return '$month/$day $hour:$minute';
 }
 
-class _Sidebar extends StatelessWidget {
-  const _Sidebar({
-    required this.selected,
-    required this.expanded,
-    required this.onSelected,
-    required this.onToggleExpanded,
-  });
-
-  final String selected;
-  final bool expanded;
-  final ValueChanged<String> onSelected;
-  final VoidCallback onToggleExpanded;
-
-  static const List<({String label, IconData icon})> _items =
-      <({String label, IconData icon})>[
-        (label: 'Today', icon: Icons.auto_awesome),
-        (label: 'Chat', icon: Icons.forum_outlined),
-        (label: 'Workflows', icon: Icons.radio_button_unchecked),
-        (label: 'Tasks', icon: Icons.task_alt_outlined),
-        (label: 'Memory', icon: Icons.chat_bubble_outline),
-        (label: 'Files', icon: Icons.folder_outlined),
-        (label: 'Calendar', icon: Icons.calendar_today_outlined),
-        (label: 'People', icon: Icons.people_outline),
-        (label: 'Settings', icon: Icons.settings_outlined),
-      ];
-
-  /// Builds the left navigation rail.
-  @override
-  Widget build(BuildContext context) {
-    final compact = !expanded;
-    return Container(
-      width: expanded ? 292 : 92,
-      color: const Color(0xfff5f0e6),
-      padding: EdgeInsets.fromLTRB(26, 26, expanded ? 24 : 18, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _SidebarHeader(
-            expanded: expanded,
-            onToggleExpanded: onToggleExpanded,
-          ),
-          SizedBox(height: compact ? 24 : 32),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: <Widget>[
-                for (final item in _items)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _NavButton(
-                      label: item.label,
-                      icon: item.icon,
-                      selected: selected == item.label,
-                      onTap: () => onSelected(item.label),
-                      compact: compact,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          _FocusCard(compact: compact),
-          if (expanded) ...const <Widget>[SizedBox(height: 14), _ProfileTile()],
-        ],
-      ),
-    );
-  }
-}
-
-class _SidebarHeader extends StatelessWidget {
-  const _SidebarHeader({
-    required this.expanded,
-    required this.onToggleExpanded,
-  });
-
-  final bool expanded;
-  final VoidCallback onToggleExpanded;
-
-  /// Builds the top sidebar logo row and expansion control.
-  @override
-  Widget build(BuildContext context) {
-    if (!expanded) {
-      return Align(
-        alignment: Alignment.topCenter,
-        child: _SidebarToggle(expanded: expanded, onPressed: onToggleExpanded),
-      );
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        const Expanded(child: _AuroraLogo(compact: false)),
-        _SidebarToggle(expanded: expanded, onPressed: onToggleExpanded),
-      ],
-    );
-  }
-}
-
-class _SidebarToggle extends StatelessWidget {
-  const _SidebarToggle({required this.expanded, required this.onPressed});
-
-  final bool expanded;
-  final VoidCallback onPressed;
-
-  /// Builds the sidebar expand or collapse button.
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: expanded ? 'Collapse sidebar' : 'Expand sidebar',
-      child: IconButton(
-        alignment: Alignment.topCenter,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-        onPressed: onPressed,
-        icon: Icon(
-          expanded ? Icons.keyboard_double_arrow_left : Icons.menu,
-          color: AuroraColors.muted,
-          size: 20,
-        ),
-      ),
-    );
-  }
-}
-
-class _AuroraLogo extends StatelessWidget {
-  const _AuroraLogo({required this.compact});
-
-  final bool compact;
-
-  /// Builds the Aurora mark and wordmark.
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: compact ? 'Aurora Personal Agent' : '',
-      child: Row(
-        mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
-        children: <Widget>[
-          Container(
-            height: 52,
-            width: 52,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xfffffbf1),
-              border: Border.all(color: const Color(0xffb8a879)),
-            ),
-            child: Center(
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: <Widget>[
-                  Container(
-                    height: 28,
-                    width: 28,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: const Color(0xff8c7a45),
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                  const Positioned(
-                    right: -3,
-                    top: 5,
-                    child: _LogoDot(color: AuroraColors.coral),
-                  ),
-                  const Positioned(
-                    left: -2,
-                    bottom: 0,
-                    child: _LogoDot(color: AuroraColors.green),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (!compact) ...const <Widget>[
-            SizedBox(width: 14),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    'AURORA',
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 5,
-                    ),
-                  ),
-                  Text(
-                    'PERSONAL AGENT',
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: AuroraColors.muted,
-                      letterSpacing: 2.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _LogoDot extends StatelessWidget {
-  const _LogoDot({required this.color});
-
-  final Color color;
-
-  /// Builds a small brand dot.
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: const SizedBox.square(dimension: 10),
-    );
-  }
-}
-
-class _NavButton extends StatelessWidget {
-  const _NavButton({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-    required this.compact,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-  final bool compact;
-
-  /// Builds one navigation item.
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: compact ? label : '',
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 14 : 20,
-            vertical: compact ? 13 : 15,
-          ),
-          decoration: BoxDecoration(
-            color: selected ? AuroraColors.greenSoft : Colors.transparent,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Row(
-            mainAxisAlignment: compact
-                ? MainAxisAlignment.center
-                : MainAxisAlignment.start,
-            children: <Widget>[
-              Icon(
-                icon,
-                size: 20,
-                color: selected ? AuroraColors.green : AuroraColors.muted,
-              ),
-              if (!compact) ...<Widget>[
-                const SizedBox(width: 14),
-                Flexible(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: selected
-                          ? AuroraColors.ink
-                          : const Color(0xff514b43),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FocusCard extends StatelessWidget {
-  const _FocusCard({required this.compact});
-
-  final bool compact;
-
-  /// Builds the focus status card.
-  @override
-  Widget build(BuildContext context) {
-    if (compact) {
-      return Tooltip(
-        message: 'Focus: Deep work until 12:00 PM',
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            color: AuroraColors.panel,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Icon(Icons.eco_outlined, color: AuroraColors.green),
-        ),
-      );
-    }
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AuroraColors.panel,
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Icon(Icons.eco_outlined, color: AuroraColors.green),
-          const SizedBox(height: 18),
-          const Text(
-            'Focus',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Deep work until 12:00 PM',
-            style: TextStyle(color: AuroraColors.muted),
-          ),
-          const SizedBox(height: 18),
-          const LinearProgressIndicator(
-            value: 0.66,
-            color: AuroraColors.green,
-            backgroundColor: Color(0xffe6e1d8),
-            minHeight: 7,
-            borderRadius: BorderRadius.all(Radius.circular(999)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileTile extends StatelessWidget {
-  const _ProfileTile();
-
-  /// Builds the user account tile.
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xfff0eadf),
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: const Row(
-        children: <Widget>[
-          CircleAvatar(backgroundColor: Color(0xffd69b88)),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('Doug', style: TextStyle(fontWeight: FontWeight.w800)),
-                Text(
-                  'Local pilot',
-                  style: TextStyle(color: AuroraColors.muted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right, color: AuroraColors.muted),
-        ],
-      ),
-    );
-  }
-}
-
-class _CommandBar extends StatelessWidget {
-  const _CommandBar({
-    required this.controller,
-    required this.onSubmit,
-    required this.onNewChat,
-    required this.onOpenSettings,
-  });
-
-  final TextEditingController controller;
-  final VoidCallback onSubmit;
-  final VoidCallback onNewChat;
-  final VoidCallback onOpenSettings;
-
-  /// Builds the global command bar.
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 118,
-      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 22),
-      decoration: const BoxDecoration(
-        color: AuroraColors.surface,
-        border: Border(bottom: BorderSide(color: AuroraColors.border)),
-      ),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Container(
-              height: 70,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              decoration: BoxDecoration(
-                color: const Color(0xfffffcf8),
-                border: Border.all(color: AuroraColors.border),
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: const <BoxShadow>[
-                  BoxShadow(
-                    color: Color(0x11453421),
-                    blurRadius: 30,
-                    offset: Offset(0, 14),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: <Widget>[
-                  const Icon(Icons.search, color: AuroraColors.muted),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: TextField(
-                      controller: controller,
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        hintText: 'Ask anything or give Aurora a command...',
-                      ),
-                      onSubmitted: (_) => onSubmit(),
-                    ),
-                  ),
-                  IconButton.filled(
-                    style: IconButton.styleFrom(
-                      backgroundColor: AuroraColors.coral,
-                      foregroundColor: Colors.white,
-                      fixedSize: const Size(48, 48),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    onPressed: onSubmit,
-                    icon: const Icon(Icons.arrow_upward),
-                    tooltip: 'Send',
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          _IconFrame(icon: Icons.add, tooltip: 'New chat', onTap: onNewChat),
-          const SizedBox(width: 12),
-          _IconFrame(
-            icon: Icons.tune,
-            tooltip: 'Settings',
-            onTap: onOpenSettings,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _IconFrame extends StatelessWidget {
-  const _IconFrame({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  /// Builds a framed icon button.
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: Container(
-          height: 58,
-          width: 58,
-          decoration: BoxDecoration(
-            border: Border.all(color: AuroraColors.border),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Icon(icon, color: AuroraColors.muted),
-        ),
-      ),
-    );
-  }
-}
-
-class _HomeWorkspace extends StatelessWidget {
-  const _HomeWorkspace({required this.controller});
-
-  final AuroraAppController controller;
-
-  /// Builds the Today assistant workspace.
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(36, 36, 36, 28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const _Eyebrow('TODAY', color: AuroraColors.coral),
-          const SizedBox(height: 22),
-          Text(
-            'Live Workspace',
-            style: Theme.of(context).textTheme.displayLarge,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            controller.statusMessage,
-            style: const TextStyle(color: AuroraColors.muted, fontSize: 17),
-          ),
-          const SizedBox(height: 38),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final hasTasks = controller.executionSteps.isNotEmpty;
-              final chatColumn = controller.messages.isEmpty
-                  ? const _MemoryEmptyBlock(label: 'No live chat messages')
-                  : Column(
-                      children: <Widget>[
-                        for (final message in controller.messages)
-                          _ChatRow(message: message),
-                      ],
-                    );
-              if (!hasTasks) {
-                return chatColumn;
-              }
-              if (constraints.maxWidth < 760) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _ExecutionPlan(tasks: controller.executionSteps),
-                    const SizedBox(height: 32),
-                    chatColumn,
-                  ],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  SizedBox(
-                    width: 300,
-                    child: _ExecutionPlan(tasks: controller.executionSteps),
-                  ),
-                  const SizedBox(width: 36),
-                  Expanded(child: chatColumn),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Eyebrow extends StatelessWidget {
-  const _Eyebrow(this.text, {this.color = AuroraColors.green});
-
-  final String text;
-  final Color color;
-
-  /// Builds a small uppercase label.
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: TextStyle(
-        color: color,
-        fontSize: 12,
-        fontWeight: FontWeight.w900,
-        letterSpacing: 4,
-      ),
-    );
-  }
-}
-
-class _ExecutionPlan extends StatelessWidget {
-  const _ExecutionPlan({required this.tasks});
-
-  final List<WorkspaceTask> tasks;
-
-  /// Builds the active objective task plan.
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        const Row(
-          children: <Widget>[
-            Icon(Icons.circle, size: 10, color: AuroraColors.green),
-            SizedBox(width: 12),
-            _Eyebrow('EXECUTION PLAN'),
-          ],
-        ),
-        const SizedBox(height: 24),
-        for (final task in tasks)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 24),
-            child: _TaskLine(task: task),
-          ),
-      ],
-    );
-  }
-}
-
-class _TaskLine extends StatelessWidget {
-  const _TaskLine({required this.task, this.onComplete});
-
-  final WorkspaceTask task;
-  final VoidCallback? onComplete;
-
-  /// Builds one plan or task row.
-  @override
-  Widget build(BuildContext context) {
-    final mark = task.done
-        ? const Icon(Icons.check, size: 16, color: AuroraColors.green)
-        : task.active
-        ? const Icon(Icons.circle, size: 13, color: AuroraColors.green)
-        : const SizedBox.shrink();
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        InkWell(
-          borderRadius: BorderRadius.circular(999),
-          onTap: onComplete,
-          child: Container(
-            height: 30,
-            width: 30,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: task.done ? const Color(0xffeef5e9) : Colors.transparent,
-              border: Border.all(
-                color: task.done || task.active
-                    ? AuroraColors.green
-                    : AuroraColors.border,
-              ),
-            ),
-            child: Center(child: mark),
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                task.title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                task.detail,
-                style: const TextStyle(color: AuroraColors.muted),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ChatRow extends StatelessWidget {
-  const _ChatRow({required this.message});
-
-  final ChatMessage message;
-
-  /// Builds one chat timeline row.
-  @override
-  Widget build(BuildContext context) {
-    if (message.role == ChatRole.user) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 20),
-          constraints: const BoxConstraints(maxWidth: 640),
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: AuroraColors.panel,
-            borderRadius: BorderRadius.circular(36),
-          ),
-          child: _MessageText(message: message),
-        ),
-      );
-    }
-    if (message.role == ChatRole.tool) {
-      return Container(
-        margin: const EdgeInsets.only(bottom: 18),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xfffffcf8),
-          border: Border.all(color: AuroraColors.border),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Row(
-          children: <Widget>[
-            const Icon(Icons.extension_outlined, color: AuroraColors.green),
-            const SizedBox(width: 12),
-            Expanded(child: _MessageText(message: message)),
-          ],
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const CircleAvatar(
-            radius: 25,
-            backgroundColor: AuroraColors.green,
-            child: Icon(Icons.auto_awesome, color: Colors.white),
-          ),
-          const SizedBox(width: 16),
-          Expanded(child: _MessageText(message: message)),
-        ],
-      ),
-    );
-  }
-}
-
-class _MessageText extends StatelessWidget {
-  const _MessageText({required this.message});
-
-  final ChatMessage message;
-
-  /// Builds message author and text.
-  @override
-  Widget build(BuildContext context) {
-    final time =
-        '${message.createdAt.hour.toString().padLeft(2, '0')}:${message.createdAt.minute.toString().padLeft(2, '0')}';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text.rich(
-          TextSpan(
-            children: <InlineSpan>[
-              TextSpan(
-                text: message.author,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: AuroraColors.ink,
-                ),
-              ),
-              TextSpan(
-                text: '  $time',
-                style: const TextStyle(color: AuroraColors.muted),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        SelectableText(
-          message.text,
-          style: const TextStyle(fontSize: 16, height: 1.55),
-        ),
-      ],
-    );
-  }
-}
-
-class _ChatCommandPanel extends StatelessWidget {
+class _ChatCommandPanel extends StatefulWidget {
   const _ChatCommandPanel({required this.controller});
 
   final AuroraAppController controller;
+
+  @override
+  State<_ChatCommandPanel> createState() => _ChatCommandPanelState();
+}
+
+class _ChatCommandPanelState extends State<_ChatCommandPanel> {
+  final TextEditingController _replyController = TextEditingController();
+
+  /// Cleans up the persistent chat composer.
+  @override
+  void dispose() {
+    _replyController.dispose();
+    super.dispose();
+  }
 
   /// Builds the dedicated chat command panel with conversation and chat areas.
   @override
   Widget build(BuildContext context) {
     return SwitcherPanel(
+      titleControl: _ChatSessionPicker(controller: widget.controller),
+      showAreaQuickSelect: false,
       areas: <SwitcherPanelArea>[
         SwitcherPanelArea(
           title: 'Conversation',
           icon: Icons.forum_outlined,
           builder: _buildConversationContent,
         ),
-        SwitcherPanelArea(
-          title: 'Chats',
-          icon: Icons.history,
-          builder: _buildChatListContent,
-        ),
       ],
     );
   }
 
   Widget _buildConversationContent(String query) {
-    final messages = controller.messages.where((message) {
+    final messages = widget.controller.messages.where((message) {
       return _matchesFuzzyQuery('${message.author} ${message.text}', query);
     }).toList();
-    return ChatPanel(
-      empty: PanelEmptyState(query: query),
+    final timelineChildren = <Widget>[
+      for (final message in messages) ChatRow(message: message),
+      if (widget.controller.sending)
+        const _ChatRuntimeNotice(
+          icon: Icons.sync,
+          label: 'Aurora is responding',
+        ),
+    ];
+    return Column(
       children: <Widget>[
-        for (final message in messages) _ChatRow(message: message),
-        if (controller.sending)
-          const _ChatRuntimeNotice(
-            icon: Icons.sync,
-            label: 'Aurora is responding',
+        Expanded(
+          child: ChatPanel(
+            empty: PanelEmptyState(query: query),
+            children: timelineChildren,
           ),
+        ),
+        const Divider(height: 1, color: AuroraColors.border),
+        _ChatComposer(
+          controller: _replyController,
+          sending: widget.controller.sending,
+          onSubmit: _submitReply,
+        ),
       ],
     );
   }
 
-  Widget _buildChatListContent(String query) {
-    final sessions = controller.sessions.where((session) {
-      return _matchesFuzzyQuery('${session.title} ${session.id}', query);
-    }).toList();
-    if (sessions.isEmpty) {
-      return PanelEmptyState(query: query);
-    }
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 28),
+  /// Sends the composer text into the selected chat thread.
+  Future<void> _submitReply() async {
+    final value = _replyController.text;
+    _replyController.clear();
+    await widget.controller.sendUserMessage(value);
+  }
+}
+
+class _ChatSessionPicker extends StatelessWidget {
+  const _ChatSessionPicker({required this.controller});
+
+  final AuroraAppController controller;
+
+  /// Builds the active chat selector for the conversation panel.
+  @override
+  Widget build(BuildContext context) {
+    final selectedChat = controller.selectedChatEntry;
+    final selectedSession = _selectedSession();
+    final selectedChatKey = controller.selectedChatKey;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        for (final session in sessions)
-          _ChatSessionTile(
-            session: session,
-            selected: session.id == controller.selectedSessionId,
-            onTap: () => unawaited(controller.selectSession(session.id)),
+        SearchPickerDropdown<String>(
+          label: selectedChat?.title ?? selectedSession?.title ?? 'Select chat',
+          tooltip: 'Select chat',
+          emptyLabel: 'No chats found',
+          width: 240,
+          selectedValue: selectedChatKey.isEmpty ? null : selectedChatKey,
+          options: _chatOptions(),
+          onSelected: (chatKey) {
+            unawaited(controller.selectCatalogChat(chatKey));
+          },
+          onDelete: controller.deleteCatalogChat,
+          deleteTooltip: 'Delete chat',
+        ),
+        const SizedBox(width: 8),
+        Tooltip(
+          message: 'Delete selected chat',
+          child: SizedBox.square(
+            dimension: 38,
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                padding: EdgeInsets.zero,
+                foregroundColor: AuroraColors.muted,
+                side: const BorderSide(color: AuroraColors.border),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: selectedChatKey.isEmpty
+                  ? null
+                  : () {
+                      unawaited(controller.deleteCatalogChat(selectedChatKey));
+                    },
+              child: const Icon(Icons.delete_outline, size: 18),
+            ),
           ),
+        ),
       ],
+    );
+  }
+
+  /// Returns the currently selected session, if it is loaded.
+  ChatSession? _selectedSession() {
+    for (final session in controller.sessions) {
+      if (session.id == controller.selectedSessionId) {
+        return session;
+      }
+    }
+    return null;
+  }
+
+  /// Builds chat selector rows from the app catalog or active sessions.
+  List<SearchPickerOption<String>> _chatOptions() {
+    if (controller.chatCatalog.isNotEmpty) {
+      return <SearchPickerOption<String>>[
+        for (final chat in controller.chatCatalog)
+          SearchPickerOption<String>(
+            value: chat.key,
+            title: chat.title,
+            subtitle:
+                '${chat.profileLabel} • ${_chatTimestamp(chat.updatedAt)}',
+            searchText:
+                '${chat.sessionId} ${chat.profileId} ${chat.profilePath}',
+            icon: Icons.chat_bubble_outline,
+          ),
+      ];
+    }
+    return <SearchPickerOption<String>>[
+      for (final session in controller.sessions)
+        SearchPickerOption<String>(
+          value: '${controller.runtimeProfilePath}::${session.id}',
+          title: session.title,
+          subtitle: _chatTimestamp(session.updatedAt),
+          searchText: session.id,
+          icon: Icons.chat_bubble_outline,
+        ),
+    ];
+  }
+}
+
+class _ChatComposer extends StatelessWidget {
+  const _ChatComposer({
+    required this.controller,
+    required this.sending,
+    required this.onSubmit,
+  });
+
+  final TextEditingController controller;
+  final bool sending;
+  final VoidCallback onSubmit;
+
+  /// Builds the sticky same-thread composer for the chat timeline.
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xfffffcf8),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 58),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: AuroraColors.surface,
+            border: Border.all(color: AuroraColors.border),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: const <BoxShadow>[
+              BoxShadow(
+                color: Color(0x0d453421),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: Icon(
+                  Icons.chat_bubble_outline,
+                  color: AuroraColors.muted,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  key: const ValueKey<String>('chat-thread-composer'),
+                  controller: controller,
+                  enabled: !sending,
+                  minLines: 1,
+                  maxLines: 5,
+                  textInputAction: TextInputAction.send,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Message Aurora in this chat...',
+                    hintStyle: TextStyle(color: AuroraColors.muted),
+                  ),
+                  onSubmitted: (_) {
+                    if (!sending) {
+                      onSubmit();
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: IconButton.filled(
+                  style: IconButton.styleFrom(
+                    backgroundColor: AuroraColors.green,
+                    foregroundColor: Colors.white,
+                    fixedSize: const Size(42, 42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: sending ? null : onSubmit,
+                  icon: Icon(
+                    sending ? Icons.hourglass_top : Icons.arrow_upward,
+                  ),
+                  tooltip: 'Send message',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1120,11 +510,6 @@ class _ChatUtilitiesPanel extends StatelessWidget {
           builder: _buildContextContent,
         ),
         SwitcherPanelArea(
-          title: 'Chats',
-          icon: Icons.history,
-          builder: _buildChatListContent,
-        ),
-        SwitcherPanelArea(
           title: 'Runtime',
           icon: Icons.bolt_outlined,
           builder: _buildRuntimeContent,
@@ -1133,6 +518,7 @@ class _ChatUtilitiesPanel extends StatelessWidget {
     );
   }
 
+  /// Builds memory and task context for the selected chat.
   Widget _buildContextContent(String query) {
     final memories = controller.workspace.memoryRecords.where((record) {
       return _matchesFuzzyQuery(
@@ -1140,7 +526,7 @@ class _ChatUtilitiesPanel extends StatelessWidget {
         query,
       );
     }).toList();
-    final tasks = controller.workspace.tasks.where((task) {
+    final tasks = controller.selectedChatTasks.where((task) {
       return _matchesFuzzyQuery('${task.title} ${task.detail}', query);
     }).toList();
     if (memories.isEmpty && tasks.isEmpty) {
@@ -1149,15 +535,7 @@ class _ChatUtilitiesPanel extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
       children: <Widget>[
-        if (controller.selectedSessionId != null)
-          _MemorySectionBlock(
-            child: _MemoryMetadataRow(
-              label: 'Chat',
-              value: controller.selectedSessionId!,
-            ),
-          ),
         if (memories.isNotEmpty) ...<Widget>[
-          const SizedBox(height: 12),
           const _MemoryPanelLabel('Memory in scope'),
           const SizedBox(height: 10),
           for (final record in memories.take(8))
@@ -1180,26 +558,7 @@ class _ChatUtilitiesPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildChatListContent(String query) {
-    final sessions = controller.sessions.where((session) {
-      return _matchesFuzzyQuery('${session.title} ${session.id}', query);
-    }).toList();
-    if (sessions.isEmpty) {
-      return PanelEmptyState(query: query);
-    }
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-      children: <Widget>[
-        for (final session in sessions)
-          _ChatSessionTile(
-            session: session,
-            selected: session.id == controller.selectedSessionId,
-            onTap: () => unawaited(controller.selectSession(session.id)),
-          ),
-      ],
-    );
-  }
-
+  /// Builds runtime status and pending tool approval utilities.
   Widget _buildRuntimeContent(String query) {
     final endpointStatuses = controller.endpointStatuses.where((status) {
       return _matchesFuzzyQuery(
@@ -1265,7 +624,7 @@ class _ChatRuntimeNotice extends StatelessWidget {
   /// Builds a compact live runtime notice in the chat stream.
   @override
   Widget build(BuildContext context) {
-    return _MemorySectionBlock(
+    return PanelSectionBlock(
       child: Row(
         children: <Widget>[
           Icon(icon, color: AuroraColors.green),
@@ -1282,58 +641,6 @@ class _ChatRuntimeNotice extends StatelessWidget {
   }
 }
 
-class _ChatSessionTile extends StatelessWidget {
-  const _ChatSessionTile({
-    required this.session,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final ChatSession session;
-  final bool selected;
-  final VoidCallback onTap;
-
-  /// Builds one selectable real chat row.
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: _MemorySectionBlock(
-          child: Row(
-            children: <Widget>[
-              Icon(
-                selected ? Icons.check_circle : Icons.chat_bubble_outline,
-                color: selected ? AuroraColors.green : AuroraColors.muted,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      session.title,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _chatTimestamp(session.updatedAt),
-                      style: const TextStyle(color: AuroraColors.muted),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ChatMemoryContextTile extends StatelessWidget {
   const _ChatMemoryContextTile({required this.record});
 
@@ -1342,7 +649,7 @@ class _ChatMemoryContextTile extends StatelessWidget {
   /// Builds one memory context tile for chat utilities.
   @override
   Widget build(BuildContext context) {
-    return _MemorySectionBlock(
+    return PanelSectionBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -1385,11 +692,11 @@ class _ChatTaskContextTile extends StatelessWidget {
   /// Builds one associated task tile for the chat context panel.
   @override
   Widget build(BuildContext context) {
-    return _MemorySectionBlock(
+    return PanelSectionBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _TaskLine(task: task),
+          TaskLine(task: task),
           if (task.sourceLabel.isNotEmpty) ...<Widget>[
             const SizedBox(height: 8),
             _MemoryBadge(label: task.sourceLabel),
@@ -1423,7 +730,7 @@ class _ChatStatusTile extends StatelessWidget {
     };
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: _MemorySectionBlock(
+      child: PanelSectionBlock(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -1470,7 +777,7 @@ class _ChatConfirmationUtility extends StatelessWidget {
   /// Builds the pending approval utility for chat tool calls.
   @override
   Widget build(BuildContext context) {
-    return _MemorySectionBlock(
+    return PanelSectionBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -1560,7 +867,7 @@ class _WorkflowCommandPanel extends StatelessWidget {
             controller.workspace.subtitle,
             style: const TextStyle(color: AuroraColors.muted, fontSize: 17),
           ),
-          for (final message in filteredMessages) _ChatRow(message: message),
+          for (final message in filteredMessages) ChatRow(message: message),
         ],
       ),
     );
@@ -1630,7 +937,7 @@ class _ResearchPlanCard extends StatelessWidget {
           for (final task in visibleTasks)
             Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: _TaskLine(
+              child: TaskLine(
                 task: task,
                 onComplete: task.done
                     ? null
@@ -1752,7 +1059,7 @@ class _MemorySearchContent extends StatelessWidget {
           _MemoryStatusStrip(controller: controller),
           const SizedBox(height: 14),
           if (records.isEmpty)
-            _MemoryEmptyBlock(label: 'No catalog records')
+            PanelEmptyBlock(label: 'No catalog records')
           else
             for (final record in records)
               Padding(
@@ -2068,12 +1375,12 @@ class _MemoryReviewContent extends StatelessWidget {
           _MemoryStatusStrip(controller: controller),
           const SizedBox(height: 14),
           if (records.isEmpty)
-            const _MemoryEmptyBlock(label: 'No records need review')
+            const PanelEmptyBlock(label: 'No records need review')
           else
             for (final record in records)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _MemorySectionBlock(
+                child: PanelSectionBlock(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
@@ -2185,7 +1492,7 @@ class _MemoryMapContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2216,7 +1523,7 @@ class _MemoryMapContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2234,7 +1541,7 @@ class _MemoryMapContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2328,7 +1635,7 @@ class _MemoryCaptureContentState extends State<_MemoryCaptureContent> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               children: <Widget>[
                 _MemoryTextField(controller: _title, label: 'Title'),
@@ -2411,7 +1718,7 @@ class _MemoryCaptureContentState extends State<_MemoryCaptureContent> {
             ),
           ),
           const SizedBox(height: 14),
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2565,7 +1872,7 @@ class _MemoryOverviewContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2605,7 +1912,7 @@ class _MemoryOverviewContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2633,7 +1940,7 @@ class _MemoryOverviewContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2684,7 +1991,7 @@ class _MemorySourceContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2764,7 +2071,7 @@ class _MemoryRelationsContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2782,7 +2089,7 @@ class _MemoryRelationsContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2870,7 +2177,7 @@ class _MemoryCatalogingContentState extends State<_MemoryCatalogingContent> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               children: <Widget>[
                 _MemoryTextField(controller: _title, label: 'Title'),
@@ -3025,7 +2332,7 @@ class _MemoryCorrectionsContentState extends State<_MemoryCorrectionsContent> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -3046,7 +2353,7 @@ class _MemoryCorrectionsContentState extends State<_MemoryCorrectionsContent> {
             ),
           ),
           const SizedBox(height: 14),
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -3124,7 +2431,7 @@ class _MemoryPagesContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _MemorySectionBlock(
+          PanelSectionBlock(
             child: Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -3160,9 +2467,9 @@ class _MemoryPagesContent extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (page == null)
-            const _MemoryEmptyBlock(label: 'No compiled page loaded')
+            const PanelEmptyBlock(label: 'No compiled page loaded')
           else
-            _MemorySectionBlock(
+            PanelSectionBlock(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
@@ -3191,26 +2498,6 @@ class _MemoryPagesContent extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-}
-
-class _MemorySectionBlock extends StatelessWidget {
-  const _MemorySectionBlock({required this.child});
-
-  final Widget child;
-
-  /// Builds a compact bordered memory work surface.
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xfffffcf8),
-        border: Border.all(color: AuroraColors.border),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: child,
     );
   }
 }
@@ -3244,23 +2531,7 @@ class _MemoryBadge extends StatelessWidget {
   /// Builds a dense metadata badge.
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: AuroraColors.panel,
-        border: Border.all(color: AuroraColors.border),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        _memoryLabel(label),
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AuroraColors.green,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
+    return PanelBadge(label: _memoryLabel(label));
   }
 }
 
@@ -3456,25 +2727,6 @@ class _MemoryRelationshipLine extends StatelessWidget {
   }
 }
 
-class _MemoryEmptyBlock extends StatelessWidget {
-  const _MemoryEmptyBlock({required this.label});
-
-  final String label;
-
-  /// Builds a compact empty block.
-  @override
-  Widget build(BuildContext context) {
-    return _MemorySectionBlock(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Text(label, style: const TextStyle(color: AuroraColors.muted)),
-        ),
-      ),
-    );
-  }
-}
-
 class _MemorySelectionEmpty extends StatelessWidget {
   const _MemorySelectionEmpty();
 
@@ -3654,9 +2906,9 @@ List<String> _splitList(String value) {
 String _coerceDropdownValue(
   List<String> values,
   String value,
-  String fallback,
+  String defaultValue,
 ) {
-  return values.contains(value) ? value : fallback;
+  return values.contains(value) ? value : defaultValue;
 }
 
 /// Formats a nullable timestamp for compact display.
@@ -3756,7 +3008,7 @@ class _MemoryCommandPanel extends StatelessWidget {
           for (final task in filteredTasks)
             Padding(
               padding: const EdgeInsets.only(bottom: 13),
-              child: _TaskLine(task: task),
+              child: TaskLine(task: task),
             ),
         ],
       ),
@@ -3841,7 +3093,7 @@ class _MemoryPeopleRoute extends StatelessWidget {
           _MemoryStatusStrip(controller: controller),
           const SizedBox(height: 18),
           if (entityRows.isEmpty)
-            const _MemoryEmptyBlock(label: 'No entities in memory catalog')
+            const PanelEmptyBlock(label: 'No entities in memory catalog')
           else
             Wrap(
               spacing: 16,
@@ -3850,7 +3102,7 @@ class _MemoryPeopleRoute extends StatelessWidget {
                 for (final entity in entityRows)
                   SizedBox(
                     width: 360,
-                    child: _MemorySectionBlock(
+                    child: PanelSectionBlock(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
@@ -3940,7 +3192,7 @@ class _MemoryTimelineRoute extends StatelessWidget {
           _MemoryPanelLabel('Topic Timelines'),
           const SizedBox(height: 12),
           if (topicRows.isEmpty)
-            const _MemoryEmptyBlock(label: 'No topics in memory catalog')
+            const PanelEmptyBlock(label: 'No topics in memory catalog')
           else
             Wrap(
               spacing: 12,
@@ -3971,14 +3223,14 @@ class _MemoryTimelineRoute extends StatelessWidget {
           _MemoryPanelLabel('Dated Records'),
           const SizedBox(height: 12),
           if (datedRecords.isEmpty)
-            const _MemoryEmptyBlock(label: 'No dated memory records')
+            const PanelEmptyBlock(label: 'No dated memory records')
           else
             Column(
               children: <Widget>[
                 for (final record in datedRecords)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _MemorySectionBlock(
+                    child: PanelSectionBlock(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
@@ -4036,7 +3288,7 @@ class _CompiledPagePreview extends StatelessWidget {
   /// Builds a source-backed compiled page preview.
   @override
   Widget build(BuildContext context) {
-    return _MemorySectionBlock(
+    return PanelSectionBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -4075,14 +3327,14 @@ class _SourcesPage extends StatelessWidget {
       title: 'Files',
       subtitle: 'Immutable evidence and source material from memory.',
       child: records.isEmpty
-          ? const _MemoryEmptyBlock(label: 'No source evidence loaded')
+          ? const PanelEmptyBlock(label: 'No source evidence loaded')
           : Wrap(
               spacing: 16,
               runSpacing: 16,
               children: records.map((record) {
                 return SizedBox(
                   width: 360,
-                  child: _MemorySectionBlock(
+                  child: PanelSectionBlock(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
@@ -4120,1465 +3372,6 @@ class _SourcesPage extends StatelessWidget {
                 );
               }).toList(),
             ),
-    );
-  }
-}
-
-const List<({String label, IconData icon, String detail})> _settingsSections =
-    <({String label, IconData icon, String detail})>[
-      (
-        label: 'Profiles',
-        icon: Icons.person_outline,
-        detail: 'Runtime topology and active profile.',
-      ),
-      (
-        label: 'Models',
-        icon: Icons.memory_outlined,
-        detail: 'Model config and harness runtime.',
-      ),
-      (
-        label: 'Agent',
-        icon: Icons.psychology_outlined,
-        detail: 'Agent config and prompt policy.',
-      ),
-      (
-        label: 'Memory',
-        icon: Icons.account_tree_outlined,
-        detail: 'Memory MCP bindings.',
-      ),
-      (label: 'Tasks', icon: Icons.checklist, detail: 'Task MCP bindings.'),
-      (
-        label: 'Tools',
-        icon: Icons.tune,
-        detail: 'Tool configuration and policy.',
-      ),
-      (
-        label: 'Runtime',
-        icon: Icons.bolt_outlined,
-        detail: 'Processes and endpoint health.',
-      ),
-    ];
-
-class _SettingsMenuPanel extends StatelessWidget {
-  const _SettingsMenuPanel({required this.selected, required this.onSelected});
-
-  final String selected;
-  final ValueChanged<String> onSelected;
-
-  /// Builds the settings sub-menu picker.
-  @override
-  Widget build(BuildContext context) {
-    return MenuPanel(
-      title: 'Settings',
-      subtitle: 'Profiles, models, memory, tasks, tools, and runtime.',
-      selectedKey: selected,
-      onSelected: onSelected,
-      items: <MenuPanelItem>[
-        for (final section in _settingsSections)
-          MenuPanelItem(
-            key: section.label,
-            label: section.label,
-            icon: section.icon,
-            detail: section.detail,
-          ),
-      ],
-    );
-  }
-}
-
-class _SettingsDetailsPanel extends StatelessWidget {
-  const _SettingsDetailsPanel({
-    required this.controller,
-    required this.section,
-  });
-
-  final AuroraAppController controller;
-  final String section;
-
-  /// Builds the selected settings CRUD/details panel.
-  @override
-  Widget build(BuildContext context) {
-    final profile = controller.runtimeProfile;
-    if (profile != null &&
-        (section == 'Profiles' || section == 'Models' || section == 'Agent')) {
-      return _buildSection(profile);
-    }
-    return DetailPanel(
-      title: section,
-      subtitle: _settingsSectionSubtitle(section),
-      child: profile == null
-          ? _RuntimeProfileMissing(message: controller.statusMessage)
-          : _buildSection(profile),
-    );
-  }
-
-  Widget _buildSection(RuntimeProfile profile) {
-    return switch (section) {
-      'Profiles' => _SettingsProfilesCollection(
-        controller: controller,
-        profile: profile,
-        profilePath: controller.runtimeProfilePath,
-      ),
-      'Models' => _SettingsConfigFileCollection(
-        controller: controller,
-        title: 'Models',
-        emptyLabel: 'No model configs configured',
-        icon: Icons.memory_outlined,
-        kind: ConfigFileKind.model,
-        entries: controller.availableModelConfigs,
-        assignedPath: profile.harness.modelConfigPath,
-      ),
-      'Agent' => _SettingsConfigFileCollection(
-        controller: controller,
-        title: 'Agents',
-        emptyLabel: 'No agent configs configured',
-        icon: Icons.psychology_outlined,
-        kind: ConfigFileKind.agent,
-        entries: controller.availableAgentConfigs,
-        assignedPath: profile.harness.agentConfigPath,
-      ),
-      'Memory' => _SettingsServerContent(
-        profile: profile,
-        controller: controller,
-        title: 'Memory bindings',
-        servers: profile.memoryServers,
-      ),
-      'Tasks' => _SettingsServerContent(
-        profile: profile,
-        controller: controller,
-        title: 'Task bindings',
-        servers: profile.taskServers,
-      ),
-      'Tools' => _SettingsConfigFileCollection(
-        controller: controller,
-        title: 'Tools',
-        emptyLabel: 'No tool configs configured',
-        icon: Icons.tune,
-        kind: ConfigFileKind.tool,
-        entries: controller.availableToolConfigs,
-        assignedPath: profile.harness.toolConfigPath,
-      ),
-      'Runtime' => _SettingsRuntimeContent(
-        statuses: controller.endpointStatuses,
-        localStatuses: controller.localProcessStatuses,
-      ),
-      _ => _SettingsProfilesCollection(
-        controller: controller,
-        profile: profile,
-        profilePath: controller.runtimeProfilePath,
-      ),
-    };
-  }
-}
-
-class _RuntimeProfileMissing extends StatelessWidget {
-  const _RuntimeProfileMissing({required this.message});
-
-  final String message;
-
-  /// Builds the profile configuration error state.
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: _MemorySectionBlock(
-        child: Text(message, style: const TextStyle(color: AuroraColors.coral)),
-      ),
-    );
-  }
-}
-
-class _SettingsProfilesCollection extends StatefulWidget {
-  const _SettingsProfilesCollection({
-    required this.controller,
-    required this.profile,
-    required this.profilePath,
-  });
-
-  final AuroraAppController controller;
-  final RuntimeProfile profile;
-  final String profilePath;
-
-  @override
-  State<_SettingsProfilesCollection> createState() =>
-      _SettingsProfilesCollectionState();
-}
-
-class _SettingsProfilesCollectionState
-    extends State<_SettingsProfilesCollection> {
-  String _message = '';
-
-  /// Builds a file-backed runtime profile collection panel.
-  @override
-  Widget build(BuildContext context) {
-    final profiles = widget.controller.availableProfiles.isEmpty
-        ? <RuntimeProfileFileEntry>[
-            RuntimeProfileFileEntry(
-              path: widget.profilePath,
-              id: widget.profile.id,
-              label: widget.profile.label,
-              active: true,
-            ),
-          ]
-        : widget.controller.availableProfiles;
-    return CollectionSwitcherPanel<RuntimeProfileFileEntry>(
-      title: 'Profiles',
-      selectedId: widget.profilePath,
-      emptyLabel: 'No profiles configured',
-      items: <CollectionPanelItem<RuntimeProfileFileEntry>>[
-        for (final entry in profiles)
-          CollectionPanelItem<RuntimeProfileFileEntry>(
-            id: entry.path,
-            label: entry.label,
-            detail: entry.path,
-            icon: Icons.person_outline,
-            badge: entry.path == widget.profilePath ? 'Active' : '',
-            value: entry,
-          ),
-      ],
-      onSelect: (path) => unawaited(_load(path)),
-      onCreate: () => unawaited(_create()),
-      onDuplicate: (_) => unawaited(_duplicate()),
-      onDelete: (_) => unawaited(_delete()),
-      builder: (entry, query) {
-        return _SettingsProfileEditor(
-          controller: widget.controller,
-          profile: widget.profile,
-          profilePath: entry.path,
-          message: _message,
-          query: query,
-        );
-      },
-    );
-  }
-
-  Future<void> _load(String path) async {
-    try {
-      await widget.controller.loadRuntimeProfileFromPath(path);
-      if (!mounted) {
-        return;
-      }
-      setState(() => _message = 'Loaded ${_settingsFileLabel(path)}');
-    } catch (error) {
-      setState(() => _message = error.toString());
-    }
-  }
-
-  Future<void> _create() async {
-    try {
-      await widget.controller.createRuntimeProfileFile();
-      if (!mounted) {
-        return;
-      }
-      setState(() => _message = 'Created profile');
-    } catch (error) {
-      setState(() => _message = error.toString());
-    }
-  }
-
-  Future<void> _duplicate() async {
-    try {
-      await widget.controller.duplicateRuntimeProfileFile();
-      if (!mounted) {
-        return;
-      }
-      setState(() => _message = 'Duplicated profile');
-    } catch (error) {
-      setState(() => _message = error.toString());
-    }
-  }
-
-  Future<void> _delete() async {
-    final confirmed = await _confirmSettingsDelete(
-      context,
-      label: _settingsFileLabel(widget.profilePath),
-    );
-    if (!confirmed) {
-      return;
-    }
-    try {
-      await widget.controller.deleteActiveRuntimeProfileFile();
-      if (!mounted) {
-        return;
-      }
-      setState(() => _message = 'Deleted profile');
-    } catch (error) {
-      setState(() => _message = error.toString());
-    }
-  }
-}
-
-class _SettingsProfileEditor extends StatefulWidget {
-  const _SettingsProfileEditor({
-    required this.controller,
-    required this.profile,
-    required this.profilePath,
-    required this.message,
-    required this.query,
-  });
-
-  final AuroraAppController controller;
-  final RuntimeProfile profile;
-  final String profilePath;
-  final String message;
-  final String query;
-
-  @override
-  State<_SettingsProfileEditor> createState() => _SettingsProfileEditorState();
-}
-
-class _SettingsProfileEditorState extends State<_SettingsProfileEditor> {
-  late final TextEditingController _label = TextEditingController(
-    text: widget.profile.label,
-  );
-  String _savedLabel = '';
-  String _localMessage = '';
-
-  /// Initializes profile editor state.
-  @override
-  void initState() {
-    super.initState();
-    _savedLabel = widget.profile.label;
-  }
-
-  /// Cleans up profile form controllers.
-  @override
-  void dispose() {
-    _label.dispose();
-    super.dispose();
-  }
-
-  /// Synchronizes controllers when a different profile is loaded.
-  @override
-  void didUpdateWidget(covariant _SettingsProfileEditor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.profile.label != widget.profile.label) {
-      _label.text = widget.profile.label;
-      _savedLabel = widget.profile.label;
-    }
-  }
-
-  /// Builds active profile details from the loaded JSON profile.
-  @override
-  Widget build(BuildContext context) {
-    if (!_settingsMatchesQuery(widget.query, <String>[
-      widget.profile.label,
-      widget.profilePath,
-    ])) {
-      return PanelEmptyState(query: widget.query);
-    }
-    return FormPanel(
-      children: <Widget>[
-        _SettingsSectionCard(
-          title: 'Details',
-          children: <Widget>[
-            _SettingsAutoSaveTextField(
-              label: 'Name',
-              controller: _label,
-              initialSavedValue: _savedLabel,
-              onSave: _saveLabel,
-            ),
-            _SettingsReadOnlyField(
-              label: 'JSON source',
-              value: widget.profilePath,
-            ),
-            _SettingsMessageText(
-              message: _localMessage.isEmpty ? widget.message : _localMessage,
-            ),
-          ],
-        ),
-        _SettingsSectionCard(
-          title: 'Assignments',
-          children: <Widget>[
-            _SettingsConfigDropdown(
-              label: 'Model',
-              entries: widget.controller.availableModelConfigs,
-              selectedPath: widget.profile.harness.modelConfigPath,
-              onChanged: _assignConfig,
-            ),
-            _SettingsConfigDropdown(
-              label: 'Agent',
-              entries: widget.controller.availableAgentConfigs,
-              selectedPath: widget.profile.harness.agentConfigPath,
-              onChanged: _assignConfig,
-            ),
-            _SettingsConfigDropdown(
-              label: 'Tools',
-              entries: widget.controller.availableToolConfigs,
-              selectedPath: widget.profile.harness.toolConfigPath,
-              onChanged: _assignConfig,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Future<void> _saveLabel(String value) async {
-    final next = widget.profile.copyWith(label: value.trim());
-    try {
-      await widget.controller.saveRuntimeProfile(next);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _savedLabel = value.trim();
-        _localMessage = 'Saved profile';
-      });
-    } catch (error) {
-      setState(() {
-        _localMessage = error.toString();
-      });
-    }
-  }
-
-  /// Assigns a selected config file to this profile.
-  Future<void> _assignConfig(ConfigFileEntry entry) async {
-    try {
-      await widget.controller.assignConfigFile(entry);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _localMessage = 'Assigned ${entry.label}';
-      });
-    } catch (error) {
-      setState(() {
-        _localMessage = error.toString();
-      });
-    }
-  }
-}
-
-class _SettingsConfigFileCollection extends StatefulWidget {
-  const _SettingsConfigFileCollection({
-    required this.controller,
-    required this.title,
-    required this.emptyLabel,
-    required this.icon,
-    required this.kind,
-    required this.entries,
-    required this.assignedPath,
-  });
-
-  final AuroraAppController controller;
-  final String title;
-  final String emptyLabel;
-  final IconData icon;
-  final ConfigFileKind kind;
-  final List<ConfigFileEntry> entries;
-  final String assignedPath;
-
-  @override
-  State<_SettingsConfigFileCollection> createState() =>
-      _SettingsConfigFileCollectionState();
-}
-
-class _SettingsConfigFileCollectionState
-    extends State<_SettingsConfigFileCollection> {
-  String? _selectedPath;
-  String _message = '';
-
-  /// Initializes selected config file state.
-  @override
-  void initState() {
-    super.initState();
-    _selectedPath = _initialSelectedPath();
-  }
-
-  /// Keeps selected config file state valid after collection updates.
-  @override
-  void didUpdateWidget(covariant _SettingsConfigFileCollection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_selectedPath == null ||
-        !widget.entries.any((entry) => entry.path == _selectedPath)) {
-      _selectedPath = _initialSelectedPath();
-    }
-  }
-
-  /// Builds a collection switcher for model or agent config files.
-  @override
-  Widget build(BuildContext context) {
-    return CollectionSwitcherPanel<ConfigFileEntry>(
-      title: widget.title,
-      selectedId: _selectedPath,
-      emptyLabel: widget.emptyLabel,
-      items: <CollectionPanelItem<ConfigFileEntry>>[
-        for (final entry in widget.entries)
-          CollectionPanelItem<ConfigFileEntry>(
-            id: entry.id,
-            label: entry.label,
-            detail: entry.path,
-            icon: widget.icon,
-            badge: entry.assigned ? 'Active' : '',
-            value: entry,
-          ),
-      ],
-      onSelect: (id) => setState(() => _selectedPath = id),
-      onCreate: () => unawaited(_create()),
-      onDuplicate: (entry) => unawaited(_duplicate(entry)),
-      onDelete: (entry) => unawaited(_delete(entry)),
-      builder: (entry, query) {
-        return _SettingsConfigFileEditor(
-          controller: widget.controller,
-          entry: entry,
-          title: '${_settingsKindLabel(entry.kind)} config file',
-          message: _message,
-          query: query,
-          onRenamed: (path) => setState(() => _selectedPath = path),
-        );
-      },
-    );
-  }
-
-  String? _initialSelectedPath() {
-    if (widget.assignedPath.isNotEmpty &&
-        widget.entries.any((entry) => entry.path == widget.assignedPath)) {
-      return widget.assignedPath;
-    }
-    if (widget.entries.isEmpty) {
-      return null;
-    }
-    return widget.entries.first.path;
-  }
-
-  Future<void> _create() async {
-    try {
-      final path = await widget.controller.createConfigFile(widget.kind);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _selectedPath = path;
-        _message = 'Created ${_settingsFileLabel(path)}';
-      });
-    } catch (error) {
-      setState(() => _message = error.toString());
-    }
-  }
-
-  Future<void> _duplicate(ConfigFileEntry entry) async {
-    try {
-      final path = await widget.controller.duplicateConfigFile(entry);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _selectedPath = path;
-        _message = 'Duplicated ${entry.label}';
-      });
-    } catch (error) {
-      setState(() => _message = error.toString());
-    }
-  }
-
-  Future<void> _delete(ConfigFileEntry entry) async {
-    final confirmed = await _confirmSettingsDelete(context, label: entry.label);
-    if (!confirmed) {
-      return;
-    }
-    try {
-      await widget.controller.deleteConfigFile(entry);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _selectedPath = _initialSelectedPath();
-        _message = 'Deleted ${entry.label}';
-      });
-    } catch (error) {
-      setState(() => _message = error.toString());
-    }
-  }
-}
-
-class _SettingsConfigFileEditor extends StatefulWidget {
-  const _SettingsConfigFileEditor({
-    required this.controller,
-    required this.entry,
-    required this.title,
-    required this.message,
-    required this.query,
-    required this.onRenamed,
-  });
-
-  final AuroraAppController controller;
-  final ConfigFileEntry entry;
-  final String title;
-  final String message;
-  final String query;
-  final ValueChanged<String> onRenamed;
-
-  @override
-  State<_SettingsConfigFileEditor> createState() =>
-      _SettingsConfigFileEditorState();
-}
-
-class _SettingsConfigFileEditorState extends State<_SettingsConfigFileEditor> {
-  late final TextEditingController _name = TextEditingController(
-    text: widget.entry.label,
-  );
-  late String _savedName = widget.entry.label;
-  String _assignmentMessage = '';
-
-  /// Cleans up config editor controllers.
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  /// Keeps the editable name synchronized with the selected file.
-  @override
-  void didUpdateWidget(covariant _SettingsConfigFileEditor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.entry.path != widget.entry.path) {
-      _name.text = widget.entry.label;
-      _savedName = widget.entry.label;
-      _assignmentMessage = '';
-    }
-  }
-
-  /// Builds the selected model or agent config editor.
-  @override
-  Widget build(BuildContext context) {
-    if (!_settingsMatchesQuery(widget.query, <String>[
-      widget.entry.label,
-      widget.entry.path,
-    ])) {
-      return PanelEmptyState(query: widget.query);
-    }
-    return FormPanel(
-      children: <Widget>[
-        _SettingsSectionCard(
-          title: 'Details',
-          children: <Widget>[
-            _SettingsAutoSaveTextField(
-              label: 'Name',
-              controller: _name,
-              initialSavedValue: _savedName,
-              onSave: _rename,
-            ),
-            _SettingsReadOnlyField(label: 'Path', value: widget.entry.path),
-            _SettingsActionRow(
-              message: _assignmentMessage.isEmpty
-                  ? widget.message
-                  : _assignmentMessage,
-              children: <Widget>[
-                FilledButton.icon(
-                  onPressed: widget.entry.assigned
-                      ? null
-                      : () => unawaited(_assign()),
-                  icon: const Icon(Icons.check_circle_outline),
-                  label: Text(
-                    widget.entry.assigned ? 'Assigned' : 'Use for profile',
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        _SettingsTextFileEditor(
-          controller: widget.controller,
-          title: widget.title,
-          path: widget.entry.path,
-        ),
-      ],
-    );
-  }
-
-  Future<void> _assign() async {
-    try {
-      await widget.controller.assignConfigFile(widget.entry);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _assignmentMessage = 'Assigned ${widget.entry.label}';
-      });
-    } catch (error) {
-      setState(() {
-        _assignmentMessage = error.toString();
-      });
-    }
-  }
-
-  Future<void> _rename(String value) async {
-    try {
-      final path = await widget.controller.renameConfigFile(
-        widget.entry,
-        value,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _savedName = value.trim();
-        _assignmentMessage = 'Renamed to ${_settingsFileLabel(path)}';
-      });
-      widget.onRenamed(path);
-    } catch (error) {
-      setState(() {
-        _assignmentMessage = error.toString();
-      });
-    }
-  }
-}
-
-class _SettingsServerContent extends StatelessWidget {
-  const _SettingsServerContent({
-    required this.profile,
-    required this.controller,
-    required this.title,
-    required this.servers,
-  });
-
-  final RuntimeProfile profile;
-  final AuroraAppController controller;
-  final String title;
-  final List<McpServerRuntime> servers;
-
-  /// Builds MCP server binding details for one server kind.
-  @override
-  Widget build(BuildContext context) {
-    return FormPanel(
-      children: <Widget>[
-        _SettingsSectionCard(
-          title: title,
-          children: servers.isEmpty
-              ? const <Widget>[
-                  _MemoryEmptyBlock(label: 'No servers configured'),
-                ]
-              : <Widget>[
-                  for (final server in servers)
-                    _SettingsServerTile(
-                      profile: profile,
-                      controller: controller,
-                      server: server,
-                    ),
-                ],
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsRuntimeContent extends StatelessWidget {
-  const _SettingsRuntimeContent({
-    required this.statuses,
-    required this.localStatuses,
-  });
-
-  final List<EndpointStatus> statuses;
-  final List<ServiceProcessStatus> localStatuses;
-
-  /// Builds runtime process and endpoint status details.
-  @override
-  Widget build(BuildContext context) {
-    return FormPanel(
-      children: <Widget>[
-        if (localStatuses.isNotEmpty)
-          _SettingsSectionCard(
-            title: 'Local processes',
-            children: <Widget>[
-              for (final status in localStatuses)
-                _ServiceProcessRow(status: status),
-            ],
-          ),
-        _SettingsSectionCard(
-          title: 'Service endpoints',
-          children: <Widget>[
-            for (final status in statuses) _EndpointRow(status: status),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsSectionCard extends StatelessWidget {
-  const _SettingsSectionCard({required this.title, required this.children});
-
-  final String title;
-  final List<Widget> children;
-
-  /// Builds one settings detail group.
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xfffffcf8),
-        border: Border.all(color: AuroraColors.border),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _MemoryPanelLabel(title),
-          const SizedBox(height: 14),
-          ...children,
-        ],
-      ),
-    );
-  }
-}
-
-class _SettingsReadOnlyField extends StatelessWidget {
-  const _SettingsReadOnlyField({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  /// Builds a read-only settings field.
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        initialValue: value,
-        readOnly: true,
-        decoration: InputDecoration(
-          labelText: label,
-          filled: true,
-          fillColor: AuroraColors.surface,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AuroraColors.border),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsAutoSaveTextField extends StatefulWidget {
-  const _SettingsAutoSaveTextField({
-    required this.label,
-    required this.controller,
-    required this.initialSavedValue,
-    required this.onSave,
-    this.minLines = 1,
-    this.maxLines = 1,
-  });
-
-  final String label;
-  final TextEditingController controller;
-  final String initialSavedValue;
-  final Future<void> Function(String value) onSave;
-  final int minLines;
-  final int maxLines;
-
-  @override
-  State<_SettingsAutoSaveTextField> createState() =>
-      _SettingsAutoSaveTextFieldState();
-}
-
-class _SettingsAutoSaveTextFieldState
-    extends State<_SettingsAutoSaveTextField> {
-  late final FocusNode _focusNode = FocusNode();
-  late String _savedValue = widget.initialSavedValue;
-
-  /// Initializes focus tracking for blur autosave.
-  @override
-  void initState() {
-    super.initState();
-    _focusNode.addListener(_handleFocusChange);
-  }
-
-  /// Synchronizes saved value when the selected backing item changes.
-  @override
-  void didUpdateWidget(covariant _SettingsAutoSaveTextField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialSavedValue != widget.initialSavedValue) {
-      _savedValue = widget.initialSavedValue;
-    }
-  }
-
-  /// Cleans up field focus state.
-  @override
-  void dispose() {
-    _focusNode.removeListener(_handleFocusChange);
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  /// Builds an editable field that saves when focus leaves it.
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        focusNode: _focusNode,
-        controller: widget.controller,
-        minLines: widget.minLines,
-        maxLines: widget.maxLines,
-        decoration: InputDecoration(
-          labelText: widget.label,
-          filled: true,
-          fillColor: AuroraColors.surface,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AuroraColors.border),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Saves changed field content after focus leaves the field.
-  void _handleFocusChange() {
-    if (_focusNode.hasFocus) {
-      return;
-    }
-    final next = widget.controller.text.trim();
-    if (next == _savedValue.trim()) {
-      return;
-    }
-    _savedValue = next;
-    unawaited(widget.onSave(next));
-  }
-}
-
-class _SettingsConfigDropdown extends StatelessWidget {
-  const _SettingsConfigDropdown({
-    required this.label,
-    required this.entries,
-    required this.selectedPath,
-    required this.onChanged,
-  });
-
-  final String label;
-  final List<ConfigFileEntry> entries;
-  final String selectedPath;
-  final ValueChanged<ConfigFileEntry> onChanged;
-
-  /// Builds a profile assignment dropdown for config files.
-  @override
-  Widget build(BuildContext context) {
-    final selected = entries.any((entry) => entry.path == selectedPath)
-        ? selectedPath
-        : null;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: DropdownButtonFormField<String>(
-        initialValue: selected,
-        isExpanded: true,
-        items: <DropdownMenuItem<String>>[
-          for (final entry in entries)
-            DropdownMenuItem<String>(
-              value: entry.path,
-              child: Text(entry.label, overflow: TextOverflow.ellipsis),
-            ),
-        ],
-        onChanged: (path) {
-          if (path == null) {
-            return;
-          }
-          for (final entry in entries) {
-            if (entry.path == path) {
-              onChanged(entry);
-              return;
-            }
-          }
-        },
-        decoration: InputDecoration(
-          labelText: label,
-          filled: true,
-          fillColor: AuroraColors.surface,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AuroraColors.border),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsMessageText extends StatelessWidget {
-  const _SettingsMessageText({required this.message});
-
-  final String message;
-
-  /// Builds a compact settings operation message.
-  @override
-  Widget build(BuildContext context) {
-    if (message.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Text(
-        message,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: AuroraColors.muted),
-      ),
-    );
-  }
-}
-
-class _SettingsActionRow extends StatelessWidget {
-  const _SettingsActionRow({required this.children, required this.message});
-
-  final List<Widget> children;
-  final String message;
-
-  /// Builds settings action buttons and the last operation message.
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Row(
-        children: <Widget>[
-          ...children,
-          if (message.isNotEmpty) ...<Widget>[
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(
-                message,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: AuroraColors.muted),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Returns a compact file label for settings collection items.
-String _settingsFileLabel(String path) {
-  final filename = path.replaceAll('\\', '/').split('/').last;
-  final dot = filename.lastIndexOf('.');
-  if (dot <= 0) {
-    return filename;
-  }
-  return filename.substring(0, dot);
-}
-
-/// Returns the display label for a managed config file kind.
-String _settingsKindLabel(ConfigFileKind kind) {
-  return switch (kind) {
-    ConfigFileKind.model => 'Model',
-    ConfigFileKind.agent => 'Agent',
-    ConfigFileKind.tool => 'Tool',
-  };
-}
-
-/// Returns whether settings values match a filter query.
-bool _settingsMatchesQuery(String query, List<String> values) {
-  final normalized = query.trim().toLowerCase();
-  if (normalized.isEmpty) {
-    return true;
-  }
-  return values.any((value) => value.toLowerCase().contains(normalized));
-}
-
-/// Confirms a destructive settings deletion.
-Future<bool> _confirmSettingsDelete(
-  BuildContext context, {
-  required String label,
-}) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: const Text('Delete configuration'),
-        content: Text('Delete "$label"? This cannot be undone.'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      );
-    },
-  );
-  return confirmed ?? false;
-}
-
-class _SettingsTextFileEditor extends StatefulWidget {
-  const _SettingsTextFileEditor({
-    required this.controller,
-    required this.title,
-    required this.path,
-  });
-
-  final AuroraAppController controller;
-  final String title;
-  final String path;
-
-  @override
-  State<_SettingsTextFileEditor> createState() =>
-      _SettingsTextFileEditorState();
-}
-
-class _SettingsTextFileEditorState extends State<_SettingsTextFileEditor> {
-  final TextEditingController _content = TextEditingController();
-  final FocusNode _contentFocus = FocusNode();
-  String _savedContent = '';
-  String _message = '';
-  bool _loading = true;
-
-  /// Loads the file editor content.
-  @override
-  void initState() {
-    super.initState();
-    _contentFocus.addListener(_handleContentFocusChange);
-    unawaited(_load());
-  }
-
-  /// Reloads editor content when the target file path changes.
-  @override
-  void didUpdateWidget(covariant _SettingsTextFileEditor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.path != widget.path) {
-      unawaited(_load());
-    }
-  }
-
-  /// Cleans up the text editor controller.
-  @override
-  void dispose() {
-    _contentFocus.removeListener(_handleContentFocusChange);
-    _contentFocus.dispose();
-    _content.dispose();
-    super.dispose();
-  }
-
-  /// Builds a raw editor for the referenced configuration file.
-  @override
-  Widget build(BuildContext context) {
-    return _SettingsSectionCard(
-      title: widget.title,
-      children: <Widget>[
-        _SettingsReadOnlyField(label: 'Path', value: widget.path),
-        if (_loading)
-          const LinearProgressIndicator(minHeight: 2)
-        else
-          TextFormField(
-            focusNode: _contentFocus,
-            controller: _content,
-            minLines: 14,
-            maxLines: 28,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: AuroraColors.surface,
-              alignLabelWithHint: true,
-              labelText: 'File content',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: AuroraColors.border),
-              ),
-            ),
-          ),
-        const SizedBox(height: 12),
-        _SettingsActionRow(
-          message: _message,
-          children: <Widget>[
-            OutlinedButton.icon(
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reload'),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _message = '';
-    });
-    try {
-      _content.text = await widget.controller.readConfigurationFile(
-        widget.path,
-      );
-      _savedContent = _content.text;
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _message = 'Loaded file';
-      });
-    } catch (error) {
-      _content.text = '';
-      _savedContent = '';
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _message = '$error. Saving will create this file.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _save() async {
-    if (_content.text == _savedContent) {
-      return;
-    }
-    try {
-      await widget.controller.saveConfigurationFile(widget.path, _content.text);
-      _savedContent = _content.text;
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _message = 'Saved file';
-      });
-    } catch (error) {
-      setState(() {
-        _message = error.toString();
-      });
-    }
-  }
-
-  /// Saves changed file content after focus leaves the editor.
-  void _handleContentFocusChange() {
-    if (_contentFocus.hasFocus || _loading) {
-      return;
-    }
-    unawaited(_save());
-  }
-}
-
-class _SettingsServerTile extends StatefulWidget {
-  const _SettingsServerTile({
-    required this.profile,
-    required this.controller,
-    required this.server,
-  });
-
-  final RuntimeProfile profile;
-  final AuroraAppController controller;
-  final McpServerRuntime server;
-
-  @override
-  State<_SettingsServerTile> createState() => _SettingsServerTileState();
-}
-
-class _SettingsServerTileState extends State<_SettingsServerTile> {
-  late final TextEditingController _id = TextEditingController(
-    text: widget.server.id,
-  );
-  late final TextEditingController _label = TextEditingController(
-    text: widget.server.label,
-  );
-  late final TextEditingController _endpoint = TextEditingController(
-    text: widget.server.endpoint,
-  );
-  late final TextEditingController _healthUrl = TextEditingController(
-    text: widget.server.healthUrl,
-  );
-  late final TextEditingController _workingDirectory = TextEditingController(
-    text: widget.server.workingDirectory,
-  );
-  late final TextEditingController _packagePath = TextEditingController(
-    text: widget.server.packagePath,
-  );
-  late final TextEditingController _arguments = TextEditingController(
-    text: widget.server.arguments.join('\n'),
-  );
-  late bool _enabled = widget.server.enabled;
-  late bool _autoStart = widget.server.autoStart;
-  String _message = '';
-
-  /// Cleans up MCP server form controllers.
-  @override
-  void dispose() {
-    _id.dispose();
-    _label.dispose();
-    _endpoint.dispose();
-    _healthUrl.dispose();
-    _workingDirectory.dispose();
-    _packagePath.dispose();
-    _arguments.dispose();
-    super.dispose();
-  }
-
-  /// Builds one MCP binding tile from the active profile.
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AuroraColors.surface,
-        border: Border.all(color: AuroraColors.border),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Switch(
-                value: _enabled,
-                onChanged: (value) {
-                  setState(() => _enabled = value);
-                  unawaited(_save());
-                },
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _SettingsAutoSaveTextField(
-                  label: 'Label',
-                  controller: _label,
-                  initialSavedValue: widget.server.label,
-                  onSave: (_) => _save(),
-                ),
-              ),
-              _MemoryBadge(label: _autoStart ? 'Managed' : 'External'),
-            ],
-          ),
-          _SettingsAutoSaveTextField(
-            label: 'Server ID',
-            controller: _id,
-            initialSavedValue: widget.server.id,
-            onSave: (_) => _save(),
-          ),
-          _SettingsAutoSaveTextField(
-            label: 'Endpoint',
-            controller: _endpoint,
-            initialSavedValue: widget.server.endpoint,
-            onSave: (_) => _save(),
-          ),
-          _SettingsAutoSaveTextField(
-            label: 'Health URL',
-            controller: _healthUrl,
-            initialSavedValue: widget.server.healthUrl,
-            onSave: (_) => _save(),
-          ),
-          _SettingsAutoSaveTextField(
-            label: 'Working directory',
-            controller: _workingDirectory,
-            initialSavedValue: widget.server.workingDirectory,
-            onSave: (_) => _save(),
-          ),
-          _SettingsAutoSaveTextField(
-            label: 'Package path',
-            controller: _packagePath,
-            initialSavedValue: widget.server.packagePath,
-            onSave: (_) => _save(),
-          ),
-          _SettingsAutoSaveTextField(
-            label: 'Arguments, one per line',
-            controller: _arguments,
-            initialSavedValue: widget.server.arguments.join('\n'),
-            onSave: (_) => _save(),
-            minLines: 3,
-            maxLines: 8,
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Auto-start server'),
-            value: _autoStart,
-            onChanged: (value) {
-              setState(() => _autoStart = value);
-              unawaited(_save());
-            },
-          ),
-          _SettingsMessageText(message: _message),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _save() async {
-    final replacement = widget.server.copyWith(
-      id: _id.text.trim(),
-      label: _label.text.trim(),
-      endpoint: _endpoint.text.trim(),
-      healthUrl: _healthUrl.text.trim(),
-      workingDirectory: _workingDirectory.text.trim(),
-      packagePath: _packagePath.text.trim(),
-      arguments: _arguments.text
-          .split('\n')
-          .map((line) => line.trim())
-          .where((line) => line.isNotEmpty)
-          .toList(),
-      autoStart: _autoStart,
-      enabled: _enabled,
-    );
-    final servers = widget.profile.mcpServers.map((server) {
-      return server.id == widget.server.id ? replacement : server;
-    }).toList();
-    try {
-      await widget.controller.saveRuntimeProfile(
-        widget.profile.copyWith(mcpServers: servers),
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _message = 'Saved binding';
-      });
-    } catch (error) {
-      setState(() {
-        _message = error.toString();
-      });
-    }
-  }
-}
-
-String _settingsSectionSubtitle(String section) {
-  return switch (section) {
-    'Profiles' => 'Runtime profiles stored in the app config directory.',
-    'Models' => 'Reusable model config files for profile assignment.',
-    'Agent' => 'Reusable agent config files for profile assignment.',
-    'Memory' => 'Memory MCP servers available to chat and memory surfaces.',
-    'Tasks' => 'Task MCP servers available to chat and workflow surfaces.',
-    'Tools' => 'Tool config assigned to the harness for this profile.',
-    'Runtime' => 'Live process and endpoint state.',
-    _ => 'Active profile and profile-level assignments.',
-  };
-}
-
-class _ServiceProcessRow extends StatelessWidget {
-  const _ServiceProcessRow({required this.status});
-
-  final ServiceProcessStatus status;
-
-  /// Builds one local process status row.
-  @override
-  Widget build(BuildContext context) {
-    return StatusRow(
-      name: status.name,
-      url: status.url,
-      state: status.state,
-      message: status.message,
-    );
-  }
-}
-
-class _EndpointRow extends StatelessWidget {
-  const _EndpointRow({required this.status});
-
-  final EndpointStatus status;
-
-  /// Builds one service connection row.
-  @override
-  Widget build(BuildContext context) {
-    return StatusRow(
-      name: status.name,
-      url: status.url,
-      state: status.state,
-      message: status.message,
     );
   }
 }

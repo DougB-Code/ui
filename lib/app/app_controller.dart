@@ -8,13 +8,24 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../clients/assistant_client.dart';
+import '../clients/chat_title_client.dart';
 import '../clients/mcp_client.dart';
 import '../domain/models.dart';
 import 'app_config.dart';
 import 'app_logger.dart';
+import 'app_settings.dart';
+import 'chat_catalog.dart';
 import 'config_files.dart';
+import 'credential_store.dart';
 import 'local_services.dart';
 import 'runtime_profile.dart';
+
+const List<String> _requiredTaskProjectionTools = <String>[
+  'project_task_stream',
+  'project_priority_terrain',
+  'project_task_constellation',
+  'project_commitment_weave',
+];
 
 /// RuntimeProfileFileEntry describes one editable profile JSON file.
 class RuntimeProfileFileEntry {
@@ -49,6 +60,10 @@ class AuroraAppController extends ChangeNotifier {
     TasksClient? tasksClient,
     LocalServiceSupervisor? localServices,
     ConfigFileStore? configFiles,
+    AuroraAppSettingsStore? appSettingsStore,
+    ChatCatalogStore? chatCatalogStore,
+    CredentialStore? credentialStore,
+    ChatTitleClient? titleClient,
     AppLogger? logger,
   }) : _assistantClientInjected = assistantClient != null,
        _memoryClientInjected = memoryClient != null,
@@ -81,7 +96,15 @@ class AuroraAppController extends ChangeNotifier {
              ),
            ),
        localServices = localServices ?? LocalServiceSupervisor(config: config),
-       configFiles = configFiles ?? const ConfigFileStore();
+       configFiles = configFiles ?? const ConfigFileStore(),
+       appSettingsStore = appSettingsStore ?? const AuroraAppSettingsStore(),
+       chatCatalogStore = chatCatalogStore ?? const ChatCatalogStore(),
+       credentialStore = credentialStore ?? const CredentialStore(),
+       titleClient =
+           titleClient ??
+           ChatTitleClient(
+             logger: logger ?? AppLogger(directory: config.serviceLogDirectory),
+           );
 
   /// Runtime service configuration.
   final AppConfig config;
@@ -103,6 +126,18 @@ class AuroraAppController extends ChangeNotifier {
 
   /// File store for editable model and agent configurations.
   final ConfigFileStore configFiles;
+
+  /// Store for app-owned settings.
+  final AuroraAppSettingsStore appSettingsStore;
+
+  /// Store for local cross-profile chat metadata.
+  final ChatCatalogStore chatCatalogStore;
+
+  /// Store for display-safe provider credential lookups.
+  final CredentialStore credentialStore;
+
+  /// Client used for app-owned chat title generation.
+  final ChatTitleClient titleClient;
 
   final bool _assistantClientInjected;
   final bool _memoryClientInjected;
@@ -130,17 +165,26 @@ class AuroraAppController extends ChangeNotifier {
   /// Tool config files available in the app config directory.
   List<ConfigFileEntry> availableToolConfigs = const <ConfigFileEntry>[];
 
+  /// App-specific settings outside runtime profile ownership.
+  AuroraAppSettings appSettings = const AuroraAppSettings();
+
   Future<void>? _initialization;
   bool _initialized = false;
 
   /// All known chat sessions.
   List<ChatSession> sessions = const <ChatSession>[];
 
+  /// App-owned chat metadata across profiles.
+  List<ChatCatalogEntry> chatCatalog = const <ChatCatalogEntry>[];
+
   /// Currently selected chat session id.
   String? selectedSessionId;
 
   /// Current chat messages.
   List<ChatMessage> messages = const <ChatMessage>[];
+
+  /// In-memory task ids created while a chat is active.
+  final Map<String, Set<String>> _chatTaskIds = <String, Set<String>>{};
 
   /// Home execution steps.
   List<WorkspaceTask> executionSteps = const <WorkspaceTask>[];
@@ -162,6 +206,42 @@ class AuroraAppController extends ChangeNotifier {
 
   /// Last task steward review report.
   TaskReviewReport? taskReviewReport;
+
+  /// Latest task stream projection.
+  TaskStreamProjection taskStreamProjection = const TaskStreamProjection();
+
+  /// Latest priority terrain projection.
+  PriorityTerrainProjection priorityTerrainProjection =
+      const PriorityTerrainProjection();
+
+  /// Latest task constellation projection.
+  TaskConstellationProjection taskConstellationProjection =
+      const TaskConstellationProjection();
+
+  /// Latest commitment weave projection.
+  CommitmentWeaveProjection commitmentWeaveProjection =
+      const CommitmentWeaveProjection();
+
+  /// Last task projection compatibility or loading problem.
+  String taskProjectionMessage = '';
+
+  /// Explicit task relations loaded from the task graph service.
+  List<TaskRelationRecord> taskRelations = const <TaskRelationRecord>[];
+
+  /// First-class commitments loaded from the task graph service.
+  List<TaskCommitment> taskCommitments = const <TaskCommitment>[];
+
+  /// Inferred relation suggestions awaiting user review.
+  List<TaskRelationSuggestion> taskRelationSuggestions =
+      const <TaskRelationSuggestion>[];
+
+  /// Inferred metadata suggestions awaiting user review.
+  List<TaskMetadataSuggestion> taskMetadataSuggestions =
+      const <TaskMetadataSuggestion>[];
+
+  /// Inferred commitment suggestions awaiting user review.
+  List<TaskCommitmentSuggestion> taskCommitmentSuggestions =
+      const <TaskCommitmentSuggestion>[];
 
   /// Currently selected task id.
   String? selectedTaskId;
@@ -229,8 +309,10 @@ class AuroraAppController extends ChangeNotifier {
     await _log('initialize start');
     localProcessStatuses = const <ServiceProcessStatus>[];
     try {
+      appSettings = await appSettingsStore.load();
+      chatCatalog = await chatCatalogStore.load();
       final loader = RuntimeProfileLoader(config);
-      final profileFile = await loader.resolveProfileFile();
+      final profileFile = await _resolveInitialProfileFile(loader);
       await _log('resolved runtime profile ${profileFile.path}');
       runtimeProfilePath = profileFile.path;
       runtimeProfile = await loader.loadFile(profileFile);
@@ -304,6 +386,22 @@ class AuroraAppController extends ChangeNotifier {
     await _log('initialize complete');
   }
 
+  /// Resolves the startup profile from env override, app default, or template.
+  Future<File> _resolveInitialProfileFile(RuntimeProfileLoader loader) async {
+    if (config.runtimeProfilePath.trim().isNotEmpty) {
+      return loader.resolveProfileFile();
+    }
+    final defaultChatProfile = appSettings.defaultChatProfilePath.trim();
+    if (defaultChatProfile.isNotEmpty) {
+      final file = File(defaultChatProfile);
+      if (await file.exists()) {
+        return file;
+      }
+      await _log('default chat profile missing: $defaultChatProfile');
+    }
+    return loader.resolveProfileFile();
+  }
+
   /// Lists editable runtime profiles from the app config directory.
   Future<List<String>> listRuntimeProfilePaths() async {
     final directory = Directory(runtimeProfilesDirectoryPath());
@@ -358,6 +456,87 @@ class AuroraAppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Returns the profile path used by one-click new chat creation.
+  String get defaultChatProfilePath {
+    final configured = appSettings.defaultChatProfilePath.trim();
+    return configured.isEmpty ? runtimeProfilePath : configured;
+  }
+
+  /// Returns the model config path used for app-owned chat title summaries.
+  String get summaryModelConfigPath {
+    return appSettings.summaryModelConfigPath.trim();
+  }
+
+  /// Returns the provider:model ref used for app-owned chat title summaries.
+  String get summaryModelRef {
+    return appSettings.summaryModelRef.trim();
+  }
+
+  /// Returns the selected chat catalog key, if a chat is active.
+  String get selectedChatKey {
+    final sessionId = selectedSessionId;
+    if (sessionId == null || sessionId.isEmpty || runtimeProfilePath.isEmpty) {
+      return '';
+    }
+    return _chatCatalogKey(runtimeProfilePath, sessionId);
+  }
+
+  /// Returns the selected chat catalog entry, if it exists.
+  ChatCatalogEntry? get selectedChatEntry {
+    final key = selectedChatKey;
+    if (key.isEmpty) {
+      return null;
+    }
+    for (final entry in chatCatalog) {
+      if (entry.key == key) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  /// Saves app-owned settings.
+  Future<void> saveAppSettings(AuroraAppSettings settings) async {
+    appSettings = settings;
+    await appSettingsStore.save(settings);
+    statusMessage = 'App settings saved';
+    notifyListeners();
+  }
+
+  /// Selects the default runtime profile for fast-path new chats.
+  Future<void> setDefaultChatProfile(String profilePath) async {
+    await saveAppSettings(
+      appSettings.copyWith(defaultChatProfilePath: profilePath.trim()),
+    );
+  }
+
+  /// Selects the app-owned model config for chat title summaries.
+  Future<void> setSummaryModelConfig(String modelConfigPath) async {
+    await saveAppSettings(
+      appSettings.copyWith(summaryModelConfigPath: modelConfigPath.trim()),
+    );
+  }
+
+  /// Selects the exact app-owned model for chat title summaries.
+  Future<void> setSummaryModelSelection({
+    required String modelConfigPath,
+    required String modelRef,
+  }) async {
+    await saveAppSettings(
+      appSettings.copyWith(
+        summaryModelConfigPath: modelConfigPath.trim(),
+        summaryModelRef: modelRef.trim(),
+      ),
+    );
+  }
+
+  /// Enables or disables app-owned chat title summarization.
+  Future<void> setChatTitleSummariesEnabled(bool enabled) async {
+    await saveAppSettings(
+      appSettings.copyWith(chatTitleSummariesEnabled: enabled),
+    );
+  }
+
   /// Saves the active runtime profile JSON and reconnects owned clients.
   Future<void> saveRuntimeProfile(RuntimeProfile profile) async {
     final path = runtimeProfilePath.trim().isEmpty
@@ -376,7 +555,10 @@ class AuroraAppController extends ChangeNotifier {
   }
 
   /// Loads a different profile from disk and applies its runtime bindings.
-  Future<void> loadRuntimeProfileFromPath(String path) async {
+  Future<void> loadRuntimeProfileFromPath(
+    String path, {
+    bool reloadData = true,
+  }) async {
     final file = File(path);
     final profile = await RuntimeProfileLoader(config).loadFile(file);
     runtimeProfilePath = file.path;
@@ -386,6 +568,13 @@ class AuroraAppController extends ChangeNotifier {
     _refreshEndpointSkeleton(profile);
     statusMessage = 'Runtime profile loaded';
     notifyListeners();
+    if (reloadData) {
+      await Future.wait(<Future<void>>[
+        _loadSessions(),
+        _loadMemory(),
+        _loadTasks(),
+      ]);
+    }
   }
 
   /// Reads a text configuration file referenced by the active profile.
@@ -488,6 +677,47 @@ class AuroraAppController extends ChangeNotifier {
     await _assignConfigFile(entry.kind, entry.path);
   }
 
+  /// Saves one required memory or task server config file.
+  Future<void> saveRequiredServerRuntime({
+    required String originalId,
+    required McpServerRuntime server,
+  }) async {
+    final profile = _activeRuntimeProfile();
+    final index = profile.mcpServers.indexWhere(
+      (candidate) => candidate.id == originalId,
+    );
+    if (index < 0) {
+      throw FileSystemException('MCP server is not referenced', originalId);
+    }
+    final servers = <McpServerRuntime>[
+      for (var i = 0; i < profile.mcpServers.length; i++)
+        i == index ? server : profile.mcpServers[i],
+    ];
+    await _saveRequiredServer(profile, server);
+    _applyRuntimeProfileServers(profile.copyWith(mcpServers: servers));
+    statusMessage = '${server.kind} server saved';
+    notifyListeners();
+  }
+
+  /// Enables the selected MCP server for its runtime role.
+  Future<void> assignMcpServerForKind(McpServerRuntime selected) async {
+    final profile = _activeRuntimeProfile();
+    final servers = <McpServerRuntime>[
+      for (final server in profile.mcpServers)
+        server.kind == selected.kind
+            ? server.copyWith(enabled: server.id == selected.id)
+            : server,
+    ];
+    for (var index = 0; index < servers.length; index++) {
+      if (servers[index].enabled != profile.mcpServers[index].enabled) {
+        await _saveRequiredServer(profile, servers[index]);
+      }
+    }
+    _applyRuntimeProfileServers(profile.copyWith(mcpServers: servers));
+    statusMessage = '${selected.kind} server assigned';
+    notifyListeners();
+  }
+
   /// Renames a model or agent config file and updates active assignments.
   Future<String> renameConfigFile(ConfigFileEntry entry, String name) async {
     final nextPath = await configFiles.rename(entry, name);
@@ -540,16 +770,23 @@ class AuroraAppController extends ChangeNotifier {
       targetDirectory: toolConfigsDirectoryPath(),
       targetName: '${profile.id}-tool.yaml',
     );
+    final serverPaths = await _copyRequiredServerConfigsIntoAppDirectory(
+      profile,
+    );
     final next = profile.copyWith(
       harness: harness.copyWith(
         modelConfigPath: modelPath ?? harness.modelConfigPath,
         agentConfigPath: agentPath ?? harness.agentConfigPath,
         toolConfigPath: toolPath ?? harness.toolConfigPath,
       ),
+      memoryServerConfigPath: serverPaths.memoryServerConfigPath,
+      taskServerConfigPath: serverPaths.taskServerConfigPath,
     );
     if (next.harness.modelConfigPath != harness.modelConfigPath ||
         next.harness.agentConfigPath != harness.agentConfigPath ||
-        next.harness.toolConfigPath != harness.toolConfigPath) {
+        next.harness.toolConfigPath != harness.toolConfigPath ||
+        next.memoryServerConfigPath != profile.memoryServerConfigPath ||
+        next.taskServerConfigPath != profile.taskServerConfigPath) {
       final file = File(runtimeProfilePath);
       await file.parent.create(recursive: true);
       await file.writeAsString(encodeRuntimeProfileJson(next));
@@ -557,11 +794,71 @@ class AuroraAppController extends ChangeNotifier {
     return next;
   }
 
+  /// Persists one required app service server config.
+  Future<void> _saveRequiredServer(
+    RuntimeProfile profile,
+    McpServerRuntime server,
+  ) async {
+    final path = _requiredServerConfigPath(profile, server.kind);
+    if (path.isEmpty) {
+      throw FileSystemException(
+        'Server config reference is missing',
+        server.id,
+      );
+    }
+    final file = File(path);
+    await file.parent.create(recursive: true);
+    await file.writeAsString(encodeMcpServerRuntimeJson(server));
+  }
+
+  /// Applies changed server configs without rewriting the profile JSON.
+  void _applyRuntimeProfileServers(RuntimeProfile profile) {
+    runtimeProfile = profile;
+    _configureClientsForRuntimeProfile(profile);
+    _refreshEndpointSkeleton(profile);
+  }
+
+  /// Copies default memory and task server configs into the app config tree.
+  Future<({String memoryServerConfigPath, String taskServerConfigPath})>
+  _copyRequiredServerConfigsIntoAppDirectory(RuntimeProfile profile) async {
+    final memoryServer = _serverForKind(profile, 'memory');
+    final taskServer = _serverForKind(profile, 'tasks');
+    final memoryPath = await _copyConfigIntoAppDirectory(
+      sourcePath: profile.memoryServerConfigPath,
+      targetDirectory: memoryServerConfigsDirectoryPath(),
+      targetName: '${_serverFileName(memoryServer, 'memory')}.json',
+    );
+    final taskPath = await _copyConfigIntoAppDirectory(
+      sourcePath: profile.taskServerConfigPath,
+      targetDirectory: taskServerConfigsDirectoryPath(),
+      targetName: '${_serverFileName(taskServer, 'tasks')}.json',
+    );
+    if (memoryServer != null &&
+        memoryPath != null &&
+        memoryPath != profile.memoryServerConfigPath) {
+      await File(
+        memoryPath,
+      ).writeAsString(encodeMcpServerRuntimeJson(memoryServer));
+    }
+    if (taskServer != null &&
+        taskPath != null &&
+        taskPath != profile.taskServerConfigPath) {
+      await File(
+        taskPath,
+      ).writeAsString(encodeMcpServerRuntimeJson(taskServer));
+    }
+    return (
+      memoryServerConfigPath: memoryPath ?? profile.memoryServerConfigPath,
+      taskServerConfigPath: taskPath ?? profile.taskServerConfigPath,
+    );
+  }
+
   /// Releases HTTP clients and stops locally started service processes.
   Future<void> close() async {
     assistantClient.close();
     memoryClient.close();
     tasksClient.close();
+    titleClient.close();
     await localServices.close();
   }
 
@@ -609,6 +906,7 @@ class AuroraAppController extends ChangeNotifier {
   /// Selects a chat session and loads its events when connected.
   Future<void> selectSession(String sessionId) async {
     selectedSessionId = sessionId;
+    await _touchCatalogChat(sessionId);
     try {
       final events = await assistantClient.loadSessionEvents(sessionId);
       messages = events
@@ -630,8 +928,138 @@ class AuroraAppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Selects a cataloged chat, switching profiles when necessary.
+  Future<void> selectCatalogChat(String chatKey) async {
+    ChatCatalogEntry? target;
+    for (final entry in chatCatalog) {
+      if (entry.key == chatKey) {
+        target = entry;
+        break;
+      }
+    }
+    if (target == null) {
+      final parsed = _parseChatCatalogKey(chatKey);
+      if (parsed == null) {
+        return;
+      }
+      if (parsed.profilePath != runtimeProfilePath) {
+        try {
+          await loadRuntimeProfileFromPath(
+            parsed.profilePath,
+            reloadData: false,
+          );
+        } catch (error) {
+          _setEndpoint(
+            'Runtime Profile',
+            ConnectionStateKind.disconnected,
+            error.toString(),
+          );
+          notifyListeners();
+          return;
+        }
+        if (!await _ensureChatRuntimeReady()) {
+          return;
+        }
+        await Future.wait(<Future<void>>[_loadMemory(), _loadTasks()]);
+      }
+      await selectSession(parsed.sessionId);
+      return;
+    }
+    if (target.profilePath != runtimeProfilePath) {
+      try {
+        await loadRuntimeProfileFromPath(target.profilePath, reloadData: false);
+      } catch (error) {
+        _setEndpoint(
+          'Runtime Profile',
+          ConnectionStateKind.disconnected,
+          error.toString(),
+        );
+        notifyListeners();
+        return;
+      }
+      if (!await _ensureChatRuntimeReady()) {
+        return;
+      }
+      await Future.wait(<Future<void>>[_loadMemory(), _loadTasks()]);
+    }
+    await selectSession(target.sessionId);
+  }
+
+  /// Deletes a cataloged chat and its backing ADK session.
+  Future<void> deleteCatalogChat(String chatKey) async {
+    await _ensureInitialized();
+    await _log('delete chat requested $chatKey');
+    final target = _chatTargetFromKey(chatKey);
+    if (target == null) {
+      await _log('delete chat ignored: target not found');
+      return;
+    }
+    final originalProfilePath = runtimeProfilePath;
+    final shouldRestoreProfile =
+        originalProfilePath.isNotEmpty &&
+        target.profilePath != originalProfilePath;
+    try {
+      if (target.profilePath.isNotEmpty &&
+          target.profilePath != runtimeProfilePath) {
+        await loadRuntimeProfileFromPath(target.profilePath, reloadData: false);
+      }
+      if (!await _ensureChatRuntimeReady()) {
+        await _log('delete chat blocked: managed runtime unavailable');
+        notifyListeners();
+        throw StateError(statusMessage);
+      }
+      await assistantClient.deleteSession(target.sessionId);
+      await _removeCatalogChat(
+        profilePath: target.profilePath,
+        sessionId: target.sessionId,
+      );
+      _chatTaskIds.remove(target.sessionId);
+      if (target.profilePath == runtimeProfilePath) {
+        sessions = sessions
+            .where((session) => session.id != target.sessionId)
+            .toList();
+        if (selectedSessionId == target.sessionId) {
+          pendingConfirmation = null;
+          if (sessions.isEmpty) {
+            selectedSessionId = null;
+            messages = const <ChatMessage>[];
+          } else {
+            selectedSessionId = sessions.first.id;
+            await selectSession(sessions.first.id);
+          }
+        }
+      }
+      _setEndpoint('Agent API', ConnectionStateKind.connected, 'Deleted chat');
+      await _log('deleted chat session ${target.sessionId}');
+    } catch (error) {
+      await _log('delete chat failed: $error');
+      _setEndpoint(
+        'Agent API',
+        ConnectionStateKind.disconnected,
+        error.toString(),
+      );
+      rethrow;
+    } finally {
+      if (shouldRestoreProfile && runtimeProfilePath != originalProfilePath) {
+        try {
+          await loadRuntimeProfileFromPath(originalProfilePath);
+        } catch (error) {
+          await _log('delete chat profile restore failed: $error');
+          _setEndpoint(
+            'Runtime Profile',
+            ConnectionStateKind.disconnected,
+            error.toString(),
+          );
+          notifyListeners();
+        }
+      } else {
+        notifyListeners();
+      }
+    }
+  }
+
   /// Creates a new chat session.
-  Future<bool> createChat() async {
+  Future<bool> createChat({String profilePath = ''}) async {
     await _ensureInitialized();
     await _log('create chat requested');
     if (runtimeProfile == null) {
@@ -644,13 +1072,38 @@ class AuroraAppController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+    final targetProfilePath = profilePath.trim().isEmpty
+        ? defaultChatProfilePath
+        : profilePath.trim();
+    if (targetProfilePath.isNotEmpty &&
+        targetProfilePath != runtimeProfilePath) {
+      try {
+        await loadRuntimeProfileFromPath(targetProfilePath, reloadData: false);
+      } catch (error) {
+        await _log('create chat profile switch failed: $error');
+        _setEndpoint(
+          'Runtime Profile',
+          ConnectionStateKind.disconnected,
+          error.toString(),
+        );
+        notifyListeners();
+        return false;
+      }
+    }
+    if (!await _ensureChatRuntimeReady()) {
+      await _log('create chat blocked: managed runtime unavailable');
+      notifyListeners();
+      return false;
+    }
     try {
       final session = await assistantClient.createSession();
       sessions = <ChatSession>[session, ...sessions];
       selectedSessionId = session.id;
       messages = const <ChatMessage>[];
+      await _upsertCatalogChat(session);
       _setEndpoint('Agent API', ConnectionStateKind.connected, 'Created chat');
       await _log('created chat session ${session.id}');
+      unawaited(Future.wait(<Future<void>>[_loadMemory(), _loadTasks()]));
       notifyListeners();
       return true;
     } catch (error) {
@@ -677,7 +1130,8 @@ class AuroraAppController extends ChangeNotifier {
     await _log('send user message requested length=${trimmed.length}');
     statusMessage = 'Preparing managed chat runtime';
     notifyListeners();
-    final ready = await _ensureLiveSession();
+    final runtimeReady = await _ensureChatRuntimeReady();
+    final ready = runtimeReady && await _ensureLiveSession();
     final sessionId = selectedSessionId;
     messages = <ChatMessage>[
       ...messages,
@@ -755,13 +1209,6 @@ class AuroraAppController extends ChangeNotifier {
   /// Reports whether a confirmation can be satisfied without user interaction.
   bool _shouldAutoApproveTaskConfirmation(ConfirmationRequest confirmation) {
     return _taskWriteToolNames.contains(confirmation.toolName);
-  }
-
-  /// Reports whether a task failure is the expected ADK approval handoff.
-  bool _isAutoHandledTaskConfirmationFailure(ToolActivity activity) {
-    return activity.status == 'failed' &&
-        _taskWriteToolNames.contains(activity.name) &&
-        activity.summary.toLowerCase().contains('requires confirmation');
   }
 
   /// Reports whether text is an approval-gated task response to repair.
@@ -854,6 +1301,61 @@ class AuroraAppController extends ChangeNotifier {
     return workspace.tasks.first;
   }
 
+  /// Returns explicit relation records connected to the selected task.
+  List<TaskRelationRecord> get selectedTaskRelations {
+    final task = selectedTask;
+    if (task == null) {
+      return const <TaskRelationRecord>[];
+    }
+    return taskRelations.where((relation) {
+      return relation.fromTaskId == task.id || relation.toTaskId == task.id;
+    }).toList();
+  }
+
+  /// Returns inferred relation suggestions connected to the selected task.
+  List<TaskRelationSuggestion> get selectedTaskRelationSuggestions {
+    final task = selectedTask;
+    if (task == null) {
+      return const <TaskRelationSuggestion>[];
+    }
+    return taskRelationSuggestions.where((suggestion) {
+      return suggestion.fromTaskId == task.id || suggestion.toTaskId == task.id;
+    }).toList();
+  }
+
+  /// Returns inferred metadata suggestions connected to the selected task.
+  List<TaskMetadataSuggestion> get selectedTaskMetadataSuggestions {
+    final task = selectedTask;
+    if (task == null) {
+      return const <TaskMetadataSuggestion>[];
+    }
+    return taskMetadataSuggestions.where((suggestion) {
+      return suggestion.taskId == task.id;
+    }).toList();
+  }
+
+  /// Returns inferred commitment suggestions connected to the selected task.
+  List<TaskCommitmentSuggestion> get selectedTaskCommitmentSuggestions {
+    final task = selectedTask;
+    if (task == null) {
+      return const <TaskCommitmentSuggestion>[];
+    }
+    return taskCommitmentSuggestions.where((suggestion) {
+      return suggestion.taskId == task.id;
+    }).toList();
+  }
+
+  /// Returns first-class commitments represented by the selected task.
+  List<TaskCommitment> get selectedTaskCommitments {
+    final task = selectedTask;
+    if (task == null) {
+      return const <TaskCommitment>[];
+    }
+    return taskCommitments.where((commitment) {
+      return commitment.taskId == task.id;
+    }).toList();
+  }
+
   /// Returns the selected named task list when the list inspector is active.
   WorkspaceTaskList? get selectedTaskList {
     if (taskSelectionKind != 'list') {
@@ -936,6 +1438,23 @@ class AuroraAppController extends ChangeNotifier {
         return countCompare == 0 ? left.key.compareTo(right.key) : countCompare;
       });
     return entries.map((entry) => entry.key).toList();
+  }
+
+  /// Returns tasks created from or otherwise associated with the selected chat.
+  List<WorkspaceTask> get selectedChatTasks {
+    final sessionId = selectedSessionId;
+    if (sessionId == null || sessionId.isEmpty) {
+      return const <WorkspaceTask>[];
+    }
+    final associatedTaskIds = _chatTaskIds[sessionId] ?? const <String>{};
+    final conversationText = messages
+        .map((message) => '${message.author} ${message.text}')
+        .join('\n');
+    return workspace.tasks.where((task) {
+      return _taskBelongsToChat(task, sessionId) ||
+          associatedTaskIds.contains(task.id) ||
+          _taskTitleAppearsInChat(task, conversationText);
+    }).toList();
   }
 
   /// Applies local task filters and refreshes the task surface.
@@ -1306,6 +1825,18 @@ class AuroraAppController extends ChangeNotifier {
     DateTime? scheduledAt,
     bool clearScheduledAt = false,
     List<String>? topics,
+    int? estimateMinutes,
+    String? energyRequired,
+    double? effort,
+    double? value,
+    double? urgency,
+    double? risk,
+    String? context,
+    String? domain,
+    String? location,
+    String? owner,
+    String? source,
+    double? confidence,
   }) async {
     final server = _taskServerForTask(taskId);
     if (server == null) {
@@ -1330,6 +1861,18 @@ class AuroraAppController extends ChangeNotifier {
           clearScheduledAt: clearScheduledAt,
           topics: topics,
           replaceTopics: topics != null,
+          estimateMinutes: estimateMinutes,
+          energyRequired: energyRequired,
+          effort: effort,
+          value: value,
+          urgency: urgency,
+          risk: risk,
+          context: context,
+          domain: domain,
+          location: location,
+          owner: owner,
+          source: source,
+          confidence: confidence,
         );
       });
       selectedTaskId = taskId;
@@ -1348,6 +1891,124 @@ class AuroraAppController extends ChangeNotifier {
       tasksBusy = false;
       notifyListeners();
     }
+  }
+
+  /// Creates or updates an explicit task relation from the inspector.
+  Future<void> upsertTaskRelationFromUi({
+    required String fromTaskId,
+    required String toTaskId,
+    String relationType = 'related_to',
+    double confidence = 1,
+    String explanation = '',
+  }) async {
+    await _mutateTaskGraphFromUi(
+      server: _taskServerForTask(fromTaskId),
+      selectedTaskAfter: fromTaskId,
+      busyMessage: 'Saving task relation',
+      successMessage: 'Task relation saved',
+      action: (client) async {
+        await client.upsertTaskRelation(
+          fromTaskId: fromTaskId,
+          toTaskId: toTaskId,
+          relationType: relationType,
+          confidence: confidence,
+          explanation: explanation,
+        );
+      },
+    );
+  }
+
+  /// Deletes an explicit task relation from the inspector.
+  Future<void> deleteTaskRelationFromUi(TaskRelationRecord relation) async {
+    await _mutateTaskGraphFromUi(
+      server: _taskServerForTask(relation.fromTaskId),
+      selectedTaskAfter: relation.fromTaskId,
+      busyMessage: 'Deleting task relation',
+      successMessage: 'Task relation deleted',
+      action: (client) async {
+        await client.deleteTaskRelation(relation.id);
+      },
+    );
+  }
+
+  /// Accepts an inferred task relation suggestion as explicit metadata.
+  Future<void> applyTaskSuggestionFromUi(String suggestionId) async {
+    final taskId = _taskIdForSuggestion(suggestionId);
+    await _mutateTaskGraphFromUi(
+      server: taskId == null
+          ? _primaryTaskServer()
+          : _taskServerForTask(taskId),
+      selectedTaskAfter: taskId,
+      busyMessage: 'Accepting task suggestion',
+      successMessage: 'Task suggestion accepted',
+      action: (client) async {
+        await client.applyTaskSuggestion(suggestionId);
+      },
+    );
+  }
+
+  /// Dismisses an inferred task relation suggestion.
+  Future<void> dismissTaskSuggestionFromUi(String suggestionId) async {
+    final taskId = _taskIdForSuggestion(suggestionId);
+    await _mutateTaskGraphFromUi(
+      server: taskId == null
+          ? _primaryTaskServer()
+          : _taskServerForTask(taskId),
+      selectedTaskAfter: taskId,
+      busyMessage: 'Dismissing task suggestion',
+      successMessage: 'Task suggestion dismissed',
+      action: (client) async {
+        await client.dismissTaskSuggestion(suggestionId);
+      },
+    );
+  }
+
+  /// Creates or updates a first-class task commitment from the inspector.
+  Future<void> upsertTaskCommitmentFromUi({
+    String commitmentId = '',
+    required String taskId,
+    List<String> people = const <String>[],
+    String domain = '',
+    String project = '',
+    String timeWindow = '',
+    String responsibility = '',
+    String promiseSource = '',
+    String hardness = '',
+    String consequence = '',
+  }) async {
+    await _mutateTaskGraphFromUi(
+      server: _taskServerForTask(taskId),
+      selectedTaskAfter: taskId,
+      busyMessage: 'Saving task commitment',
+      successMessage: 'Task commitment saved',
+      action: (client) async {
+        await client.upsertCommitment(
+          commitmentId: commitmentId,
+          taskId: taskId,
+          people: people,
+          domain: domain,
+          project: project,
+          timeWindow: timeWindow,
+          responsibility: responsibility,
+          promiseSource: promiseSource,
+          hardness: hardness,
+          consequence: consequence,
+        );
+      },
+    );
+  }
+
+  /// Deletes one first-class task commitment from the inspector.
+  Future<void> deleteTaskCommitmentFromUi(TaskCommitment commitment) async {
+    await _mutateTaskGraphFromUi(
+      server: _taskServerForTask(commitment.taskId),
+      selectedTaskAfter: commitment.taskId,
+      busyMessage: 'Deleting task commitment',
+      successMessage: 'Task commitment deleted',
+      action: (client) async {
+        await client.deleteCommitment(commitment.id);
+      },
+    );
   }
 
   /// Cancels a task after local UI confirmation.
@@ -1928,10 +2589,14 @@ class AuroraAppController extends ChangeNotifier {
     try {
       final loaded = await assistantClient.listSessions();
       await _log('load sessions returned ${loaded.length}');
+      sessions = loaded;
       if (loaded.isNotEmpty) {
-        sessions = loaded;
+        await _mergeCatalogSessions(loaded);
         selectedSessionId = loaded.first.id;
         await selectSession(loaded.first.id);
+      } else {
+        selectedSessionId = null;
+        messages = const <ChatMessage>[];
       }
       _setEndpoint('Agent API', ConnectionStateKind.connected, 'Connected');
     } catch (error) {
@@ -1941,6 +2606,176 @@ class AuroraAppController extends ChangeNotifier {
         ConnectionStateKind.disconnected,
         error.toString(),
       );
+    }
+  }
+
+  /// Merges active-profile ADK sessions into the local chat catalog.
+  Future<void> _mergeCatalogSessions(List<ChatSession> loaded) async {
+    var changed = false;
+    final entriesByKey = <String, ChatCatalogEntry>{
+      for (final entry in chatCatalog) entry.key: entry,
+    };
+    if (runtimeProfile == null || runtimeProfilePath.isEmpty) {
+      return;
+    }
+    for (final session in loaded) {
+      final key = _chatCatalogKey(runtimeProfilePath, session.id);
+      final existing = entriesByKey[key];
+      final entry = _catalogEntryForSession(session, existing: existing);
+      if (existing == null ||
+          existing.updatedAt != entry.updatedAt ||
+          existing.profileLabel != entry.profileLabel) {
+        entriesByKey[key] = entry;
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    chatCatalog = _sortedCatalog(entriesByKey.values);
+    await chatCatalogStore.save(chatCatalog);
+  }
+
+  /// Adds or updates one active-profile chat catalog entry.
+  Future<void> _upsertCatalogChat(ChatSession session) async {
+    final entriesByKey = <String, ChatCatalogEntry>{
+      for (final entry in chatCatalog) entry.key: entry,
+    };
+    final key = _chatCatalogKey(runtimeProfilePath, session.id);
+    entriesByKey[key] = _catalogEntryForSession(
+      session,
+      existing: entriesByKey[key],
+    );
+    chatCatalog = _sortedCatalog(entriesByKey.values);
+    await chatCatalogStore.save(chatCatalog);
+  }
+
+  /// Updates an active chat's catalog timestamp after it is selected.
+  Future<void> _touchCatalogChat(String sessionId) async {
+    if (runtimeProfile == null || runtimeProfilePath.isEmpty) {
+      return;
+    }
+    final session = sessions.firstWhere(
+      (candidate) => candidate.id == sessionId,
+      orElse: () => ChatSession(
+        id: sessionId,
+        title: titleFromSession(sessionId),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    await _upsertCatalogChat(session);
+  }
+
+  /// Builds a catalog entry for a session in the active profile.
+  ChatCatalogEntry _catalogEntryForSession(
+    ChatSession session, {
+    ChatCatalogEntry? existing,
+  }) {
+    final profile = _activeRuntimeProfile();
+    final existingTitle = existing?.title.trim() ?? '';
+    return ChatCatalogEntry(
+      profilePath: runtimeProfilePath,
+      profileId: profile.id,
+      profileLabel: profile.label,
+      sessionId: session.id,
+      title: existingTitle.isEmpty ? session.title : existingTitle,
+      createdAt: existing?.createdAt ?? session.updatedAt,
+      updatedAt: session.updatedAt,
+      titleStatus: existing?.titleStatus ?? 'session',
+      titleError: existing?.titleError ?? '',
+    );
+  }
+
+  /// Persists one chat catalog entry without re-reading the whole catalog.
+  Future<void> _saveCatalogEntry(ChatCatalogEntry entry) async {
+    final entriesByKey = <String, ChatCatalogEntry>{
+      for (final existing in chatCatalog) existing.key: existing,
+    };
+    entriesByKey[entry.key] = entry;
+    chatCatalog = _sortedCatalog(entriesByKey.values);
+    await chatCatalogStore.save(chatCatalog);
+    notifyListeners();
+  }
+
+  /// Removes one chat from the local catalog.
+  Future<void> _removeCatalogChat({
+    required String profilePath,
+    required String sessionId,
+  }) async {
+    final key = _chatCatalogKey(profilePath, sessionId);
+    chatCatalog = _sortedCatalog(
+      chatCatalog.where((entry) => entry.key != key),
+    );
+    await chatCatalogStore.save(chatCatalog);
+  }
+
+  /// Returns one catalog entry by stable key.
+  ChatCatalogEntry? _catalogEntryByKey(String key) {
+    for (final entry in chatCatalog) {
+      if (entry.key == key) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  /// Resolves a chat picker key to a profile path and session id.
+  ({String profilePath, String sessionId})? _chatTargetFromKey(String key) {
+    final entry = _catalogEntryByKey(key);
+    if (entry != null) {
+      return (profilePath: entry.profilePath, sessionId: entry.sessionId);
+    }
+    return _parseChatCatalogKey(key);
+  }
+
+  /// Generates and persists a model-backed chat title when configured.
+  Future<void> _refreshChatTitle({
+    required String profilePath,
+    required String sessionId,
+    required List<ChatMessage> transcript,
+  }) async {
+    if (!appSettings.chatTitleSummariesEnabled ||
+        appSettings.summaryModelConfigPath.trim().isEmpty ||
+        profilePath.trim().isEmpty ||
+        sessionId.trim().isEmpty) {
+      return;
+    }
+    final key = _chatCatalogKey(profilePath, sessionId);
+    final entry = _catalogEntryByKey(key);
+    if (entry == null) {
+      return;
+    }
+    final status = entry.titleStatus.trim();
+    if (status == 'pending' || status == 'generated') {
+      return;
+    }
+    if (status == 'manual' && !_isFallbackChatTitle(entry.title, sessionId)) {
+      return;
+    }
+    await _saveCatalogEntry(
+      entry.copyWith(titleStatus: 'pending', titleError: ''),
+    );
+    try {
+      final title = await titleClient.generateTitle(
+        modelConfigPath: appSettings.summaryModelConfigPath,
+        modelRef: appSettings.summaryModelRef,
+        messages: transcript,
+      );
+      final current = _catalogEntryByKey(key) ?? entry;
+      await _saveCatalogEntry(
+        current.copyWith(
+          title: title,
+          titleStatus: 'generated',
+          titleError: '',
+        ),
+      );
+      await _log('generated title for chat $sessionId: $title');
+    } catch (error) {
+      final current = _catalogEntryByKey(key) ?? entry;
+      await _saveCatalogEntry(
+        current.copyWith(titleStatus: 'failed', titleError: error.toString()),
+      );
+      await _log('chat title generation failed for $sessionId: $error');
     }
   }
 
@@ -2038,6 +2873,7 @@ class AuroraAppController extends ChangeNotifier {
         memoryRecords: workspace.memoryRecords,
       );
       taskLists = const <WorkspaceTaskList>[];
+      _clearTaskProjections();
       tasksBusy = false;
       tasksMessage = 'Runtime profile is not loaded';
       notifyListeners();
@@ -2104,11 +2940,173 @@ class AuroraAppController extends ChangeNotifier {
       selectedTaskListId = null;
       selectedTaskListItemId = null;
     }
+    await _loadTaskProjections(_primaryTaskServer());
     tasksMessage = failures.isEmpty
         ? 'Loaded ${tasks.length} tasks and ${lists.length} lists'
         : failures.join(' | ');
     tasksBusy = false;
     await _log('load tasks complete tasks=${tasks.length}');
+    notifyListeners();
+  }
+
+  /// Loads read-only task graph projections from the primary task service.
+  Future<void> _loadTaskProjections(McpServerRuntime? server) async {
+    if (server == null) {
+      _clearTaskProjections();
+      return;
+    }
+    final missing = await _missingTaskProjectionTools(server);
+    if (missing.isNotEmpty) {
+      taskStreamProjection = const TaskStreamProjection();
+      priorityTerrainProjection = const PriorityTerrainProjection();
+      taskConstellationProjection = const TaskConstellationProjection();
+      commitmentWeaveProjection = const CommitmentWeaveProjection();
+      taskProjectionMessage =
+          'Task MCP endpoint ${server.endpoint} is missing projection tools: ${missing.join(', ')}';
+      await _log(taskProjectionMessage);
+      await _loadTaskGraphCorrections(server);
+      return;
+    }
+
+    final failures = <String>[];
+    try {
+      taskStreamProjection = await _withTasksClientForServer(server, (client) {
+        return client.projectTaskStream();
+      });
+    } catch (error) {
+      taskStreamProjection = const TaskStreamProjection();
+      failures.add('Task Stream: $error');
+    }
+    try {
+      priorityTerrainProjection = await _withTasksClientForServer(server, (
+        client,
+      ) {
+        return client.projectPriorityTerrain();
+      });
+    } catch (error) {
+      priorityTerrainProjection = const PriorityTerrainProjection();
+      failures.add('Priority Terrain: $error');
+    }
+    try {
+      taskConstellationProjection = await _withTasksClientForServer(server, (
+        client,
+      ) {
+        return client.projectTaskConstellation();
+      });
+    } catch (error) {
+      taskConstellationProjection = const TaskConstellationProjection();
+      failures.add('Task Constellation: $error');
+    }
+    try {
+      commitmentWeaveProjection = await _withTasksClientForServer(server, (
+        client,
+      ) {
+        return client.projectCommitmentWeave();
+      });
+    } catch (error) {
+      commitmentWeaveProjection = const CommitmentWeaveProjection();
+      failures.add('Commitment Weave: $error');
+    }
+    if (failures.isEmpty) {
+      taskProjectionMessage = '';
+    } else {
+      taskProjectionMessage = failures.join(' | ');
+      await _log('load task projections failed: $taskProjectionMessage');
+    }
+    await _loadTaskGraphCorrections(server);
+  }
+
+  /// Returns projection tools missing from a task MCP endpoint.
+  Future<List<String>> _missingTaskProjectionTools(
+    McpServerRuntime server,
+  ) async {
+    try {
+      final names = await _withTasksClientForServer(server, (client) {
+        return client.listToolNames();
+      });
+      final available = names.toSet();
+      return _requiredTaskProjectionTools
+          .where((tool) => !available.contains(tool))
+          .toList();
+    } catch (error) {
+      await _log('task projection tool check failed: $error');
+      return const <String>[];
+    }
+  }
+
+  /// Loads user-correctable graph state from the primary task service.
+  Future<void> _loadTaskGraphCorrections(McpServerRuntime server) async {
+    try {
+      final relations = await _withTasksClientForServer(server, (client) {
+        return client.listTaskRelations();
+      });
+      final commitments = await _withTasksClientForServer(server, (client) {
+        return client.listCommitments();
+      });
+      final suggestions = await _withTasksClientForServer(server, (client) {
+        return client.suggestTaskRelationships();
+      });
+      final metadataSuggestions = await _withTasksClientForServer(server, (
+        client,
+      ) {
+        return client.suggestTaskMetadata();
+      });
+      final commitmentSuggestions = await _withTasksClientForServer(server, (
+        client,
+      ) {
+        return client.suggestCommitments();
+      });
+      taskRelations = relations;
+      taskCommitments = commitments;
+      taskRelationSuggestions = suggestions;
+      taskMetadataSuggestions = metadataSuggestions;
+      taskCommitmentSuggestions = commitmentSuggestions;
+    } catch (error) {
+      await _log('load task graph corrections failed: $error');
+      taskRelations = const <TaskRelationRecord>[];
+      taskCommitments = const <TaskCommitment>[];
+      taskRelationSuggestions = const <TaskRelationSuggestion>[];
+      taskMetadataSuggestions = const <TaskMetadataSuggestion>[];
+      taskCommitmentSuggestions = const <TaskCommitmentSuggestion>[];
+    }
+  }
+
+  /// Clears read-only task projection and graph correction state.
+  void _clearTaskProjections() {
+    taskStreamProjection = const TaskStreamProjection();
+    priorityTerrainProjection = const PriorityTerrainProjection();
+    taskConstellationProjection = const TaskConstellationProjection();
+    commitmentWeaveProjection = const CommitmentWeaveProjection();
+    taskProjectionMessage = '';
+    taskRelations = const <TaskRelationRecord>[];
+    taskCommitments = const <TaskCommitment>[];
+    taskRelationSuggestions = const <TaskRelationSuggestion>[];
+    taskMetadataSuggestions = const <TaskMetadataSuggestion>[];
+    taskCommitmentSuggestions = const <TaskCommitmentSuggestion>[];
+  }
+
+  /// Reloads tasks and associates newly created tasks with the active chat.
+  Future<void> _loadTasksAfterChatTaskWrite({
+    required String sessionId,
+    required bool associateCreatedTask,
+  }) async {
+    final previousTaskIds = workspace.tasks.map((task) => task.id).toSet();
+    await _loadTasks();
+    if (!associateCreatedTask || sessionId.isEmpty) {
+      return;
+    }
+    final createdTaskIds = workspace.tasks
+        .where((task) => !previousTaskIds.contains(task.id))
+        .map((task) => task.id)
+        .toSet();
+    if (createdTaskIds.isEmpty) {
+      return;
+    }
+    final existingTaskIds = _chatTaskIds[sessionId] ?? <String>{};
+    _chatTaskIds[sessionId] = <String>{...existingTaskIds, ...createdTaskIds};
+    await _log(
+      'associated chat $sessionId with created tasks ${createdTaskIds.join(',')}',
+    );
     notifyListeners();
   }
 
@@ -2199,6 +3197,62 @@ class AuroraAppController extends ChangeNotifier {
     return _primaryTaskServer();
   }
 
+  Future<void> _mutateTaskGraphFromUi({
+    required McpServerRuntime? server,
+    required String busyMessage,
+    required String successMessage,
+    required Future<void> Function(TasksClient client) action,
+    String? selectedTaskAfter,
+  }) async {
+    if (server == null) {
+      _setEndpoint('Tasks', ConnectionStateKind.disconnected, 'No task server');
+      notifyListeners();
+      return;
+    }
+    tasksBusy = true;
+    tasksMessage = busyMessage;
+    notifyListeners();
+    try {
+      await _withTasksClientForServer(server, action);
+      if (selectedTaskAfter != null && selectedTaskAfter.isNotEmpty) {
+        selectedTaskId = selectedTaskAfter;
+        taskSelectionKind = 'task';
+      }
+      await _loadTasks();
+      _setEndpoint(server.label, ConnectionStateKind.connected, successMessage);
+      tasksMessage = successMessage;
+    } catch (error) {
+      tasksMessage = error.toString();
+      _setEndpoint(
+        server.label,
+        ConnectionStateKind.disconnected,
+        error.toString(),
+      );
+    } finally {
+      tasksBusy = false;
+      notifyListeners();
+    }
+  }
+
+  String? _taskIdForSuggestion(String suggestionId) {
+    for (final suggestion in taskRelationSuggestions) {
+      if (suggestion.id == suggestionId) {
+        return suggestion.fromTaskId;
+      }
+    }
+    for (final suggestion in taskMetadataSuggestions) {
+      if (suggestion.id == suggestionId) {
+        return suggestion.taskId;
+      }
+    }
+    for (final suggestion in taskCommitmentSuggestions) {
+      if (suggestion.id == suggestionId) {
+        return suggestion.taskId;
+      }
+    }
+    return null;
+  }
+
   Future<T> _withTasksClientForServer<T>(
     McpServerRuntime server,
     Future<T> Function(TasksClient client) action,
@@ -2278,6 +3332,35 @@ class AuroraAppController extends ChangeNotifier {
     return createChat();
   }
 
+  /// Starts required local services before creating or continuing a chat.
+  Future<bool> _ensureChatRuntimeReady() async {
+    await _ensureInitialized();
+    final profile = runtimeProfile;
+    if (profile == null) {
+      return false;
+    }
+    try {
+      localProcessStatuses = await localServices.startRequiredServices(profile);
+      final failures = localProcessStatuses
+          .where((status) => status.state == ConnectionStateKind.disconnected)
+          .toList();
+      if (failures.isNotEmpty) {
+        statusMessage = failures
+            .map((status) => '${status.name}: ${status.message}')
+            .join(' | ');
+        await _log('chat runtime unavailable: $statusMessage');
+        notifyListeners();
+        return false;
+      }
+      return true;
+    } catch (error) {
+      statusMessage = error.toString();
+      await _log('chat runtime readiness failed: $error');
+      notifyListeners();
+      return false;
+    }
+  }
+
   String _agentUnavailableMessage() {
     final profile = runtimeProfile;
     if (profile == null) {
@@ -2326,7 +3409,7 @@ class AuroraAppController extends ChangeNotifier {
           assistantText.write(' ');
           assistantText.write(event.text);
         }
-        autoConfirmation ??= _applyEvent(event);
+        autoConfirmation ??= _applyEvent(event, sessionId: sessionId);
       }
       await _log('stream run complete session=$sessionId events=$count');
       if (count == 0) {
@@ -2363,6 +3446,15 @@ class AuroraAppController extends ChangeNotifier {
           allowTaskTextCorrection: false,
         );
       }
+      if (reply == null) {
+        unawaited(
+          _refreshChatTitle(
+            profilePath: runtimeProfilePath,
+            sessionId: sessionId,
+            transcript: List<ChatMessage>.from(messages),
+          ),
+        );
+      }
     } catch (error) {
       await _log('stream run failed session=$sessionId: $error');
       _setEndpoint(
@@ -2380,7 +3472,10 @@ class AuroraAppController extends ChangeNotifier {
     await logger.write('ui', message);
   }
 
-  ConfirmationRequest? _applyEvent(AssistantEvent event) {
+  ConfirmationRequest? _applyEvent(
+    AssistantEvent event, {
+    required String sessionId,
+  }) {
     ConfirmationRequest? autoConfirmation;
     if (event.confirmation != null) {
       final confirmation = event.confirmation!;
@@ -2390,6 +3485,7 @@ class AuroraAppController extends ChangeNotifier {
         pendingConfirmation = confirmation;
       }
     }
+    final toolActivity = event.toolActivity;
     final message = _messageFromEvent(event);
     if (message != null) {
       if (message.isPartial && messages.isNotEmpty && messages.last.isPartial) {
@@ -2401,11 +3497,15 @@ class AuroraAppController extends ChangeNotifier {
         messages = <ChatMessage>[...messages, message];
       }
     }
-    final toolActivity = event.toolActivity;
     if (toolActivity != null &&
         toolActivity.status == 'completed' &&
         _taskWriteToolNames.contains(toolActivity.name)) {
-      unawaited(_loadTasks());
+      unawaited(
+        _loadTasksAfterChatTaskWrite(
+          sessionId: sessionId,
+          associateCreatedTask: toolActivity.name == 'create_task',
+        ),
+      );
     }
     notifyListeners();
     return autoConfirmation;
@@ -2422,17 +3522,7 @@ class AuroraAppController extends ChangeNotifier {
       );
     }
     if (event.toolActivity != null) {
-      if (_isAutoHandledTaskConfirmationFailure(event.toolActivity!)) {
-        return null;
-      }
-      return ChatMessage(
-        id: event.id,
-        role: ChatRole.tool,
-        author: 'Tool',
-        text: event.toolActivity!.summary,
-        createdAt: DateTime.now(),
-        toolActivity: event.toolActivity,
-      );
+      return null;
     }
     if (event.text.trim().isEmpty) {
       return null;
@@ -2523,6 +3613,51 @@ bool _textContains(String text, String query) {
   return text.toLowerCase().contains(query.trim().toLowerCase());
 }
 
+/// Reports whether a task was created in the selected chat session.
+bool _taskBelongsToChat(WorkspaceTask task, String sessionId) {
+  final key = task.idempotencyKey.trim();
+  return key.isNotEmpty && key.contains(sessionId);
+}
+
+/// Reports whether a task title is explicitly mentioned in the chat transcript.
+bool _taskTitleAppearsInChat(WorkspaceTask task, String conversationText) {
+  final title = task.title.trim().toLowerCase();
+  if (title.length < 4) {
+    return false;
+  }
+  return conversationText.toLowerCase().contains(title);
+}
+
+/// Builds the stable app-local key for a profile/session pair.
+String _chatCatalogKey(String profilePath, String sessionId) {
+  return '$profilePath::$sessionId';
+}
+
+/// Parses a chat catalog key into its profile path and session id.
+({String profilePath, String sessionId})? _parseChatCatalogKey(String key) {
+  final separator = key.lastIndexOf('::');
+  if (separator <= 0 || separator + 2 >= key.length) {
+    return null;
+  }
+  return (
+    profilePath: key.substring(0, separator),
+    sessionId: key.substring(separator + 2),
+  );
+}
+
+/// Sorts chat catalog entries by most recently updated first.
+List<ChatCatalogEntry> _sortedCatalog(Iterable<ChatCatalogEntry> entries) {
+  final sorted = entries.toList()
+    ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+  return sorted;
+}
+
+/// Reports whether a title is still the generated session-id fallback.
+bool _isFallbackChatTitle(String title, String sessionId) {
+  final fallback = titleFromSession(sessionId);
+  return title.trim().isEmpty || title.trim() == fallback;
+}
+
 /// Task MCP write tools that should refresh the task workspace after chat use.
 const Set<String> _taskWriteToolNames = <String>{
   'create_task',
@@ -2608,6 +3743,45 @@ Future<String?> _copyConfigIntoAppDirectory({
     await target.writeAsString(await source.readAsString());
   }
   return target.path;
+}
+
+/// Returns the config path for one required server kind.
+String _requiredServerConfigPath(RuntimeProfile profile, String kind) {
+  return switch (kind) {
+    'memory' => profile.memoryServerConfigPath,
+    'tasks' => profile.taskServerConfigPath,
+    _ => '',
+  };
+}
+
+/// Returns the first profile server for a required kind.
+McpServerRuntime? _serverForKind(RuntimeProfile profile, String kind) {
+  for (final server in profile.mcpServers) {
+    if (server.kind == kind) {
+      return server;
+    }
+  }
+  return null;
+}
+
+/// Returns a stable filename stem for one required server config.
+String _serverFileName(McpServerRuntime? server, String fallback) {
+  final id = server?.id.trim() ?? '';
+  if (id.isNotEmpty) {
+    return _sanitizeConfigFileStem(id);
+  }
+  return fallback;
+}
+
+/// Returns a filesystem-safe config filename stem.
+String _sanitizeConfigFileStem(String value) {
+  final sanitized = value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9._-]+'), '-')
+      .replaceAll(RegExp(r'-+'), '-')
+      .replaceAll(RegExp(r'^[-.]+|[-.]+$'), '');
+  return sanitized.isEmpty ? 'config' : sanitized;
 }
 
 /// Derives a stable profile id from a profile file path.
